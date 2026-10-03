@@ -55,10 +55,12 @@ The Ktor server listens on port 8080 by default. Configuration comes from enviro
 | `DATABASE_USER` | yes | Database user |
 | `DATABASE_PASSWORD` | yes | Database password |
 | `ML_SERVICE_URL` | yes | Base URL of the ML service |
-| `API_KEY` | yes | Shared API key |
+| `API_KEY` | yes | Shared API key, sent by clients in the `X-Api-Key` header |
 | `APP_VERSION` | no | Version reported by `/health` (default 1.0) |
 
-The server refuses to start if a required variable is missing. `GET /health` returns `{"status":"ok","version":"..."}`.
+The server refuses to start if a required variable is missing. `GET /health` returns `{"status":"ok","version":"..."}` and is public. Every other route requires the `X-Api-Key` header to match `API_KEY`, otherwise the server returns 401. Locally, `API_KEY=dev-key` works with `curl -H "X-Api-Key: dev-key" http://localhost:8080/...`.
+
+Run the server tests with `./gradlew :server:test`.
 
 ### Web (Wasm)
 
