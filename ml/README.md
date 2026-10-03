@@ -147,10 +147,10 @@ Test exact-set accuracy on the synthetic household (hashing embedder, walk-forwa
 | frequency | 19.4 | 16.8 |
 | exact-item | 84.9 | 89.4 |
 | knn | 87.7 | **91.4** |
-| logreg | 86.3 | 89.4 |
-| combined | **88.4** | 90.7 |
+| logreg | 86.3 | 89.6 |
+| combined | **89.4** | 90.7 |
 
-`combined` is best while history is short and is the only model whose confidence is well calibrated (item ECE 0.067 at
+`combined` is best while history is short and is the only model whose confidence is well calibrated (item ECE 0.070 at
 1,500 and 0.022 at 6,000, against 0.24 and 0.16 for `knn`), so it is the default for auto-assigning. All of them beat
 `frequency` by a wide margin. Use `--embedder minilm` to compare the semantic embedder.
 
@@ -169,8 +169,8 @@ Item-level ECE on the synthetic household (test period, lower is better):
 |---|---|---|
 | knn | 0.242 | 0.199 |
 | knn-calibrated | **0.022** | **0.020** |
-| combined | 0.067 | 0.041 |
-| combined-calibrated | **0.024** | **0.019** |
+| combined | 0.070 | 0.042 |
+| combined-calibrated | **0.031** | **0.021** |
 
 At the threshold picked on validation for 95% accuracy, the calibrated models auto-assign 82 to 84% of items at 95.5 to
 97.9% exact-set accuracy on test.
@@ -218,7 +218,7 @@ without slowing predictions down:
   window share the one refit, so 20 corrections in a burst cause a single rebuild.
 - The refit builds a new model instance off to the side and swaps it in as a whole. Predictions use the current
   model until then and never see a half-fitted one. A failed refit is logged and the old model keeps serving.
-- A refit at 1,200 items takes well under 2 seconds. `DIVVY_REFIT_DELAY=sync` turns background refits off, and the next
+- A refit at 1,200 items takes about 0.3 s (the logistic heads use liblinear, 2.7 times faster than lbfgs for this shape). `DIVVY_REFIT_DELAY=sync` turns background refits off, and the next
   prediction after a write rebuilds the model and waits for it.
 
 So a correction shows up in predictions within the delay plus one refit, not in the same instant. The latest
