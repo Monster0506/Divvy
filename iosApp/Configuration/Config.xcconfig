@@ -1,3 +1,8 @@
 TEAM_ID=
 BUNDLE_ID=com.monster0506.divvy
 APP_NAME=Divvy
+
+// Personal/machine-specific overrides (e.g. your TEAM_ID) go in Config.xcconfig.local,
+// which is gitignored. Create it alongside this file with contents like:
+//   TEAM_ID=YOUR_TEAM_ID
+#include? "Config.xcconfig.local"
