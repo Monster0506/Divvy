@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Request, Response
 from divvy_ml.embed.router import app_embedder
 from divvy_ml.models.abstain import MIN_HISTORY
 from divvy_ml.ownership import service
-from divvy_ml.ownership.config import data_dir, model_name
+from divvy_ml.ownership.config import data_dir, model_name, refit_delay
 from divvy_ml.ownership.manager import DEFAULT_MODEL, ModelManager
 from divvy_ml.ownership.schemas import (
     HOUSEHOLD_ID_PATTERN,
@@ -28,6 +28,7 @@ def build_manager(store: HistoryStore, request: Request) -> ModelManager:
         app_embedder(request),
         model_name(DEFAULT_MODEL),
         models_dir=data_dir() / "models",
+        refit_delay=refit_delay(),
     )
 
 
@@ -73,20 +74,25 @@ def upsert_observations(
     household_id: HouseholdPath,
     body: UpsertObservationsRequest,
     store: Store,
+    manager: Manager,
     replace: bool = False,
 ) -> UpsertObservationsResponse:
     """Add or update confirmed observations by id; `replace=true` swaps the whole history."""
     size = store.upsert(household_id, body.observations, replace=replace)
+    manager.notify_write(household_id)
     return UpsertObservationsResponse(
         household_id=household_id, received=len(body.observations), history_size=size
     )
 
 
 @router.delete("/households/{household_id}/observations/{observation_id}", status_code=204)
-def delete_observation(household_id: HouseholdPath, observation_id: str, store: Store) -> Response:
+def delete_observation(
+    household_id: HouseholdPath, observation_id: str, store: Store, manager: Manager
+) -> Response:
     if not store.delete(household_id, observation_id):
         raise HTTPException(status_code=404, detail="observation not found")
 
+    manager.notify_write(household_id)
     return Response(status_code=204)
 
 
