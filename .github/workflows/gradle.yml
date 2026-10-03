@@ -3,7 +3,27 @@ name: Gradle
 on:
   push:
     branches: [main]
+    paths:
+      - "composeApp/**"
+      - "androidApp/**"
+      - "server/**"
+      - "gradle/**"
+      - "*.gradle.kts"
+      - "gradle.properties"
+      - "gradlew"
+      - "gradlew.bat"
+      - ".github/workflows/gradle.yml"
   pull_request:
+    paths:
+      - "composeApp/**"
+      - "androidApp/**"
+      - "server/**"
+      - "gradle/**"
+      - "*.gradle.kts"
+      - "gradle.properties"
+      - "gradlew"
+      - "gradlew.bat"
+      - ".github/workflows/gradle.yml"
   workflow_dispatch:
 
 concurrency:
