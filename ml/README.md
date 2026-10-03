@@ -70,3 +70,14 @@ The preferences are invented. Use it to check pipelines, not to pretrain a real 
 - `reliability_bins`, `expected_calibration_error`, `reliability_svg`: the reliability diagram data and a plain SVG.
 - `coverage_curve`, `operating_point`, `pick_threshold`: accuracy when only the most confident items are auto-assigned,
   and the lowest threshold that reaches a target accuracy. Pick it on validation data, then apply it to test data.
+
+## Datasets and splits
+
+Labelled observations are JSONL, one purchase per line: `seq`, `date`, `item`, `owners` (person -> true/false, at least one true),
+`source` (`real` or `synthetic`) and optional `meta`. This is the format `python -m divvy_ml.synthetic` writes, and the format a
+database export should produce. A file holds one source and one fixed set of people; mixed files are rejected.
+
+- `load(path, expect=Source.REAL)` / `from_records(rows)`: validate and return a `Dataset` in date-then-seq order, with `labels()` as a 0/1 matrix.
+- `chrono_split(dates)` and `walk_forward(dates, start, stop, step)`: time-ordered boundaries that never put one purchase date on both sides,
+  because items bought on one trip belong together.
+- `check_no_leakage(dates, split)` raises unless every later period is strictly after every earlier one.
