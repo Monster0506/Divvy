@@ -1,21 +1,110 @@
 package com.monster0506.divvy
 
-import androidx.compose.foundation.layout.Box
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import com.monster0506.divvy.ui.components.Tab
+import com.monster0506.divvy.ui.model.ReceiptStatus
+import com.monster0506.divvy.ui.preview.SampleData
+import com.monster0506.divvy.ui.screens.BalancesScreen
+import com.monster0506.divvy.ui.screens.CameraScreen
+import com.monster0506.divvy.ui.screens.HouseholdSetupScreen
+import com.monster0506.divvy.ui.screens.ReceiptDetailScreen
+import com.monster0506.divvy.ui.screens.ReceiptHistoryScreen
+import com.monster0506.divvy.ui.screens.ReviewReceiptScreen
+import com.monster0506.divvy.ui.screens.ShoppingListScreen
+import com.monster0506.divvy.ui.state.DivvyState
+import com.monster0506.divvy.ui.theme.DivvyTheme
+import androidx.compose.ui.tooling.preview.Preview
+
+enum class Route { Setup, Camera, Review, History, Detail, Balances, Shopping }
 
 @Composable
 fun App() {
-    MaterialTheme {
-        Surface(modifier = Modifier.fillMaxSize()) {
-            Box(contentAlignment = Alignment.Center) {
-                Text("Divvy")
-            }
+    DivvyTheme {
+        Surface(modifier = Modifier.fillMaxSize()) { DivvyApp() }
+    }
+}
+
+@Composable
+fun DivvyApp(start: Route = Route.Setup, state: DivvyState = remember { DivvyState() }) {
+    var route by remember { mutableStateOf(start) }
+    val onTab = { tab: Tab ->
+        route = when (tab) {
+            Tab.Receipts -> Route.History
+            Tab.Balances -> Route.Balances
+            Tab.Shopping -> Route.Shopping
         }
     }
+    AnimatedContent(
+        targetState = route,
+        transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(120)) },
+    ) { current ->
+        when (current) {
+            Route.Setup -> HouseholdSetupScreen(
+                householdName = state.householdName,
+                members = state.members,
+                newMember = state.newMember,
+                onNameChange = { state.householdName = it },
+                onNewMemberChange = { state.newMember = it },
+                onAddMember = state::addMember,
+                onRemoveMember = state::removeMember,
+                onStart = { route = Route.History },
+            )
+            Route.Camera -> CameraScreen(
+                onCapture = { route = Route.Review },
+                onGallery = { route = Route.Review },
+                onCancel = { route = Route.History },
+            )
+            Route.Review -> ReviewReceiptScreen(
+                draft = state.draft,
+                autoExpanded = state.autoExpanded,
+                onToggleOwner = state::toggleOwner,
+                onConfirmLine = state::confirmLine,
+                onToggleAuto = state::toggleAuto,
+                onConfirmSplit = {
+                    state.confirmSplit()
+                    route = Route.Balances
+                },
+                onTab = onTab,
+            )
+            Route.History -> ReceiptHistoryScreen(
+                entries = state.history,
+                onOpen = { route = if (it == 0 && state.history[0].status == ReceiptStatus.NeedsReview) Route.Review else Route.Detail },
+                onScan = { route = Route.Camera },
+                onTab = onTab,
+            )
+            Route.Detail -> ReceiptDetailScreen(
+                receipt = SampleData.resolvedDraft,
+                shares = SampleData.shares,
+                onViewPhoto = {},
+                onReopen = {},
+                onTab = onTab,
+            )
+            Route.Balances -> BalancesScreen(state.balances, state.transfers, state::togglePaid, onTab)
+            Route.Shopping -> ShoppingListScreen(
+                items = state.shopping,
+                suggestions = state.suggestions,
+                onToggle = state::toggleShopping,
+                onAddSuggestion = state::addSuggestion,
+                onTab = onTab,
+            )
+        }
+    }
+}
+
+@Preview(widthDp = 390, heightDp = 800, showBackground = true)
+@Composable
+private fun AppPreview() = DivvyTheme {
+    Surface { DivvyApp(start = Route.Review) }
 }
