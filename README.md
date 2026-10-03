@@ -70,6 +70,14 @@ Run the server tests with `./gradlew :server:test`.
 
 This starts a dev server and opens the app in your browser.
 
+To rebuild and reload the browser automatically whenever you save a file, add `--continuous`:
+
+```bash
+./gradlew :composeApp:wasmJsBrowserDevelopmentRun --continuous
+```
+
+The dev server uses port 8080, the same default as the Ktor server, so set `PORT` to something else (e.g. `PORT=8081`) when running the server alongside it.
+
 ### iOS
 
 1. Set your Apple Developer team ID in `iosApp/Configuration/Config.xcconfig`:
