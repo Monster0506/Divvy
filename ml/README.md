@@ -98,3 +98,28 @@ for `--target` accuracy (default 0.95) and applied unchanged to test. `--min-exa
 model scores below it, which is how CI catches regressions. CI runs it on the synthetic household and uploads the report.
 
 Models are registered in `divvy_ml/models/registry.py`; `--models frequency exact-item` picks some.
+
+## Embeddings
+
+`POST /embed` takes `{"texts": [...]}` (1 to 256 descriptions, up to 512 characters each) and returns one L2-normalised
+vector per text, so a dot product is the cosine similarity. The embedder is loaded once at startup and chosen with
+`DIVVY_EMBEDDER`: `hashing` (default), `minilm`, or `st:<sentence-transformers model id>`. The semantic models need
+`pip install -e ".[semantic]"`; the Docker image uses the default and has no model download.
+
+Choice: **`hashing` by default, `all-MiniLM-L6-v2` (`minilm`) when semantic similarity matters.** Measured with
+`python -m divvy_ml.embed.compare` on CPU. AUC is the chance a different wording of the same product scores
+as more similar than a different product, over the synthetic catalog.
+
+| model | dims | 30 items | AUC | related / unrelated similarity |
+|---|---|---|---|---|
+| hashing | 4096 | 1 ms | 0.896 | 0.452 / 0.063 |
+| all-MiniLM-L6-v2 | 384 | 38 ms | 0.953 | 0.597 / 0.186 |
+| paraphrase-MiniLM-L3-v2 | 384 | 116 ms | 0.944 | 0.580 / 0.131 |
+| bge-small-en-v1.5 | 384 | 47 ms | 0.957 | 0.764 / 0.556 |
+
+- MiniLM-L6 has 22.7M parameters (91 MB) and uses about 563 MB resident including PyTorch, under the 1 GB budget.
+- bge-small separates slightly better but puts everything close together (unrelated pairs average 0.556), which
+  flattens the sharpened neighbour weighting the ownership models use. MiniLM-L6 keeps a wider gap.
+- Hashing is lexical, so it links "Coke Zero 24-pack" to "Coke Zero 12-pack" but not to "Coca-Cola Zero Sugar".
+  It needs no download and cannot leak, which makes it the safe default.
+- Every option embeds 30 items in well under the 2 second budget.
