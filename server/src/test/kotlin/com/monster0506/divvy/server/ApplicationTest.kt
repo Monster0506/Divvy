@@ -1,13 +1,16 @@
 package com.monster0506.divvy.server
 
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.config.MapApplicationConfig
 import io.ktor.server.config.HoconApplicationConfig
+import io.ktor.server.auth.authenticate
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
+import io.ktor.server.response.respondText
 import io.ktor.server.testing.testApplication
 import com.typesafe.config.ConfigFactory
 import io.ktor.server.testing.ApplicationTestBuilder
@@ -37,6 +40,7 @@ class ApplicationTest {
         routing {
             get("/boom") { error("secret internal detail") }
             get("/invalid") { throw ValidationException("Name is required", listOf("name")) }
+            authenticate(API_KEY_AUTH) { get("/protected") { call.respondText("secret") } }
             get("/missing") { throw NotFoundException("Household not found") }
         }
     }
@@ -89,6 +93,30 @@ class ApplicationTest {
             HealthResponse("ok", "1.2.3"),
             Json.decodeFromString<HealthResponse>(response.bodyAsText()),
         )
+    }
+
+    @Test
+    fun protectedRouteWithoutKeyReturns401() = testApplication {
+        testConfig()
+        application { testModule() }
+        assertEquals(HttpStatusCode.Unauthorized, client.get("/protected").status)
+    }
+
+    @Test
+    fun protectedRouteWithWrongKeyReturns401() = testApplication {
+        testConfig()
+        application { testModule() }
+        val response = client.get("/protected") { header("X-Api-Key", "nope") }
+        assertEquals(HttpStatusCode.Unauthorized, response.status)
+    }
+
+    @Test
+    fun protectedRouteWithCorrectKeyReturns200() = testApplication {
+        testConfig()
+        application { testModule() }
+        val response = client.get("/protected") { header("X-Api-Key", "key") }
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals("secret", response.bodyAsText())
     }
 
     @Test
