@@ -3,33 +3,65 @@ package com.monster0506.divvy.ui.state
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.monster0506.divvy.ui.model.AvatarColor
 import com.monster0506.divvy.ui.model.Balance
+import com.monster0506.divvy.ui.model.HistoryEntry
+import com.monster0506.divvy.ui.model.Person
+import com.monster0506.divvy.ui.model.ReceiptDraft
 import com.monster0506.divvy.ui.model.ReceiptStatus
+import com.monster0506.divvy.ui.model.Settings
 import com.monster0506.divvy.ui.model.ShoppingItem
+import com.monster0506.divvy.ui.model.Transfer
+import com.monster0506.divvy.ui.model.initialsFor
 import com.monster0506.divvy.ui.preview.SampleData
 
 /** In-memory stand-in for the repository layer (#6) so the screens can be driven live. */
 class DivvyState {
-    var draft by mutableStateOf(SampleData.draft)
+    /** The household's members. Every other person shown in the UI is resolved against this list by id. */
+    var people by mutableStateOf(SampleData.people)
         private set
+    /** Stand-in for the signed-in user until account sign-in (#143) lands. */
+    val meId = SampleData.andrew.id
+    val me: Person get() = resolve(SampleData.andrew)
+
+    var settings by mutableStateOf(Settings())
+
+    // Lines the user has assigned or confirmed by hand; the rest follow the auto-assign settings.
+    private var reviewed by mutableStateOf(emptySet<Int>())
+    private var rawDraft by mutableStateOf(SampleData.draft)
+    val draft: ReceiptDraft
+        get() = rawDraft.copy(
+            payer = resolve(rawDraft.payer),
+            people = people,
+            lines = rawDraft.lines.map { line ->
+                val auto = settings.autoAssign && line.confidence >= settings.autoAssignThreshold
+                line.copy(confirmed = line.id in reviewed || auto)
+            },
+        )
+    val resolvedDraft: ReceiptDraft
+        get() = SampleData.resolvedDraft.copy(payer = resolve(SampleData.resolvedDraft.payer), people = people)
+    val shares: List<Pair<Person, Int>>
+        get() = SampleData.shares.map { (p, cents) -> resolve(p) to cents }
+
     var autoExpanded by mutableStateOf(false)
         private set
-    var transfers by mutableStateOf(SampleData.transfers.map { it.copy(paid = false) })
-        private set
+    private var rawTransfers by mutableStateOf(SampleData.transfers.map { it.copy(paid = false) })
+    val transfers: List<Transfer>
+        get() = rawTransfers.map { it.copy(from = resolve(it.from), to = resolve(it.to)) }
     var shopping by mutableStateOf(SampleData.shopping)
         private set
     var suggestions by mutableStateOf(SampleData.suggestions)
         private set
-    var history by mutableStateOf(SampleData.history)
-        private set
+    private var rawHistory by mutableStateOf(SampleData.history)
+    val history: List<HistoryEntry>
+        get() = rawHistory.map { it.copy(payer = resolve(it.payer)) }
     var householdName by mutableStateOf("Apartment 4B")
-    var members by mutableStateOf(SampleData.people.map { it.name })
-        private set
     var newMember by mutableStateOf("")
+    private var nextId = 0
 
     val balances: List<Balance>
         get() = SampleData.balances.map { b ->
-            val paid = transfers.filter { it.paid }
+            val paid = rawTransfers.filter { it.paid }
             val delta = paid.sumOf {
                 when (b.person.id) {
                     it.from.id -> it.amountCents
@@ -37,23 +69,28 @@ class DivvyState {
                     else -> 0
                 }
             }
-            b.copy(netCents = b.netCents + delta)
+            b.copy(person = resolve(b.person), netCents = b.netCents + delta)
         }
 
+    /** Current details for [p], or [p] itself if they're no longer in the household. */
+    fun resolve(p: Person): Person = people.find { it.id == p.id } ?: p
+
+    fun person(id: String): Person? = people.find { it.id == id }
+
+    fun canRemove(id: String) = id != meId && people.size > 2
+
     fun toggleOwner(lineId: Int, personId: String) {
-        draft = draft.copy(
-            lines = draft.lines.map {
+        rawDraft = rawDraft.copy(
+            lines = rawDraft.lines.map {
                 if (it.id != lineId) it
-                else it.copy(
-                    owners = if (personId in it.owners) it.owners - personId else it.owners + personId,
-                    confirmed = true,
-                )
+                else it.copy(owners = if (personId in it.owners) it.owners - personId else it.owners + personId)
             },
         )
+        reviewed = reviewed + lineId
     }
 
     fun confirmLine(lineId: Int) {
-        draft = draft.copy(lines = draft.lines.map { if (it.id == lineId) it.copy(confirmed = true) else it })
+        reviewed = reviewed + lineId
     }
 
     fun toggleAuto() {
@@ -61,11 +98,11 @@ class DivvyState {
     }
 
     fun confirmSplit() {
-        history = history.mapIndexed { i, e -> if (i == 0) e.copy(status = ReceiptStatus.Confirmed) else e }
+        rawHistory = rawHistory.mapIndexed { i, e -> if (i == 0) e.copy(status = ReceiptStatus.Confirmed) else e }
     }
 
     fun togglePaid(index: Int) {
-        transfers = transfers.mapIndexed { i, t -> if (i == index) t.copy(paid = !t.paid) else t }
+        rawTransfers = rawTransfers.mapIndexed { i, t -> if (i == index) t.copy(paid = !t.paid) else t }
     }
 
     fun toggleShopping(index: Int) {
@@ -78,13 +115,25 @@ class DivvyState {
         shopping = shopping + ShoppingItem(s.name, done = false)
     }
 
+    /** Adds a member and returns their id. */
+    fun addPerson(name: String): String {
+        val id = "new${nextId++}"
+        val color = AvatarColor.entries[(people.size) % AvatarColor.entries.size]
+        people = people + Person(id, name, initialsFor(name), color)
+        return id
+    }
+
     fun addMember() {
         val name = newMember.trim()
-        if (name.isNotEmpty()) members = members + name
+        if (name.isNotEmpty()) addPerson(name)
         newMember = ""
     }
 
-    fun removeMember(index: Int) {
-        members = members.filterIndexed { i, _ -> i != index }
+    fun updatePerson(updated: Person) {
+        people = people.map { if (it.id == updated.id) updated else it }
+    }
+
+    fun removePerson(id: String) {
+        if (canRemove(id)) people = people.filterNot { it.id == id }
     }
 }

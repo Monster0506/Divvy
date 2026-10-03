@@ -49,7 +49,7 @@ fun Application.module(connectDatabase: Boolean = true) {
         level = Level.INFO
         format { call ->
             "${call.request.httpMethod.value} ${call.request.path()} " +
-                    "${call.response.status()?.value} ${call.processingTimeMillis()}ms"
+                "${call.response.status()?.value} ${call.processingTimeMillis()}ms"
         }
     }
     install(Authentication) {
@@ -59,11 +59,11 @@ fun Application.module(connectDatabase: Boolean = true) {
             }
             authenticate { credential ->
                 val expectedKey = config.apiKey
-                if (expectedKey != null && keysMatch(
-                        credential.token,
-                        expectedKey
-                    )
-                ) UserIdPrincipal("api-key") else null
+                if (expectedKey != null && keysMatch(credential.token, expectedKey)) {
+                    UserIdPrincipal("api-key")
+                } else {
+                    null
+                }
             }
         }
     }
