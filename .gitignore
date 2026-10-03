@@ -29,3 +29,10 @@ iosApp/Configuration/Config.xcconfig.local
 # OS
 .DS_Store
 Thumbs.db
+
+# Python
+__pycache__/
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
