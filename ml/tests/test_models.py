@@ -178,6 +178,8 @@ def test_registry_builds_every_model_around_one_embedder():
         "knn",
         "logreg",
         "combined",
+        "knn-calibrated",
+        "combined-calibrated",
     ]
     for model in models:
         fitted(model)

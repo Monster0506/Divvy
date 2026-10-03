@@ -102,3 +102,7 @@ class KNNModel:
 
     def predict(self, items: Sequence[str]) -> np.ndarray:
         return self._neighbors.query(items)[0]
+
+    def familiarity(self, items: Sequence[str]) -> np.ndarray:
+        """Similarity of each item to its closest past purchase, 0 when there is no history."""
+        return self._neighbors.query(items)[1]

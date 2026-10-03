@@ -4,13 +4,14 @@ Arrays have one row per item and one column per person, in the order of `people`
 `known` mask marks cells where the person was in the household; other cells are never scored.
 """
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
 import numpy as np
 
+ItemConfidence = Callable[[np.ndarray, np.ndarray, np.ndarray], np.ndarray]
 DECISION_THRESHOLD = 0.5
 EPSILON = 1e-9
 CALIBRATION_BINS = 10
@@ -120,8 +121,12 @@ def report(
     probs: np.ndarray,
     people: Sequence[str],
     known: np.ndarray | None = None,
+    item_confidence: ItemConfidence | None = None,
 ) -> dict[str, Any]:
-    """Exact match, per-person precision and recall, F1, losses and calibration."""
+    """Exact match, per-person precision and recall, F1, losses and calibration.
+
+    `item_confidence(probs, pred, known)` replaces the raw joint confidence, e.g. a calibrated one.
+    """
     truth = truth.astype(int)
     if truth.shape != probs.shape or truth.shape[1] != len(people):
         raise ValueError("truth and probs must be (items, len(people)) arrays")
@@ -152,7 +157,11 @@ def report(
     micro_r = _ratio(tp.sum(), tp.sum() + fn.sum())
     clipped = np.clip(probs, EPSILON, 1 - EPSILON)
     correct = exact_correct(truth, pred, known)
-    joint = confidence(probs, pred, Confidence.JOINT, known)
+    joint = (
+        item_confidence(probs, pred, known)
+        if item_confidence
+        else confidence(probs, pred, Confidence.JOINT, known)
+    )
 
     return {
         "n": n,

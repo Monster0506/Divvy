@@ -151,3 +151,29 @@ Test exact-set accuracy on the synthetic household (hashing embedder, walk-forwa
 `combined` is best while history is short and is the only model whose confidence is well calibrated (item ECE 0.067 at
 1,500 and 0.022 at 6,000, against 0.24 and 0.16 for `knn`), so it is the default for auto-assigning. All of them beat
 `frequency` by a wide margin. Use `--embedder minilm` to compare the semantic embedder.
+
+## Calibration and unknown
+
+The raw confidence assumes people are independent, which is only roughly true: `knn` says 0.9 when it is right about
+75% of the time. `knn-calibrated` and `combined-calibrated` wrap a model with a calibrator (isotonic by default, or
+`PlattCalibrator`). On every fit the newest 30% of history is held back, the model is fit on the rest, and its
+predictions on the held-back rows teach the calibrator before the model is refit on everything. Predictions do not
+change; only the confidence does, so an auto-assign threshold means what it says. With under 40 held-back rows the raw
+confidence is kept.
+
+Item-level ECE on the synthetic household (test period, lower is better):
+
+| model | 1,500 purchases | 3,000 purchases |
+|---|---|---|
+| knn | 0.242 | 0.199 |
+| knn-calibrated | **0.022** | **0.020** |
+| combined | 0.067 | 0.041 |
+| combined-calibrated | **0.024** | **0.019** |
+
+At the threshold picked on validation for 95% accuracy, the calibrated models auto-assign 82 to 84% of items at 95.5 to
+97.9% exact-set accuracy on test.
+
+`AbstentionPolicy` answers "unknown" instead of guessing when the household has under 30 labelled items or the closest
+past item is under 0.4 similar (hashing embedder; recalibrate for another). On the synthetic household, items below 0.3
+similarity were never right and 0.3 to 0.5 were right about one time in five. The report shows how many items would be
+unknown and how accurate the model is on each side. An empty household is always unknown.
