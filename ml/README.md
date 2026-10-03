@@ -211,8 +211,17 @@ description). It looks up the household's stored history and returns, per item:
 The response carries `model_version`, for example `combined-calibrated-1000-1fc3a8df` (model, history size, hash of the
 history). It changes whenever the history does. `DIVVY_MODEL` picks the model (default `combined-calibrated`).
 
-A household's model is built the first time it is needed (about 1 s at 1,000 items) and cached. A write bumps the
-store's revision, so the next prediction rebuilds it: a correction shows up in the very next prediction. The latest
+A household's model is built the first time it is needed (about 1 s at 1,000 items) and cached. Writes keep it fresh
+without slowing predictions down:
+
+- A write queues a background refit after `DIVVY_REFIT_DELAY` seconds (default 1). Writes that arrive inside that
+  window share the one refit, so 20 corrections in a burst cause a single rebuild.
+- The refit builds a new model instance off to the side and swaps it in as a whole. Predictions use the current
+  model until then and never see a half-fitted one. A failed refit is logged and the old model keeps serving.
+- A refit at 1,200 items takes well under 2 seconds. `DIVVY_REFIT_DELAY=sync` turns background refits off, and the next
+  prediction after a write rebuilds the model and waits for it.
+
+So a correction shows up in predictions within the delay plus one refit, not in the same instant. The latest
 versions, with size, people and calibration holdout metrics, are saved in `models/<household>/meta.json` under the data
 directory. The model itself is derived from the history, so only this metadata is persisted. A household with more than
 5,000 items is fit on its 5,000 most recent. Thirty items predict in well under a second (checked by a test on a
