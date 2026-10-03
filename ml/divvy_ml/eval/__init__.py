@@ -1,4 +1,16 @@
 from divvy_ml.eval.coverage import coverage_curve, operating_point, pick_threshold
+from divvy_ml.eval.dataset import (
+    Dataset,
+    DatasetError,
+    Observation,
+    Source,
+    from_observations,
+    from_records,
+    load,
+    normalize_item,
+    parse_lines,
+    save,
+)
 from divvy_ml.eval.metrics import (
     Confidence,
     ReliabilityBin,
@@ -10,18 +22,34 @@ from divvy_ml.eval.metrics import (
     report,
 )
 from divvy_ml.eval.reliability import reliability_svg
+from divvy_ml.eval.split import LeakageError, Split, check_no_leakage, chrono_split, walk_forward
 
 __all__ = [
     "Confidence",
+    "Dataset",
+    "DatasetError",
+    "LeakageError",
+    "Observation",
     "ReliabilityBin",
+    "Source",
+    "Split",
+    "check_no_leakage",
+    "chrono_split",
     "confidence",
     "coverage_curve",
     "decide",
     "exact_correct",
     "expected_calibration_error",
+    "from_observations",
+    "from_records",
+    "load",
+    "normalize_item",
     "operating_point",
+    "parse_lines",
     "pick_threshold",
     "reliability_bins",
     "reliability_svg",
     "report",
+    "save",
+    "walk_forward",
 ]
