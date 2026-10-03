@@ -8,7 +8,7 @@ plugins {
 }
 
 kotlin {
-    androidLibrary {
+    android {
         namespace = "com.monster0506.divvy.shared"
         compileSdk = libs.versions.android.compileSdk.get().toInt()
         minSdk = libs.versions.android.minSdk.get().toInt()
@@ -34,10 +34,10 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
-            implementation(compose.runtime)
-            implementation(compose.foundation)
-            implementation(compose.material3)
-            implementation(compose.ui)
+            implementation("org.jetbrains.compose.runtime:runtime:${libs.versions.compose.multiplatform.get()}")
+            implementation("org.jetbrains.compose.foundation:foundation:${libs.versions.compose.multiplatform.get()}")
+            implementation(libs.compose.material3)
+            implementation("org.jetbrains.compose.ui:ui:${libs.versions.compose.multiplatform.get()}")
         }
     }
 }
