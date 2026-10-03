@@ -60,3 +60,13 @@ Each line is one purchase: `seq`, `date`, `item`, `owners` (every person true/fa
 prints the exact-set accuracy ceiling for the last 500 purchases: the best any model can do from the text alone.
 
 The preferences are invented. Use it to check pipelines, not to pretrain a real household model.
+
+## Evaluation metrics
+
+`divvy_ml.eval` scores ownership predictions. Arrays have one row per item and one column per person.
+
+- `report(truth, probs, people)`: exact match, per-person precision/recall/F1, Hamming loss, Brier, log loss, and calibration
+  (`ece` over every item/person decision, `item_ece` for the confidence that the whole predicted set is right).
+- `reliability_bins`, `expected_calibration_error`, `reliability_svg`: the reliability diagram data and a plain SVG.
+- `coverage_curve`, `operating_point`, `pick_threshold`: accuracy when only the most confident items are auto-assigned,
+  and the lowest threshold that reaches a target accuracy. Pick it on validation data, then apply it to test data.
