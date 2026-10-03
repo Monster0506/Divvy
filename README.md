@@ -8,6 +8,7 @@ A Kotlin Multiplatform app (Compose Multiplatform) targeting Android, iOS, and t
 - `androidApp/` – Android application entry point
 - `iosApp/` – Xcode project for the iOS app
 
+- `split/` - pure Kotlin multiplatform receipt split calculation (integer cents, no I/O); run its tests with `./gradlew :split:jvmTest`
 ## Prerequisites
 
 - **JDK 17 or newer**
