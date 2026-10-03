@@ -50,6 +50,7 @@ services:
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
       ML_SERVICE_URL: http://ml:8000
       API_KEY: ${API_KEY:?set API_KEY in .env}
+      IMAGE_DIR: /data/receipts
     ports:
       - "127.0.0.1:8080:8080"   # loopback only; host Caddy proxies to this
     volumes:
