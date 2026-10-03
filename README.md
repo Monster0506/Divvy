@@ -43,10 +43,22 @@ From the command line, with a device or emulator connected:
 ### Server
 
 ```bash
-./gradlew :server:run
+DATABASE_URL=jdbc:postgresql://localhost:5432/divvy DATABASE_USER=divvy DATABASE_PASSWORD=divvy ML_SERVICE_URL=http://localhost:8000 API_KEY=dev-key ./gradlew :server:run
 ```
 
-The Ktor server listens on port 8080.
+The Ktor server listens on port 8080 by default. Configuration comes from environment variables:
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `PORT` | no | Listening port (default 8080) |
+| `DATABASE_URL` | yes | JDBC URL of the Postgres database |
+| `DATABASE_USER` | yes | Database user |
+| `DATABASE_PASSWORD` | yes | Database password |
+| `ML_SERVICE_URL` | yes | Base URL of the ML service |
+| `API_KEY` | yes | Shared API key |
+| `APP_VERSION` | no | Version reported by `/health` (default 1.0) |
+
+The server refuses to start if a required variable is missing. `GET /health` returns `{"status":"ok","version":"..."}`.
 
 ### Web (Wasm)
 
