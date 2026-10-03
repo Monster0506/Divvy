@@ -1,4 +1,4 @@
-.PHONY: install run test lint
+.PHONY: install run test lint openapi docker
 
 install:
 	pip install -e ".[dev]"
@@ -11,3 +11,9 @@ test:
 
 lint:
 	ruff check .
+
+openapi:
+	python -m divvy_ml.openapi
+
+docker:
+	docker build -t divvy-ml .
