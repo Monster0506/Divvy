@@ -1,4 +1,4 @@
-.PHONY: install run test lint openapi docker
+.PHONY: install run test lint openapi docker synth
 
 install:
 	pip install -e ".[dev]"
@@ -17,3 +17,6 @@ openapi:
 
 docker:
 	docker build -t divvy-ml .
+
+synth:
+	python -m divvy_ml.synthetic
