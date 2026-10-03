@@ -3,6 +3,7 @@ package com.monster0506.divvy.ui.components
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -34,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -41,7 +43,7 @@ import androidx.compose.ui.unit.sp
 import com.monster0506.divvy.ui.model.Person
 import com.monster0506.divvy.ui.theme.DivvyColors
 
-enum class Tab(val label: String) { Receipts("Receipts"), Balances("Balances"), Shopping("List") }
+enum class Tab(val label: String) { Receipts("Receipts"), Balances("Balances"), Shopping("List"), Account("Account") }
 
 @Composable
 fun AppScaffold(
@@ -111,10 +113,21 @@ fun SectionHeader(start: String, end: String? = null, warn: Boolean = false, onC
 @Composable
 fun RowDivider() = HorizontalDivider(color = DivvyColors.Line)
 
+/** Shows the person's photo if set, otherwise their emoji, otherwise their initials on their avatar color. */
 @Composable
-fun Avatar(initials: String, size: Int = 32, fill: Color = DivvyColors.Page, fg: Color = DivvyColors.Ink) {
-    Box(Modifier.size(size.dp).clip(CircleShape).background(fill), contentAlignment = Alignment.Center) {
-        Text(initials, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = fg)
+fun Avatar(person: Person, size: Int = 32) {
+    Box(Modifier.size(size.dp).clip(CircleShape).background(person.color.fill), contentAlignment = Alignment.Center) {
+        val photo = person.photo
+        when {
+            photo != null -> Image(photo, person.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            person.emoji != null -> Text(person.emoji, fontSize = (size * 0.5f).sp)
+            else -> Text(
+                person.initials,
+                fontSize = maxOf(11f, size / 3f).sp,
+                fontWeight = FontWeight.SemiBold,
+                color = DivvyColors.Ink,
+            )
+        }
     }
 }
 
