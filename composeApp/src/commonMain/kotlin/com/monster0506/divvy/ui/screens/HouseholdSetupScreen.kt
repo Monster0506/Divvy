@@ -29,18 +29,21 @@ import com.monster0506.divvy.ui.components.PrimaryButton
 import com.monster0506.divvy.ui.components.RowDivider
 import com.monster0506.divvy.ui.components.ScreenHeader
 import com.monster0506.divvy.ui.components.SectionHeader
+import com.monster0506.divvy.ui.model.Person
+import com.monster0506.divvy.ui.preview.SampleData
 import com.monster0506.divvy.ui.theme.DivvyColors
 import com.monster0506.divvy.ui.theme.DivvyTheme
 
 @Composable
 fun HouseholdSetupScreen(
     householdName: String,
-    members: List<String>,
+    members: List<Person>,
     newMember: String,
     onNameChange: (String) -> Unit,
     onNewMemberChange: (String) -> Unit,
     onAddMember: () -> Unit,
-    onRemoveMember: (index: Int) -> Unit,
+    onRemoveMember: (id: String) -> Unit,
+    canRemove: (id: String) -> Boolean = { true },
     onStart: () -> Unit,
 ) {
     AppScaffold(selected = null) {
@@ -54,8 +57,8 @@ fun HouseholdSetupScreen(
             modifier = Modifier.fillMaxWidth().padding(start = 20.dp, top = 16.dp, end = 20.dp, bottom = 20.dp),
         )
         SectionHeader("Members", members.size.toString())
-        members.forEachIndexed { i, name ->
-            key(name) {
+        members.forEach { person ->
+            key(person.id) {
                 val enter = remember { MutableTransitionState(false).apply { targetState = true } }
                 AnimatedVisibility(enter) {
                     Column {
@@ -64,10 +67,12 @@ fun HouseholdSetupScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            Avatar(name.take(2))
-                            Text(name, Modifier.weight(1f), fontSize = 15.sp, fontWeight = FontWeight.Medium, color = DivvyColors.Ink)
-                            TextButton(onClick = { onRemoveMember(i) }) {
-                                Text("Remove", fontSize = 13.sp, color = DivvyColors.Dim)
+                            Avatar(person)
+                            Text(person.name, Modifier.weight(1f), fontSize = 15.sp, fontWeight = FontWeight.Medium, color = DivvyColors.Ink)
+                            if (canRemove(person.id)) {
+                                TextButton(onClick = { onRemoveMember(person.id) }) {
+                                    Text("Remove", fontSize = 13.sp, color = DivvyColors.Dim)
+                                }
                             }
                         }
                         RowDivider()
@@ -104,7 +109,7 @@ fun HouseholdSetupScreen(
 private fun HouseholdSetupPreview() = DivvyTheme {
     HouseholdSetupScreen(
         householdName = "Apartment 4B",
-        members = listOf("Sumedh", "Savar", "Andrew", "TJ"),
+        members = SampleData.people,
         newMember = "",
         onNameChange = {}, onNewMemberChange = {}, onAddMember = {}, onRemoveMember = {}, onStart = {},
     )
