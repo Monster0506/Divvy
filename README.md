@@ -84,3 +84,10 @@ See JetBrains' guide on [running on a real iOS device](https://kotlinlang.org/do
 ## ML service
 
 The Python ML service lives in `ml/`. See [ml/README.md](ml/README.md) for setup, run, test and lint commands.
+
+## Continuous integration
+
+GitHub Actions runs on every pull request and every push to `main`:
+
+- **Gradle** (`.github/workflows/gradle.yml`): `./gradlew :composeApp:check :androidApp:assembleDebug :server:test` on JDK 17. Test reports are uploaded as an artifact when the build fails.
+- **ML service** (`.github/workflows/ml.yml`): lint, tests and a Docker build for `ml/`, run only when `ml/` changes. See [ml/README.md](ml/README.md).
