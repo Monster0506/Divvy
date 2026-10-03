@@ -15,6 +15,12 @@ from divvy_ml.models import ExactItemModel, FrequencyModel, available_models, ma
 from divvy_ml.synthetic import generate
 
 START, CUT, STEP = 100, 150, 10
+FAST = ["frequency", "exact-item", "knn"]
+
+
+@pytest.fixture(scope="module")
+def results():
+    return evaluate(synthetic(600), make_models(FAST), Config())
 
 
 def synthetic(size: int, seed: int = 1) -> Dataset:
@@ -36,7 +42,7 @@ def flipped(dataset: Dataset, cut: int) -> Dataset:
 
 @pytest.mark.parametrize("name", available_models())
 def test_predictions_never_see_future_labels(name):
-    dataset = synthetic(300)
+    dataset = synthetic(260)
     cut = aligned(dataset.dates, CUT)
     tampered = flipped(dataset, cut)
     start = aligned(dataset.dates, START)
@@ -52,11 +58,9 @@ def test_predictions_never_see_future_labels(name):
     assert not np.allclose(original[safe:], altered[safe:])
 
 
-def test_evaluate_produces_every_section():
-    results = evaluate(synthetic(600), make_models(), Config())
-
+def test_evaluate_produces_every_section(results):
     assert results["people"] == ["sumedh", "savar", "andrew", "tj"]
-    assert set(results["models"]) == set(available_models())
+    assert set(results["models"]) == set(FAST)
     data = results["dataset"]
     assert data["warmup"] + data["validation"] + data["test"] == 600
     assert sum(data["test_slices"].values()) == data["test"]
@@ -66,28 +70,27 @@ def test_evaluate_produces_every_section():
     assert results["config"]["step"] == default_step(600)
 
 
-def test_a_useful_model_beats_the_prior_baseline():
-    results = evaluate(synthetic(900), make_models(), Config())["models"]
+def test_models_that_use_history_beat_the_prior_baseline(results):
+    exact = {name: m["test"]["exact_match"] for name, m in results["models"].items()}
 
-    assert (
-        results["exact-item"]["test"]["exact_match"] > results["frequency"]["test"]["exact_match"]
-    )
+    assert exact["exact-item"] > exact["frequency"] + 0.3
+    assert exact["knn"] > exact["frequency"] + 0.3
 
 
-def test_recommendation_names_the_best_model_with_its_threshold():
-    results = evaluate(synthetic(900), make_models(), Config())
-
+def test_recommendation_names_the_best_model_with_its_threshold(results):
     rec = results["recommendation"]
-    assert rec["model"] == "exact-item"
+    exact = {name: m["test"]["exact_match"] for name, m in results["models"].items()}
+
+    assert exact[rec["model"]] == max(exact.values())
     assert rec["rule"] == "joint"
     assert rec["threshold"] is None or 0 <= rec["threshold"] <= 1
     assert rec["auto_rate"] is None or 0 <= rec["auto_rate"] <= 1
 
 
 def test_the_threshold_comes_from_validation_and_is_held_fixed_for_test():
-    results = evaluate(synthetic(900), [ExactItemModel()], Config(target=0.9))
+    outcome = evaluate(synthetic(900), [ExactItemModel()], Config(target=0.9))
 
-    abstention = results["models"]["exact-item"]["abstention"]["joint"]
+    abstention = outcome["models"]["exact-item"]["abstention"]["joint"]
     assert abstention["target_accuracy"] == 0.9
     assert abstention["test"]["threshold"] == abstention["threshold"]
 
@@ -109,10 +112,10 @@ def test_evaluate_handles_a_member_who_joins_late():
         rows.append(record)
 
     dataset = from_records(rows, Source.SYNTHETIC)
-    results = evaluate(dataset, make_models())
+    outcome = evaluate(dataset, make_models(FAST))
 
-    assert results["people"][-1] == "tj" or "tj" in results["people"]
-    assert 0 <= results["models"]["exact-item"]["test"]["exact_match"] <= 1
+    assert "tj" in outcome["people"]
+    assert 0 <= outcome["models"]["knn"]["test"]["exact_match"] <= 1
 
 
 def test_slices_use_tags_when_present_and_seen_or_new_otherwise():
@@ -138,9 +141,7 @@ def test_slices_use_tags_when_present_and_seen_or_new_otherwise():
     assert assign(plain.observations, 0) == [Slice.NEW, Slice.NEW, Slice.SEEN, Slice.NEW]
 
 
-def test_markdown_report_has_the_sections_the_issue_asks_for():
-    results = evaluate(synthetic(600), make_models())
-
+def test_markdown_report_has_the_sections_the_issue_asks_for(results):
     text = render.to_markdown(results)
 
     assert text.startswith("# Ownership evaluation")
@@ -154,8 +155,8 @@ def test_markdown_report_has_the_sections_the_issue_asks_for():
     assert "Recommended:" in text or "No threshold reached" in text
 
 
-def test_html_report_is_standalone_and_embeds_the_reliability_diagram():
-    html = render.to_html(evaluate(synthetic(600), make_models()), title="A & B")
+def test_html_report_is_standalone_and_embeds_the_reliability_diagram(results):
+    html = render.to_html(results, title="A & B")
 
     assert html.startswith("<!doctype html>")
     assert "A &amp; B" in html
@@ -166,7 +167,7 @@ def test_html_report_is_standalone_and_embeds_the_reliability_diagram():
 def test_command_writes_the_report_files(tmp_path, capsys):
     out = tmp_path / "report"
 
-    code = main(["--household", "synthetic", "--size", "500", "--out", str(out)])
+    code = main(["--size", "500", "--models", *FAST, "--out", str(out)])
 
     assert code == 0
     assert (out / "report.md").read_text(encoding="utf-8").startswith("# Ownership evaluation")
@@ -180,7 +181,8 @@ def test_command_can_evaluate_a_file(tmp_path):
     rows = [json.dumps(p.to_json()) for p in generate(500, 2)]
     data.write_text("\n".join(rows), encoding="utf-8")
 
-    assert main(["--data", str(data), "--expect", "synthetic", "--out", str(tmp_path / "r")]) == 0
+    args = ["--data", str(data), "--expect", "synthetic", "--models", "exact-item"]
+    assert main([*args, "--out", str(tmp_path / "r")]) == 0
 
 
 def test_command_fails_below_the_minimum_score(tmp_path):

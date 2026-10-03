@@ -33,7 +33,7 @@ def summary(results: Results) -> list[str]:
         f"Split by date: {data['warmup']} warm-up, {data['validation']} validation, "
         f"{data['test']} test.",
         f"Refit every {cfg['step']} items; scored from item {data['scored_from'] + 1}.",
-        f"People: {', '.join(results['people'])}.",
+        f"People: {', '.join(results['people'])}. Embedder: {results.get('embedder', 'none')}.",
     ]
     if "bayes_ceiling" in results:
         ceiling = _pct(results["bayes_ceiling"])
