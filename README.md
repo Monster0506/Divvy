@@ -66,3 +66,7 @@ This starts a dev server and opens the app in your browser.
 3. Select a simulator or connected iPhone and click **Run**.
 
 See JetBrains' guide on [running on a real iOS device](https://kotlinlang.org/docs/multiplatform/compose-multiplatform-create-first-app.html#run-on-a-real-ios-device) for device setup details.
+
+## ML service
+
+The Python ML service lives in `ml/`. See [ml/README.md](ml/README.md) for setup, run, test and lint commands.
