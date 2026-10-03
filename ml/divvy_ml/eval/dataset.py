@@ -7,7 +7,6 @@ Observations are ordered by purchase date, then seq. Real and synthetic rows nev
 
 import datetime as dt
 import json
-import re
 from collections import Counter
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field, replace
@@ -17,7 +16,8 @@ from typing import Any
 
 import numpy as np
 
-_NON_ALNUM = re.compile(r"[^a-z0-9]+")
+from divvy_ml.text import normalize_item
+
 REQUIRED_FIELDS = {"seq", "date", "item", "owners", "source"}
 
 
@@ -28,11 +28,6 @@ class Source(StrEnum):
 
 class DatasetError(ValueError):
     pass
-
-
-def normalize_item(text: str) -> str:
-    """Key used to decide whether two descriptions are the same item."""
-    return _NON_ALNUM.sub(" ", text.lower()).strip()
 
 
 @dataclass(frozen=True)
