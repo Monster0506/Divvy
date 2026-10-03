@@ -123,3 +123,31 @@ as more similar than a different product, over the synthetic catalog.
 - Hashing is lexical, so it links "Coke Zero 24-pack" to "Coke Zero 12-pack" but not to "Coca-Cola Zero Sugar".
   It needs no download and cannot leak, which makes it the safe default.
 - Every option embeds 30 items in well under the 2 second budget.
+
+## Ownership models
+
+Each model learns from one household's history and gives, per person, the probability they own an item. They share
+`fit(items, labels, known)` and `predict(items)`, are listed in `divvy_ml/models/registry.py`, and never see another household.
+`known` marks where a person was in the household, so someone who joined late is unknown before that, not a "no".
+
+| model | what it uses |
+|---|---|
+| `frequency` | how often each person owns anything, ignoring the item |
+| `exact-item` | past owners of the same normalised description, shrunk toward the prior |
+| `knn` | owners of the 10 most similar past purchases, weighted by similarity^4, falling back to the prior |
+| `logreg` | one logistic regression per person on the item embedding |
+| `combined` | embedding plus kNN vote features; training rows get held-out votes so a row never votes for itself |
+
+Test exact-set accuracy on the synthetic household (hashing embedder, walk-forward, ceiling 93.4%):
+
+| model | 1,500 purchases | 6,000 purchases |
+|---|---|---|
+| frequency | 19.4 | 16.8 |
+| exact-item | 84.9 | 89.4 |
+| knn | 87.7 | **91.4** |
+| logreg | 86.3 | 89.4 |
+| combined | **88.4** | 90.7 |
+
+`combined` is best while history is short and is the only model whose confidence is well calibrated (item ECE 0.067 at
+1,500 and 0.022 at 6,000, against 0.24 and 0.16 for `knn`), so it is the default for auto-assigning. All of them beat
+`frequency` by a wide margin. Use `--embedder minilm` to compare the semantic embedder.

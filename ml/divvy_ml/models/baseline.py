@@ -59,7 +59,3 @@ class ExactItemModel:
             rows.append((owned + self._shrinkage * self._prior) / (seen + self._shrinkage))
 
         return np.array(rows).reshape(-1, len(self._prior))
-
-
-def baseline_models() -> list:
-    return [FrequencyModel(), ExactItemModel()]

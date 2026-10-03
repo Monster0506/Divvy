@@ -10,6 +10,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from divvy_ml.embed import make_embedder
 from divvy_ml.eval import render
 from divvy_ml.eval.dataset import Dataset, DatasetError, Source, from_records, load
 from divvy_ml.eval.evaluate import Config, evaluate
@@ -43,6 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--size", type=int, default=DEFAULT_SIZE, help="synthetic purchases")
     parser.add_argument("--seed", type=int, default=SEED)
     parser.add_argument("--models", nargs="+", default=None, help=f"from {available_models()}")
+    parser.add_argument("--embedder", default="hashing", help="hashing, minilm or st:<model id>")
     parser.add_argument("--step", type=int, help="refit every N items")
     parser.add_argument(
         "--target", type=float, default=Config().target, help="auto-assign accuracy"
@@ -58,8 +60,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         dataset = _dataset(args)
-        models = make_models(args.models)
+        embedder = make_embedder(args.embedder)
+        models = make_models(args.models, embedder)
         results = evaluate(dataset, models, Config(step=args.step, target=args.target))
+        results["embedder"] = embedder.name
     except (DatasetError, ValueError) as err:
         print(f"error: {err}", file=sys.stderr)
         return 2
