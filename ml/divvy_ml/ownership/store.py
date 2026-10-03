@@ -38,6 +38,7 @@ class HistoryStore:
     def __init__(self, root: Path | None = None) -> None:
         self._root = root
         self._memory: dict[str, list[dict[str, Any]]] = {}
+        self._revisions: dict[str, int] = {}
         self._lock = threading.Lock()
         if root is not None:
             root.mkdir(parents=True, exist_ok=True)
@@ -59,6 +60,7 @@ class HistoryStore:
 
             merged = sorted(by_id.values(), key=lambda r: (r["date"], r["seq"]))
             self._write(household_id, merged)
+            self._bump(household_id)
             return len(merged)
 
     def delete(self, household_id: str, observation_id: str) -> bool:
@@ -69,6 +71,7 @@ class HistoryStore:
                 return False
 
             self._write(household_id, kept)
+            self._bump(household_id)
             return True
 
     def count(self, household_id: str) -> int:
@@ -81,8 +84,24 @@ class HistoryStore:
 
     def dataset(self, household_id: str) -> Dataset | None:
         """The household's history in chronological order, or None when it has none."""
-        records = self.records(household_id)
-        return from_records(records, Source.REAL) if records else None
+        return self.snapshot(household_id)[1]
+
+    def revision(self, household_id: str) -> int:
+        """Changes on every write, so a cached model knows when it is stale."""
+        with self._lock:
+            return self._revisions.get(household_id, 0)
+
+    def snapshot(self, household_id: str) -> tuple[int, Dataset | None]:
+        """(revision, history) read together, so a model is never built from newer data than
+        the revision it is labelled with."""
+        with self._lock:
+            records = self._read(household_id)
+            revision = self._revisions.get(household_id, 0)
+
+        return revision, (from_records(records, Source.REAL) if records else None)
+
+    def _bump(self, household_id: str) -> None:
+        self._revisions[household_id] = self._revisions.get(household_id, 0) + 1
 
     def _path(self, household_id: str) -> Path:
         assert self._root is not None

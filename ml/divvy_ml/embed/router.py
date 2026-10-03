@@ -26,13 +26,16 @@ class EmbedResponse(BaseModel):
     embeddings: list[list[float]] = Field(description="One L2-normalised vector per text, in order")
 
 
-def get_embedder(request: Request) -> Embedder:
+def app_embedder(request: Request) -> Embedder:
     """The embedder loaded at startup, or loaded now if the app was started without lifespan."""
     embedder = getattr(request.app.state, "embedder", None)
     if embedder is None:
         embedder = request.app.state.embedder = configured_embedder()
 
     return embedder
+
+
+get_embedder = app_embedder
 
 
 @router.post("/embed", response_model=EmbedResponse)

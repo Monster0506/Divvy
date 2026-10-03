@@ -7,12 +7,24 @@ from divvy_ml import __version__
 from divvy_ml.embed import configured_embedder
 from divvy_ml.embed.router import router as embed_router
 from divvy_ml.ownership import router as ownership_router
+from divvy_ml.ownership.config import data_dir, model_name
+from divvy_ml.ownership.manager import DEFAULT_MODEL, ModelManager
+from divvy_ml.ownership.store import HistoryStore
 from divvy_ml.receipts import router as receipts_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Load the embedder once, and open the household history and model cache."""
+    root = data_dir()
     app.state.embedder = configured_embedder()
+    app.state.history = HistoryStore(root / "history")
+    app.state.models = ModelManager(
+        app.state.history,
+        app.state.embedder,
+        model_name(DEFAULT_MODEL),
+        models_dir=root / "models",
+    )
     yield
 
 

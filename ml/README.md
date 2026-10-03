@@ -21,7 +21,9 @@ Without make, run the commands from the Makefile directly.
 |--------|------|---------|
 | GET | `/health` | Liveness check |
 | POST | `/receipts/extract` | Extract a structured receipt from an image (currently returns a fixed sample) |
-| POST | `/ownership/predict` | Predict which household members own each item (currently returns `unknown` for every item) |
+| POST | `/ownership/predict` | Predict which household members own each item, from the household's stored history |
+| POST | `/embed` | Batched text embeddings |
+| PUT / DELETE / GET | `/ownership/households/{id}/...` | Push, remove and inspect a household's history (see Household history) |
 
 `POST /receipts/extract` takes exactly one of `image_id` (an image already in receipt storage) or `image_base64`, and returns an `ExtractedReceipt` (see `divvy_ml/receipts/schemas.py`). All money fields are integers in cents. Interactive docs are at `/docs` while the service is running.
 
@@ -193,3 +195,27 @@ An observation has a `purchased_on` date, a `description`, `member_ids` (who was
 A correction resends the same `observation_id` with the original date. Each household is one JSONL file under
 `DIVVY_ML_DATA_DIR` (default `./data`), in the format `python -m divvy_ml.eval --data <file>` reads. Household ids are
 letters, digits, `-` and `_`, up to 64 characters.
+
+## Predicting
+
+`POST /ownership/predict` takes the `household_id`, the household's current `people` and the `items` (id and
+description). It looks up the household's stored history and returns, per item:
+
+- `status`: `predicted` or `unknown`. Unknown means the household has under 30 labelled items, or nothing in its history
+  resembles the item (see Calibration and unknown). An unknown item has no owners and confidence 0.
+- `owners`: the predicted person ids, among the people in the request. Archived people are not in the request, so they are
+  never predicted; a person the model has never seen is never predicted either.
+- `confidence`: the calibrated chance the whole owner set is right, so a threshold such as 0.85 means 85%.
+- `alternatives`: up to three other likely owner sets, with their raw model probability.
+
+The response carries `model_version`, for example `combined-calibrated-1000-1fc3a8df` (model, history size, hash of the
+history). It changes whenever the history does. `DIVVY_MODEL` picks the model (default `combined-calibrated`).
+
+A household's model is built the first time it is needed (about 1 s at 1,000 items) and cached. A write bumps the
+store's revision, so the next prediction rebuilds it: a correction shows up in the very next prediction. The latest
+versions, with size, people and calibration holdout metrics, are saved in `models/<household>/meta.json` under the data
+directory. The model itself is derived from the history, so only this metadata is persisted. A household with more than
+5,000 items is fit on its 5,000 most recent. Thirty items predict in well under a second (checked by a test on a
+1,000-item household).
+
+In Docker the data directory is `/data`, a named volume (`mldata`) in `docker-compose.yml`.
