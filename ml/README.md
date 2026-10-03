@@ -40,3 +40,7 @@ curl localhost:8000/health
 ```
 
 The image is based on `python:3.12-slim`, runs as the non-root user `divvy` (uid 10001), serves on port 8000, and has a healthcheck that calls `/health`.
+
+## CI
+
+`.github/workflows/ml.yml` runs on pull requests and pushes to `main` that touch `ml/`. It runs `ruff check`, `ruff format --check` and `pytest` on Python 3.12, and builds the Docker image and checks that it serves `/health`. Run the same checks locally with `make lint test`.
