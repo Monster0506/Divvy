@@ -75,7 +75,8 @@ The preferences are invented. Use it to check pipelines, not to pretrain a real 
 
 Labelled observations are JSONL, one purchase per line: `seq`, `date`, `item`, `owners` (person -> true/false, at least one true),
 `source` (`real` or `synthetic`) and optional `meta`. This is the format `python -m divvy_ml.synthetic` writes, and the format a
-database export should produce. A file holds one source and one fixed set of people; mixed files are rejected.
+database export should produce. A file holds one source; mixed files are rejected. `owners` lists the people in the
+household at that time. Someone missing from a line (not yet joined, or archived) is unknown, never a "no".
 
 - `load(path, expect=Source.REAL)` / `from_records(rows)`: validate and return a `Dataset` in date-then-seq order, with `labels()` as a 0/1 matrix.
 - `chrono_split(dates)` and `walk_forward(dates, start, stop, step)`: time-ordered boundaries that never put one purchase date on both sides,
