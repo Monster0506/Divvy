@@ -23,6 +23,11 @@ data class HealthResponse(val status: String, val version: String)
 
 fun Application.module() {
     val config = AppConfig.from(environment.config)
+    DatabaseFactory.init(config)
+    configureApp(config)
+}
+
+fun Application.configureApp(config: AppConfig) {
     install(ContentNegotiation) {
         json(Json {
             ignoreUnknownKeys = true

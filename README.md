@@ -58,6 +58,8 @@ The Ktor server listens on port 8080 by default. Configuration comes from enviro
 | `API_KEY` | yes | Shared API key |
 | `APP_VERSION` | no | Version reported by `/health` (default 1.0) |
 
+On startup the server opens a HikariCP pool to Postgres and runs Flyway migrations from `server/src/main/resources/db/migration`. The data access choice is recorded in `docs/adr/0001-data-access.md`.
+
 The server refuses to start if a required variable is missing. `GET /health` returns `{"status":"ok","version":"..."}`.
 
 ### Web (Wasm)

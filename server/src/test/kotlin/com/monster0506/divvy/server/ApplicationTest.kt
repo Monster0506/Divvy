@@ -33,7 +33,7 @@ class ApplicationTest {
     }
 
     private fun Application.testModule() {
-        module()
+        configureApp(AppConfig.from(environment.config))
         routing {
             get("/boom") { error("secret internal detail") }
             get("/invalid") { throw ValidationException("Name is required", listOf("name")) }
@@ -44,7 +44,7 @@ class ApplicationTest {
     @Test
     fun moduleStarts() = testApplication {
         testConfig()
-        application { module() }
+        application { configureApp(AppConfig.from(environment.config)) }
         startApplication()
     }
 
@@ -82,7 +82,7 @@ class ApplicationTest {
     @Test
     fun healthReturnsOkWithVersion() = testApplication {
         testConfig()
-        application { module() }
+        application { configureApp(AppConfig.from(environment.config)) }
         val response = client.get("/health")
         assertEquals(HttpStatusCode.OK, response.status)
         assertEquals(
