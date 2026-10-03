@@ -1,5 +1,6 @@
 package com.monster0506.divvy.ui.preview
 
+import com.monster0506.divvy.ui.model.AvatarColor
 import com.monster0506.divvy.ui.model.Balance
 import com.monster0506.divvy.ui.model.HistoryEntry
 import com.monster0506.divvy.ui.model.Person
@@ -11,10 +12,10 @@ import com.monster0506.divvy.ui.model.Suggestion
 import com.monster0506.divvy.ui.model.Transfer
 
 object SampleData {
-    val sumedh = Person("su", "Sumedh", "Su")
-    val savar = Person("sv", "Savar", "Sv")
-    val andrew = Person("an", "Andrew", "An")
-    val tj = Person("tj", "TJ", "TJ")
+    val sumedh = Person("su", "Sumedh", "Su", AvatarColor.Blue)
+    val savar = Person("sv", "Savar", "Sv", AvatarColor.Purple)
+    val andrew = Person("an", "Andrew", "An", AvatarColor.Green)
+    val tj = Person("tj", "TJ", "TJ", AvatarColor.Orange)
     val people = listOf(sumedh, savar, andrew, tj)
     private val everyone = people.map { it.id }.toSet()
 

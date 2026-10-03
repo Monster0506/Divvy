@@ -55,10 +55,14 @@ The Ktor server listens on port 8080 by default. Configuration comes from enviro
 | `DATABASE_USER` | yes | Database user |
 | `DATABASE_PASSWORD` | yes | Database password |
 | `ML_SERVICE_URL` | yes | Base URL of the ML service |
-| `API_KEY` | yes | Shared API key |
+| `API_KEY` | yes | Shared API key, sent by clients in the `X-Api-Key` header |
 | `APP_VERSION` | no | Version reported by `/health` (default 1.0) |
 
-The server refuses to start if a required variable is missing. `GET /health` returns `{"status":"ok","version":"..."}`.
+The server refuses to start if a required variable is missing. `GET /health` returns `{"status":"ok","version":"..."}` and is public. Every other route requires the `X-Api-Key` header to match `API_KEY`, otherwise the server returns 401. Locally, `API_KEY=dev-key` works with `curl -H "X-Api-Key: dev-key" http://localhost:8080/...`.
+
+Receipt images are stored behind the `ImageStorage` interface (`put`, `get`, `delete`). `LocalFileImageStorage` writes files into a configured directory (a Docker volume in deployment) under generated UUID keys. Keys are validated as canonical UUIDs, so client filenames and path traversal never reach the filesystem.
+
+Run the server tests with `./gradlew :server:test`.
 
 ### Web (Wasm)
 
@@ -67,6 +71,14 @@ The server refuses to start if a required variable is missing. `GET /health` ret
 ```
 
 This starts a dev server and opens the app in your browser.
+
+To rebuild and reload the browser automatically whenever you save a file, add `--continuous`:
+
+```bash
+./gradlew :composeApp:wasmJsBrowserDevelopmentRun --continuous
+```
+
+The dev server uses port 8080, the same default as the Ktor server, so set `PORT` to something else (e.g. `PORT=8081`) when running the server alongside it.
 
 ### iOS
 
@@ -82,3 +94,15 @@ See JetBrains' guide on [running on a real iOS device](https://kotlinlang.org/do
 ## ML service
 
 The Python ML service lives in `ml/`. See [ml/README.md](ml/README.md) for setup, run, test and lint commands.
+
+## Continuous integration
+
+GitHub Actions runs each workflow only when its files change, so a docs-only change runs no build jobs:
+
+| Workflow | Runs when | Does | Typical time |
+|----------|-----------|------|--------------|
+| **Gradle** (`.github/workflows/gradle.yml`) | PRs and pushes to `main` touching `composeApp/`, `androidApp/`, `server/`, `gradle/` or the build scripts | `./gradlew :composeApp:check :androidApp:assembleDebug :server:test` on JDK 17; uploads test reports on failure | ~4–5 min |
+| **ML service** (`.github/workflows/ml.yml`) | PRs and pushes to `main` touching `ml/` | ruff, pytest and a Docker build with a `/health` check. See [ml/README.md](ml/README.md). | ~20 s per job (parallel) |
+| **iOS** (`.github/workflows/ios.yml`) | Nightly at 06:17 UTC, manual trigger, and PRs touching `composeApp/src/iosMain/` or `iosApp/` | `:composeApp:linkDebugFrameworkIosSimulatorArm64` on macOS | IOS_TIME |
+
+To run the iOS build by hand, use **Actions → iOS → Run workflow**, or run `gh workflow run ios.yml`.

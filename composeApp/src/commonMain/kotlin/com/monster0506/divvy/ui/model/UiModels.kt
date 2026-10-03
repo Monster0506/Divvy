@@ -1,8 +1,47 @@
 package com.monster0506.divvy.ui.model
 
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import kotlin.math.abs
 
-data class Person(val id: String, val name: String, val initials: String)
+/** Avatar background tints; text on all of them stays legible in [com.monster0506.divvy.ui.theme.DivvyColors.Ink]. */
+enum class AvatarColor(val fill: Color) {
+    Gray(Color(0xFFECEEF0)),
+    Green(Color(0xFFD6EDE1)),
+    Teal(Color(0xFFD3ECEC)),
+    Blue(Color(0xFFDCE8F7)),
+    Purple(Color(0xFFE8E0F5)),
+    Pink(Color(0xFFF8DCE6)),
+    Orange(Color(0xFFFBE3CF)),
+    Yellow(Color(0xFFF7EDC6)),
+}
+
+/** An avatar shows [photo] if set, otherwise [emoji], otherwise [initials] on [color]. */
+data class Person(
+    val id: String,
+    val name: String,
+    val initials: String,
+    val color: AvatarColor = AvatarColor.Gray,
+    val emoji: String? = null,
+    val photo: ImageBitmap? = null,
+)
+
+/** "Sumedh" -> "Su", "Mary Jane" -> "MJ". */
+fun initialsFor(name: String): String {
+    val words = name.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+    return when {
+        words.isEmpty() -> "?"
+        words.size == 1 -> words[0].take(2).replaceFirstChar { it.uppercaseChar() }
+        else -> "${words[0].first()}${words[1].first()}".uppercase()
+    }
+}
+
+data class Settings(
+    val autoAssign: Boolean = true,
+    /** Minimum model confidence for an item to be assigned without review. */
+    val autoAssignThreshold: Float = 0.85f,
+    val venmoUsername: String = "",
+)
 
 data class ReceiptLine(
     val id: Int,

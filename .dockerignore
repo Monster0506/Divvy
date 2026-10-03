@@ -1,0 +1,13 @@
+**/build
+**/.gradle
+.gradle
+.idea
+.kotlin
+.git
+kotlin-js-store
+iosApp
+androidApp
+composeApp
+ml
+local.properties
+*.md
