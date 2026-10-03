@@ -2,6 +2,7 @@ from datetime import date
 
 from fastapi import APIRouter
 
+from divvy_ml.receipts.reconcile import with_reconciliation
 from divvy_ml.receipts.schemas import Discount, ExtractedItem, ExtractedReceipt, ExtractRequest
 
 router = APIRouter(prefix="/receipts", tags=["receipts"])
@@ -25,4 +26,4 @@ SAMPLE_RECEIPT = ExtractedReceipt(
 
 @router.post("/extract", response_model=ExtractedReceipt)
 def extract(request: ExtractRequest) -> ExtractedReceipt:
-    return SAMPLE_RECEIPT
+    return with_reconciliation(SAMPLE_RECEIPT)
