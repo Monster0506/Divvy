@@ -41,6 +41,8 @@ kotlin {
             implementation("org.jetbrains.compose.foundation:foundation:${libs.versions.compose.multiplatform.get()}")
             implementation(libs.compose.material3)
             implementation(libs.kotlinx.serialization.json)
+            implementation(libs.filekit.dialogs.compose)
+            implementation("org.jetbrains.compose.components:components-resources:${libs.versions.compose.multiplatform.get()}")
             implementation("org.jetbrains.compose.ui:ui:${libs.versions.compose.multiplatform.get()}")
             implementation("org.jetbrains.compose.ui:ui-tooling-preview:${libs.versions.compose.multiplatform.get()}")
         }
