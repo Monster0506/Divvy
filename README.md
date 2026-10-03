@@ -95,6 +95,97 @@ See JetBrains' guide on [running on a real iOS device](https://kotlinlang.org/do
 
 The Python ML service lives in `ml/`. See [ml/README.md](ml/README.md) for setup, run, test and lint commands.
 
+## Deployment
+
+The backend runs as a Docker Compose stack on a single host (target: 4 vCPU / 8 GB / Linux). Only `server` is reachable from the host, and only on `127.0.0.1:8080`. `ml` and `db` live on an internal Docker network with no published ports. HTTPS is handled by a Caddy instance running on the host, outside Compose.
+
+| Service | Image | Memory limit | CPU limit | Data |
+|---|---|---|---|---|
+| `db` | `pgvector/pgvector:pg16` | 1.5 GB | 1.5 | `pgdata` volume |
+| `ml` | built from `ml/` | 3 GB | 2.0 | none |
+| `server` | built from `server/Dockerfile` | 1.5 GB | 1.5 | `receipts` volume |
+
+The `receipts` volume is mounted at `/data/receipts` for uploaded receipt images. Receipt upload is not implemented yet, so the volume is currently empty.
+
+The limits total about 6 GB of memory, leaving roughly 2 GB for the OS and Caddy. CPU limits are caps, not reservations.
+
+The `receipts` volume is mounted at `/data/receipts` for uploaded receipt images. Receipt upload is not implemented yet, so the volume is currently empty.
+
+### Prerequisites
+
+- Docker Engine with the Compose v2 plugin (`docker compose version`)
+- Caddy installed on the host (for public HTTPS)
+- Git
+
+### First deploy
+
+```bash
+git clone https://github.com/Monster0506/Divvy.git
+cd Divvy
+cp .env.example .env
+```
+
+Edit `.env` and set real values. Generate secrets with `openssl rand -hex 24`. Then:
+
+```bash
+docker compose up -d --build
+docker compose ps
+```
+
+The first build takes several minutes. All three services should reach `healthy`. Verify with `curl http://127.0.0.1:8080/health`.
+
+Add the server to the host's Caddyfile and reload Caddy:
+
+```
+api.example.com {
+    reverse_proxy 127.0.0.1:8080
+}
+```
+
+### Updating
+
+```bash
+git pull
+docker compose up -d --build
+```
+
+Named volumes survive this. Never run `docker compose down -v`, which deletes the database and uploaded images.
+
+### Backups
+
+Back up both volumes. Run these from the repo root.
+
+**Database dump:**
+
+```bash
+docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > divvy-$(date +%F).dump
+```
+
+**Database restore** (replaces existing data):
+
+```bash
+docker compose exec -T db sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists' < divvy-2026-01-01.dump
+```
+
+**Receipt images:**
+
+```bash
+docker run --rm -v divvy_receipts:/data -v "$PWD":/backup alpine tar czf /backup/receipts-$(date +%F).tgz -C /data .
+```
+
+To restore the images, extract the archive into the volume the same way:
+
+```bash
+docker run --rm -v divvy_receipts:/data -v "$PWD":/backup alpine tar xzf /backup/receipts-2026-01-01.tgz -C /data
+```
+
+Copy backups off the server. A backup that lives only on the same disk is not a backup.
+
+### Notes
+
+- `ml` has no outbound internet access (internal network). Model files must be baked into its image.
+- Changing `POSTGRES_PASSWORD` in `.env` does not change an existing database. Alter the role inside Postgres instead.
+
 ## Continuous integration
 
 GitHub Actions runs each workflow only when its files change, so a docs-only change runs no build jobs:
