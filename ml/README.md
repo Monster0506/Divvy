@@ -44,3 +44,19 @@ The image is based on `python:3.12-slim`, runs as the non-root user `divvy` (uid
 ## CI
 
 `.github/workflows/ml.yml` runs on pull requests and pushes to `main` that touch `ml/`. It runs `ruff check`, `ruff format --check` and `pytest` on Python 3.12, and builds the Docker image and checks that it serves `/health`. Run the same checks locally with `make lint test`.
+
+## Synthetic household
+
+A seeded generator for a four-person household, used to test models without real data. It simulates
+about 3 years of shopping trips by default and is reproducible: the same seed gives the same data.
+
+```
+python -m divvy_ml.synthetic --size 6000 --seed 7 --out data/synthetic/household.jsonl
+make synth
+```
+
+Each line is one purchase: `seq`, `date`, `item`, `owners` (every person true/false, at least one true),
+`source` ("synthetic") and `meta` (product, category and the habit that produced it). The command also
+prints the exact-set accuracy ceiling for the last 500 purchases: the best any model can do from the text alone.
+
+The preferences are invented. Use it to check pipelines, not to pretrain a real household model.
