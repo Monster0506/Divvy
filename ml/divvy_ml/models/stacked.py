@@ -71,6 +71,9 @@ class StackedModel:
         votes, best = self._neighbors.query(items)
         return predict_heads(self._heads, self.features(list(items), votes, best))
 
+    def familiarity(self, items: Sequence[str]) -> np.ndarray:
+        return self._neighbors.query(items)[1]
+
     def features(self, items: Sequence[str], votes: np.ndarray, best: np.ndarray) -> np.ndarray:
         clipped = np.clip(votes, LOGIT_CLIP, 1 - LOGIT_CLIP)
         logit = np.log(clipped / (1 - clipped))

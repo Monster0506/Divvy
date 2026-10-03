@@ -5,6 +5,7 @@ from collections.abc import Callable, Sequence
 from divvy_ml.embed import Embedder, make_embedder
 from divvy_ml.models.base import Model
 from divvy_ml.models.baseline import ExactItemModel, FrequencyModel
+from divvy_ml.models.calibration import CalibratedModel
 from divvy_ml.models.knn import KNNModel
 from divvy_ml.models.stacked import LogRegModel, StackedModel
 
@@ -16,6 +17,8 @@ FACTORIES: dict[str, Callable[[Embedder], Model]] = {
     KNNModel.name: KNNModel,
     LogRegModel.name: LogRegModel,
     StackedModel.name: StackedModel,
+    f"{KNNModel.name}-calibrated": lambda embedder: CalibratedModel(KNNModel(embedder)),
+    f"{StackedModel.name}-calibrated": lambda embedder: CalibratedModel(StackedModel(embedder)),
 }
 
 

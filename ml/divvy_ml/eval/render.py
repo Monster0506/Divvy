@@ -137,6 +137,27 @@ def tables(results: Results) -> list[Table]:
             "applied unchanged to test.",
         )
     )
+    cold = [(n, m["unknown"]) for n, m in models.items() if m.get("unknown")]
+    if cold:
+        policy = results["config"]["policy"]
+        out.append(
+            Table(
+                'Answering "unknown" when nothing resembles the item (%)',
+                ["model", "unknown", "accuracy if answered anyway", "accuracy on the rest"],
+                [
+                    [
+                        name,
+                        _pct(u["unknown_rate"]),
+                        _pct(u["unknown_accuracy"]),
+                        _pct(u["answered_accuracy"]),
+                    ]
+                    for name, u in cold
+                ],
+                f"Unknown when the household has under {policy['min_history']} labelled items "
+                f"or the closest past item is under {policy['min_similarity']} similar.",
+            )
+        )
+
     out.append(
         Table(
             f"Coverage vs accuracy, {PRIMARY_RULE.value} confidence (%)",
