@@ -76,6 +76,7 @@ class CalibratedModel:
         self._make_calibrator = calibrator
         self._holdout = holdout
         self._calibrator: Calibrator | None = None
+        self.holdout: dict[str, float | int] | None = None
 
     @property
     def calibrated(self) -> bool:
@@ -83,6 +84,7 @@ class CalibratedModel:
 
     def fit(self, items: Sequence[str], labels: np.ndarray, known: np.ndarray) -> None:
         self._calibrator = None
+        self.holdout = None
         cut = int(len(items) * (1 - self._holdout))
         if len(items) - cut >= MIN_CALIBRATION_ROWS and cut > 0:
             self._base.fit(items[:cut], labels[:cut], known[:cut])
@@ -109,6 +111,7 @@ class CalibratedModel:
         probs = self._base.predict(items)
         pred = decide(probs, known=known)
         correct = exact_correct(labels, pred, known)
+        self.holdout = {"rows": len(items), "exact_match": float(correct.mean())}
         if correct.min() == correct.max():
             return None
 

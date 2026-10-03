@@ -2,13 +2,14 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Request, Response
 
+from divvy_ml.embed.router import app_embedder
 from divvy_ml.models.abstain import MIN_HISTORY
-from divvy_ml.ownership.config import data_dir
+from divvy_ml.ownership import service
+from divvy_ml.ownership.config import data_dir, model_name
+from divvy_ml.ownership.manager import DEFAULT_MODEL, ModelManager
 from divvy_ml.ownership.schemas import (
     HOUSEHOLD_ID_PATTERN,
     HistoryStatus,
-    ItemPrediction,
-    PredictionStatus,
     PredictRequest,
     PredictResponse,
     UpsertObservationsRequest,
@@ -18,10 +19,16 @@ from divvy_ml.ownership.store import HistoryStore
 
 router = APIRouter(prefix="/ownership", tags=["ownership"])
 
-# Stub until a trained model is served (#114).
-STUB_MODEL_VERSION = "stub-0"
-
 HouseholdPath = Annotated[str, Path(pattern=HOUSEHOLD_ID_PATTERN)]
+
+
+def build_manager(store: HistoryStore, request: Request) -> ModelManager:
+    return ModelManager(
+        store,
+        app_embedder(request),
+        model_name(DEFAULT_MODEL),
+        models_dir=data_dir() / "models",
+    )
 
 
 def get_store(request: Request) -> HistoryStore:
@@ -36,15 +43,29 @@ def get_store(request: Request) -> HistoryStore:
 Store = Annotated[HistoryStore, Depends(get_store)]
 
 
+def get_manager(request: Request, store: Store) -> ModelManager:
+    manager = getattr(request.app.state, "models", None)
+    if manager is None:
+        manager = request.app.state.models = build_manager(store, request)
+
+    return manager
+
+
+Manager = Annotated[ModelManager, Depends(get_manager)]
+
+
 @router.post("/predict", response_model=PredictResponse)
-def predict(request: PredictRequest) -> PredictResponse:
-    return PredictResponse(
-        model_version=STUB_MODEL_VERSION,
-        predictions=[
-            ItemPrediction(item_id=item.item_id, status=PredictionStatus.UNKNOWN, confidence=0)
-            for item in request.items
-        ],
-    )
+def predict(body: PredictRequest, manager: Manager) -> PredictResponse:
+    """Predict who owns each item from the household's stored history.
+
+    Items come back as `unknown` while the household has too little history, or when nothing in it
+    resembles the item.
+    """
+    state = manager.get(body.household_id)
+    if state is None:
+        return service.unknown_response(body, manager.untrained_version)
+
+    return service.predict(state, body, manager.policy)
 
 
 @router.put("/households/{household_id}/observations", response_model=UpsertObservationsResponse)
@@ -70,11 +91,12 @@ def delete_observation(household_id: HouseholdPath, observation_id: str, store: 
 
 
 @router.get("/households/{household_id}/history", response_model=HistoryStatus)
-def history_status(household_id: HouseholdPath, store: Store) -> HistoryStatus:
+def history_status(household_id: HouseholdPath, store: Store, manager: Manager) -> HistoryStatus:
     size = store.count(household_id)
     return HistoryStatus(
         household_id=household_id,
         history_size=size,
         min_history=MIN_HISTORY,
         ready=size >= MIN_HISTORY,
+        model_version=manager.current_version(household_id),
     )

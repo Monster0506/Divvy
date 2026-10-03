@@ -833,6 +833,7 @@
     },
     "/ownership/predict": {
       "post": {
+        "description": "Predict who owns each item from the household's stored history.\n\nItems come back as `unknown` while the household has too little history, or when nothing in it\nresembles the item.",
         "operationId": "predict_ownership_predict_post",
         "requestBody": {
           "content": {
