@@ -12,10 +12,17 @@ import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.request.httpMethod
 import io.ktor.server.request.path
 import io.ktor.server.response.respond
+import io.ktor.server.routing.get
+import io.ktor.server.routing.routing
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.slf4j.event.Level
 
+@Serializable
+data class HealthResponse(val status: String, val version: String)
+
 fun Application.module() {
+    val config = AppConfig.from(environment.config)
     install(ContentNegotiation) {
         json(Json {
             ignoreUnknownKeys = true
@@ -53,5 +60,8 @@ fun Application.module() {
                 ApiError("internal_error", "Internal server error"),
             )
         }
+    }
+    routing {
+        get("/health") { call.respond(HealthResponse("ok", config.version)) }
     }
 }
