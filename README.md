@@ -87,7 +87,12 @@ The Python ML service lives in `ml/`. See [ml/README.md](ml/README.md) for setup
 
 ## Continuous integration
 
-GitHub Actions runs on every pull request and every push to `main`:
+GitHub Actions runs each workflow only when its files change, so a docs-only change runs no build jobs:
 
-- **Gradle** (`.github/workflows/gradle.yml`): `./gradlew :composeApp:check :androidApp:assembleDebug :server:test` on JDK 17. Test reports are uploaded as an artifact when the build fails.
-- **ML service** (`.github/workflows/ml.yml`): lint, tests and a Docker build for `ml/`, run only when `ml/` changes. See [ml/README.md](ml/README.md).
+| Workflow | Runs when | Does | Typical time |
+|----------|-----------|------|--------------|
+| **Gradle** (`.github/workflows/gradle.yml`) | PRs and pushes to `main` touching `composeApp/`, `androidApp/`, `server/`, `gradle/` or the build scripts | `./gradlew :composeApp:check :androidApp:assembleDebug :server:test` on JDK 17; uploads test reports on failure | ~4–5 min |
+| **ML service** (`.github/workflows/ml.yml`) | PRs and pushes to `main` touching `ml/` | ruff, pytest and a Docker build with a `/health` check. See [ml/README.md](ml/README.md). | ~20 s per job (parallel) |
+| **iOS** (`.github/workflows/ios.yml`) | Nightly at 06:17 UTC, manual trigger, and PRs touching `composeApp/src/iosMain/` or `iosApp/` | `:composeApp:linkDebugFrameworkIosSimulatorArm64` on macOS | IOS_TIME |
+
+To run the iOS build by hand, use **Actions → iOS → Run workflow**, or run `gh workflow run ios.yml`.
