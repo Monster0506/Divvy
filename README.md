@@ -93,6 +93,6 @@ GitHub Actions runs each workflow only when its files change, so a docs-only cha
 |----------|-----------|------|--------------|
 | **Gradle** (`.github/workflows/gradle.yml`) | PRs and pushes to `main` touching `composeApp/`, `androidApp/`, `server/`, `gradle/` or the build scripts | `./gradlew :composeApp:check :androidApp:assembleDebug :server:test` on JDK 17; uploads test reports on failure | ~4–5 min |
 | **ML service** (`.github/workflows/ml.yml`) | PRs and pushes to `main` touching `ml/` | ruff, pytest and a Docker build with a `/health` check. See [ml/README.md](ml/README.md). | ~20 s per job (parallel) |
-| **iOS** (`.github/workflows/ios.yml`) | Nightly at 06:17 UTC, manual trigger, and PRs touching `composeApp/src/iosMain/` or `iosApp/` | `:composeApp:linkDebugFrameworkIosSimulatorArm64` on macOS | IOS_TIME |
+| **iOS** (`.github/workflows/ios.yml`) | Nightly at 06:17 UTC, manual trigger, and PRs touching `composeApp/src/iosMain/` or `iosApp/` | `:composeApp:linkDebugFrameworkIosSimulatorArm64` on macOS | ~7 min without a cache, faster once `~/.konan` is cached |
 
 To run the iOS build by hand, use **Actions → iOS → Run workflow**, or run `gh workflow run ios.yml`.
