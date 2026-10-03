@@ -82,3 +82,19 @@ household at that time. Someone missing from a line (not yet joined, or archived
 - `chrono_split(dates)` and `walk_forward(dates, start, stop, step)`: time-ordered boundaries that never put one purchase date on both sides,
   because items bought on one trip belong together.
 - `check_no_leakage(dates, split)` raises unless every later period is strictly after every earlier one.
+
+## Evaluation report
+
+```
+python -m divvy_ml.eval --household synthetic --out eval-report
+python -m divvy_ml.eval --data data/real/observations.jsonl --expect real
+```
+
+Walks forward through the household one block of days at a time, refitting each model on earlier days only, and scores
+the held-out test period. `eval-report/` gets `report.md`, `report.html` (with the reliability diagram) and `results.json`.
+The report has exact match, per-person precision/recall, calibration (ECE), cold-start slices, the auto-assign operating
+point, the coverage-vs-accuracy curve and a recommended confidence threshold. The threshold is picked on validation data
+for `--target` accuracy (default 0.95) and applied unchanged to test. `--min-exact` makes the command fail when the best
+model scores below it, which is how CI catches regressions. CI runs it on the synthetic household and uploads the report.
+
+Models are registered in `divvy_ml/models/registry.py`; `--models frequency exact-item` picks some.
