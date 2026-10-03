@@ -40,6 +40,14 @@ From the command line, with a device or emulator connected:
 ./gradlew :androidApp:installDebug
 ```
 
+### Server
+
+```bash
+./gradlew :server:run
+```
+
+The Ktor server listens on port 8080.
+
 ### Web (Wasm)
 
 ```bash
