@@ -55,7 +55,7 @@ private fun BalanceRow(balance: Balance) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Avatar(balance.person.initials, size = 36)
+        Avatar(balance.person, size = 36)
         val net by animateIntAsState(balance.netCents, tween(450))
         val tint by animateColorAsState(if (balance.netCents > 0) DivvyColors.Accent else DivvyColors.Ink, tween(300))
         Column(Modifier.weight(1f)) {
@@ -80,7 +80,7 @@ private fun TransferRow(transfer: Transfer, onTogglePaid: () -> Unit) {
         Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("${transfer.from.name} → ${transfer.to.name}", Modifier.weight(1f), fontSize = 14.sp, color = color)
+        Text("${transfer.from.name} to ${transfer.to.name}", Modifier.weight(1f), fontSize = 14.sp, color = color)
         Text(transfer.amountCents.toMoney(), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = color)
         OutlinedButton(
             onClick = onTogglePaid,
