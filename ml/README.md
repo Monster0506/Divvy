@@ -177,3 +177,19 @@ At the threshold picked on validation for 95% accuracy, the calibrated models au
 past item is under 0.4 similar (hashing embedder; recalibrate for another). On the synthetic household, items below 0.3
 similarity were never right and 0.3 to 0.5 were right about one time in five. The report shows how many items would be
 unknown and how accurate the model is on each side. An empty household is always unknown.
+
+## Household history
+
+The service keeps a copy of each household's confirmed items so it can predict from them (see
+`docs/adr/0002-ml-household-history.md`). The backend pushes changes after every confirmation or correction:
+
+| Method | Path | Purpose |
+|---|---|---|
+| PUT | `/ownership/households/{id}/observations` | Add or update observations by `observation_id` (idempotent); `?replace=true` replaces the whole history |
+| DELETE | `/ownership/households/{id}/observations/{observation_id}` | Remove one |
+| GET | `/ownership/households/{id}/history` | History size and whether there is enough to predict |
+
+An observation has a `purchased_on` date, a `description`, `member_ids` (who was in the household then) and `owner_ids`.
+A correction resends the same `observation_id` with the original date. Each household is one JSONL file under
+`DIVVY_ML_DATA_DIR` (default `./data`), in the format `python -m divvy_ml.eval --data <file>` reads. Household ids are
+letters, digits, `-` and `_`, up to 64 characters.
