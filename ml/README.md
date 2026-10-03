@@ -27,6 +27,12 @@ Without make, run the commands from the Makefile directly.
 
 `POST /ownership/predict` takes a `household_id`, the household's `people` and the `items` to classify, and returns one prediction per item with its owners, a confidence between 0 and 1, and alternative owner sets (see `divvy_ml/ownership/schemas.py`). The `receipts` and `ownership` modules must not import each other; a test enforces this.
 
+## Reconciliation
+
+`divvy_ml.receipts.reconcile(receipt)` compares items + tax - discounts with the printed total and returns the difference in cents
+(printed minus computed). `with_reconciliation(receipt)` adds a warning to `warnings` when they differ, and `/receipts/extract`
+applies it to every response. A receipt with no printed total is not checked.
+
 ## API contract
 
 `openapi.json` is the committed contract the Kotlin backend builds against. After changing any endpoint or schema, run `make openapi` (`python -m divvy_ml.openapi`) and commit the result. `tests/test_openapi.py` fails when the file is out of date.
