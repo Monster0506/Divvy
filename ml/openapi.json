@@ -48,6 +48,59 @@
         "title": "Discount",
         "type": "object"
       },
+      "EmbedRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "texts": {
+            "description": "Item descriptions",
+            "items": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 256,
+            "minItems": 1,
+            "title": "Texts",
+            "type": "array"
+          }
+        },
+        "required": [
+          "texts"
+        ],
+        "title": "EmbedRequest",
+        "type": "object"
+      },
+      "EmbedResponse": {
+        "properties": {
+          "dimensions": {
+            "title": "Dimensions",
+            "type": "integer"
+          },
+          "embedder": {
+            "description": "Which embedder produced the vectors",
+            "title": "Embedder",
+            "type": "string"
+          },
+          "embeddings": {
+            "description": "One L2-normalised vector per text, in order",
+            "items": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "title": "Embeddings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "embedder",
+          "dimensions",
+          "embeddings"
+        ],
+        "title": "EmbedResponse",
+        "type": "object"
+      },
       "ExtractRequest": {
         "additionalProperties": false,
         "description": "Identifies the receipt image to extract. Exactly one source must be given.",
@@ -411,6 +464,47 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/embed": {
+      "post": {
+        "operationId": "embed_embed_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmbedRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmbedResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Embed",
+        "tags": [
+          "embeddings"
+        ]
+      }
+    },
     "/health": {
       "get": {
         "operationId": "health_health_get",
