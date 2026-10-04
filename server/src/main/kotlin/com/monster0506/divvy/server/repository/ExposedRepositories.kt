@@ -361,7 +361,7 @@ class ExposedItemOwnerRepository(private val db: Database) : ItemOwnerRepository
 
 class ExposedSettlementRepository(private val db: Database) : SettlementRepository {
     override suspend fun record(settlement: NewSettlement): Settlement = db.dbQuery {
-        SettlementTable.insertReturning {
+        val saved = SettlementTable.insertReturning {
             it[householdId] = settlement.householdId
             it[fromPersonId] = settlement.fromPersonId
             it[toPersonId] = settlement.toPersonId
@@ -370,6 +370,20 @@ class ExposedSettlementRepository(private val db: Database) : SettlementReposito
             settlement.settledAt?.let { at -> it[settledAt] = at.toUtc() }
             it[note] = settlement.note
         }.single().toSettlement()
+
+        // The payer's debt to the receiver shrinks, so the entry runs from receiver (debtor) to payer (creditor).
+        insertLedgerEntry(
+            NewLedgerEntry(
+                householdId = saved.householdId,
+                debtorPersonId = saved.toPersonId,
+                creditorPersonId = saved.fromPersonId,
+                amount = saved.amount,
+                sourceType = LedgerSourceType.SETTLEMENT,
+                sourceId = saved.id,
+            ),
+            null,
+        )
+        saved
     }
 
     override suspend fun findById(id: Uuid): Settlement? = db.dbQuery {

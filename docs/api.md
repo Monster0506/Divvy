@@ -18,3 +18,11 @@ Errors use the standard ApiError body. All routes require the X-Api-Key header.
   - 415 if the file is not a JPEG, PNG or HEIC (checked by magic bytes, not the declared content type)
 
 The image is stored under `IMAGE_DIR` (default `data/images`). The receipt starts in `processing` status with no payer or amounts.
+
+## Settlements
+- POST /households/{id}/settlements  {"fromPersonId": "...", "toPersonId": "...", "amountMinor": 2500, "note": "Venmo" (optional)} -> 201 | 400 | 404
+  Records that `fromPersonId` paid `toPersonId`. Also writes a ledger entry that reduces what the payer owes the receiver.
+  The currency is the household's default. Overpaying is allowed and flips the balance.
+  - 400 for a non-positive amount, the same person on both sides, a person outside the household, a missing field or malformed JSON
+  - 404 for an unknown or malformed household id
+- GET /households/{id}/settlements -> 200, newest first | 404
