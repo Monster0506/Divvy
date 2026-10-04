@@ -13,6 +13,7 @@ import com.monster0506.divvy.server.domain.CurrencyCode
 import com.monster0506.divvy.server.domain.Household
 import com.monster0506.divvy.server.domain.ItemOwner
 import com.monster0506.divvy.server.domain.ItemOwnerHistoryEntry
+import com.monster0506.divvy.server.domain.LabelSource
 import com.monster0506.divvy.server.domain.Money
 import com.monster0506.divvy.server.domain.LedgerEntry
 import com.monster0506.divvy.server.domain.LedgerSourceType
@@ -29,6 +30,7 @@ import com.monster0506.divvy.server.domain.ReceiptStatus
 import com.monster0506.divvy.server.domain.Settlement
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
+import org.jetbrains.exposed.v1.core.count
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
@@ -41,6 +43,7 @@ import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.insertReturning
 import org.jetbrains.exposed.v1.jdbc.select
+import org.jetbrains.exposed.v1.jdbc.update
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.updateReturning
 import org.jetbrains.exposed.v1.jdbc.upsert
@@ -50,10 +53,14 @@ import java.time.ZoneOffset
 import kotlin.uuid.Uuid
 
 /** Exposed-backed implementations of the repository interfaces, sharing one [Database]. */
-class ExposedRepositories(db: Database) {
+class ExposedRepositories(
+    db: Database,
+    /** Lets the app wrap receipts, for example to push confirmed labels to the ML service. */
+    wrapReceipts: (ReceiptRepository) -> ReceiptRepository = { it },
+) {
     val households: HouseholdRepository = ExposedHouseholdRepository(db)
     val people: PersonRepository = ExposedPersonRepository(db)
-    val receipts: ReceiptRepository = ExposedReceiptRepository(db)
+    val receipts: ReceiptRepository = wrapReceipts(ExposedReceiptRepository(db))
     val itemOwners: ItemOwnerRepository = ExposedItemOwnerRepository(db)
     val settlements: SettlementRepository = ExposedSettlementRepository(db)
     val ledger: LedgerRepository = ExposedLedgerRepository(db)
@@ -99,6 +106,12 @@ class ExposedPersonRepository(private val db: Database) : PersonRepository {
 
     override suspend fun listByHousehold(householdId: Uuid, includeArchived: Boolean): List<Person> = db.dbQuery {
         peopleOf(householdId, includeArchived)
+    }
+
+    override suspend fun rename(id: Uuid, displayName: String): Person? = db.dbQuery {
+        PersonTable.updateReturning(where = { PersonTable.id eq id }) {
+            it[PersonTable.displayName] = displayName
+        }.singleOrNull()?.toPerson()
     }
 
     override suspend fun archive(id: Uuid): Person? = db.dbQuery {
@@ -172,8 +185,49 @@ class ExposedReceiptRepository(private val db: Database) : ReceiptRepository {
         ) {
             it[status] = ReceiptStatus.CONFIRMED.dbValue
             it[confirmedAt] = CurrentTimestampWithTimeZone
-        }.toList()
+        }.toList().also { if (it.isNotEmpty()) recordLabelSources(id) }
         loadReceipts(listOf(id)).singleOrNull()
+    }
+
+    override suspend fun correctionRate(householdId: Uuid): Double? = db.dbQuery {
+        val predictedSources = listOf(LabelSource.PREDICTED_ACCEPTED.dbValue, LabelSource.PREDICTED_CORRECTED.dbValue)
+        val counts = ReceiptItemTable
+            .select(ReceiptItemTable.labelSource, ReceiptItemTable.id.count())
+            .where { (ReceiptItemTable.householdId eq householdId) and (ReceiptItemTable.labelSource inList predictedSources) }
+            .groupBy(ReceiptItemTable.labelSource)
+            .associate { it[ReceiptItemTable.labelSource] to it[ReceiptItemTable.id.count()] }
+        val corrected = counts[LabelSource.PREDICTED_CORRECTED.dbValue] ?: 0L
+        val total = corrected + (counts[LabelSource.PREDICTED_ACCEPTED.dbValue] ?: 0L)
+        if (total == 0L) null else corrected.toDouble() / total
+    }
+
+    /** Compares each item's final owners with the model's first prediction for it. */
+    private fun recordLabelSources(receiptId: Uuid) {
+        val items = ReceiptItemTable.select(ReceiptItemTable.id)
+            .where { ReceiptItemTable.receiptId eq receiptId }
+            .map { it[ReceiptItemTable.id] }
+        if (items.isEmpty()) return
+        val finalOwners = ownersOf(items).groupBy({ it.receiptItemId }) { it.personId to it.shareWeight }
+        val predicted = ItemOwnerHistoryTable.selectAll()
+            .where {
+                (ItemOwnerHistoryTable.receiptItemId inList items) and
+                    (ItemOwnerHistoryTable.operation eq OwnershipChange.ASSIGNED.dbValue) and
+                    (ItemOwnerHistoryTable.ownershipSource eq OwnershipSource.MODEL.dbValue)
+            }
+            .orderBy(ItemOwnerHistoryTable.id)
+            .toList()
+            .groupBy({ it[ItemOwnerHistoryTable.receiptItemId] }) {
+                it[ItemOwnerHistoryTable.personId] to it[ItemOwnerHistoryTable.shareWeight]
+            }
+        for (itemId in items) {
+            val guess = predicted[itemId]?.toMap()
+            val source = when {
+                guess == null -> LabelSource.MANUAL
+                guess == finalOwners[itemId].orEmpty().toMap() -> LabelSource.PREDICTED_ACCEPTED
+                else -> LabelSource.PREDICTED_CORRECTED
+            }
+            ReceiptItemTable.update({ ReceiptItemTable.id eq itemId }) { it[labelSource] = source.dbValue }
+        }
     }
 
     override suspend fun void(id: Uuid): Receipt? = db.dbQuery {
@@ -403,6 +457,7 @@ private fun ResultRow.toReceiptItem(currency: CurrencyCode, owners: List<ItemOwn
     discount = Money(this[ReceiptItemTable.discountMinor], currency),
     total = Money(this[ReceiptItemTable.totalMinor], currency),
     owners = owners,
+    labelSource = this[ReceiptItemTable.labelSource]?.let(LabelSource::fromDb),
     createdAt = this[ReceiptItemTable.createdAt].toInstant(),
     updatedAt = this[ReceiptItemTable.updatedAt].toInstant(),
 )
