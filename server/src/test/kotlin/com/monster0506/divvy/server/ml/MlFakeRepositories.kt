@@ -5,6 +5,10 @@ import com.monster0506.divvy.server.domain.Household
 import com.monster0506.divvy.server.domain.NewReceipt
 import com.monster0506.divvy.server.domain.NewReceiptItem
 import com.monster0506.divvy.server.domain.Receipt
+import com.monster0506.divvy.server.domain.ReceiptCursor
+import com.monster0506.divvy.server.domain.ReceiptFilter
+import com.monster0506.divvy.server.domain.ReceiptPage
+
 import com.monster0506.divvy.server.domain.ReceiptItemPatch
 import com.monster0506.divvy.server.domain.ReceiptPatch
 import com.monster0506.divvy.server.repository.HouseholdRepository
@@ -21,6 +25,13 @@ class FakeReceipts(var all: List<Receipt>) : ReceiptRepository {
 
     override suspend fun listByHousehold(householdId: Uuid, limit: Int): List<Receipt> =
         all.filter { it.householdId == householdId }.take(limit)
+
+    override suspend fun page(
+        householdId: Uuid,
+        filter: ReceiptFilter,
+        after: ReceiptCursor?,
+        limit: Int,
+    ): ReceiptPage = error("not used")
 
     override suspend fun update(id: Uuid, patch: ReceiptPatch): Receipt? = error("not used")
 

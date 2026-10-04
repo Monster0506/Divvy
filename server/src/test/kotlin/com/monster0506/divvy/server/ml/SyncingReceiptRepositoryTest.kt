@@ -4,6 +4,10 @@ import com.monster0506.divvy.server.domain.LabelSource
 import com.monster0506.divvy.server.domain.NewReceipt
 import com.monster0506.divvy.server.domain.NewReceiptItem
 import com.monster0506.divvy.server.domain.Receipt
+import com.monster0506.divvy.server.domain.ReceiptCursor
+import com.monster0506.divvy.server.domain.ReceiptFilter
+import com.monster0506.divvy.server.domain.ReceiptPage
+
 import com.monster0506.divvy.server.domain.ReceiptItemPatch
 import com.monster0506.divvy.server.domain.ReceiptPatch
 import com.monster0506.divvy.server.domain.ReceiptStatus
@@ -40,6 +44,16 @@ private class StubReceipts(
     override suspend fun listByHousehold(householdId: Uuid, limit: Int): List<Receipt> {
         calls += "list"
         return emptyList()
+    }
+
+    override suspend fun page(
+        householdId: Uuid,
+        filter: ReceiptFilter,
+        after: ReceiptCursor?,
+        limit: Int,
+    ): ReceiptPage {
+        calls += "page"
+        return ReceiptPage(emptyList(), null)
     }
 
     override suspend fun update(id: Uuid, patch: ReceiptPatch): Receipt? = error("not used")
