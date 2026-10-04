@@ -57,7 +57,17 @@ interface ReceiptRepository {
     /** Receipts newest first, with items and owners. */
     suspend fun listByHousehold(householdId: Uuid, limit: Int = 50): List<Receipt>
 
+    /**
+     * Confirms a draft receipt and records a [com.monster0506.divvy.server.domain.LabelSource]
+     * for each item by comparing its final owners with what the model first predicted.
+     */
     suspend fun confirm(id: Uuid): Receipt?
+
+    /**
+     * Share of model-predicted items on confirmed receipts that people changed, or null if there
+     * are none yet.
+     */
+    suspend fun correctionRate(householdId: Uuid): Double?
 
     /** Marks a receipt void. Receipts are never deleted, so their history stays available. */
     suspend fun void(id: Uuid): Receipt?
