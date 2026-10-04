@@ -32,9 +32,11 @@ class HouseholdSettingsApi(client: HttpClient) {
     }
 
     /** Saves [personId]'s Venmo username, or removes it when [username] is empty. Returns it as the server stored it. */
-    suspend fun setVenmo(householdId: String, personId: String, username: String): SettingsResult<String?> = settingsCall {
-        api.setVenmoUsername(householdId, personId, username).venmoUsername
-    }
+    suspend fun setVenmo(householdId: String, personId: String, username: String): SettingsResult<String?> =
+        when (val result = settingsCall { api.setVenmoUsername(householdId, personId, username).venmoUsername }) {
+            is SettingsResult.Invalid -> SettingsResult.Invalid(venmoNotSupported(result.message) ?: result.message)
+            else -> result
+        }
 
     suspend fun rename(householdId: String, name: String): SettingsResult<Unit> = settingsCall {
         api.renameHousehold(householdId, name)
@@ -46,6 +48,14 @@ class HouseholdSettingsApi(client: HttpClient) {
         Unit
     }
 }
+
+/** Shown when the server is older than Venmo usernames and so demands a name on every person update. */
+const val VENMO_SERVER_TOO_OLD =
+    "This server doesn't support Venmo usernames yet. Update the Divvy server, then try again."
+
+/** [VENMO_SERVER_TOO_OLD] if [message] is an older server's reply to a Venmo-only update, else null. */
+fun venmoNotSupported(message: String): String? =
+    VENMO_SERVER_TOO_OLD.takeIf { message.startsWith("displayName must be") }
 
 private suspend fun <T> settingsCall(block: suspend () -> T): SettingsResult<T> = try {
     SettingsResult.Ok(block())

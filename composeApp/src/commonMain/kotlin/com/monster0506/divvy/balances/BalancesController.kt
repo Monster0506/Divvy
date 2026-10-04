@@ -2,6 +2,7 @@ package com.monster0506.divvy.balances
 
 import com.monster0506.divvy.data.api.ApiFailure
 import com.monster0506.divvy.data.api.ApiResult
+import com.monster0506.divvy.data.api.venmoNotSupported
 import com.monster0506.divvy.data.dto.BalancesDto
 import com.monster0506.divvy.data.dto.CreateSettlementRequest
 import com.monster0506.divvy.data.dto.SettlementDto
@@ -281,7 +282,7 @@ class BalancesController(
     }
 
     private fun venmoFailure(failure: ApiFailure): String = when (failure) {
-        is ApiFailure.Validation -> failure.error.message
+        is ApiFailure.Validation -> venmoNotSupported(failure.error.message) ?: failure.error.message
         is ApiFailure.ServerError -> "The server could not save that Venmo username. Try again in a moment."
         else -> describe(failure)
     }

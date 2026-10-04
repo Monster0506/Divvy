@@ -2,6 +2,7 @@ package com.monster0506.divvy.balances
 
 import com.monster0506.divvy.data.api.ApiFailure
 import com.monster0506.divvy.data.api.ApiResult
+import com.monster0506.divvy.data.api.VENMO_SERVER_TOO_OLD
 import com.monster0506.divvy.data.dto.ApiError
 import com.monster0506.divvy.data.dto.BalancesDto
 import com.monster0506.divvy.data.dto.CreateSettlementRequest
@@ -169,6 +170,18 @@ class SettleUpTest {
         assertTrue(server.venmoSaves.isEmpty())
         assertFalse(saved)
         assertEquals("Venmo usernames are at least 5 characters.", c.state.value.venmoMessage)
+    }
+
+    @Test
+    fun a_server_without_venmo_support_says_so() = runTest {
+        // What a server from before Venmo usernames answers when no displayName is sent.
+        server.venmoFailure = ApiFailure.Validation(ApiError("validation_error", "displayName must be between 1 and 80 characters"))
+        val c = open(controller())
+
+        c.setVenmo(c.state.value.transfers.first().to, "Savar-Shrestha")
+        advanceUntilIdle()
+
+        assertEquals(VENMO_SERVER_TOO_OLD, c.state.value.venmoMessage)
     }
 
     @Test
