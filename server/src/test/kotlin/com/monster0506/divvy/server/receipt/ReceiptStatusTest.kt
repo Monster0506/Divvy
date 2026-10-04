@@ -61,7 +61,7 @@ class ReceiptStatusTest {
             )
         }
         application {
-            module()
+            module(connectDatabase = false)
             routing {
                 get("/t") { ReceiptStatus.CONFIRMED.transitionTo(ReceiptStatus.FAILED) }
             }
