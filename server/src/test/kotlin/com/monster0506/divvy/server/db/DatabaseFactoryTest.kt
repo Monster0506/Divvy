@@ -17,13 +17,13 @@ class DatabaseFactoryTest {
 
         DatabaseFactory.connect(TestDatabase.appConfig).use { db ->
             assertEquals(0, db.migrationsApplied)
-            assertEquals("3", db.schemaVersion)
+            assertEquals("6", db.schemaVersion)
             val applied = transaction(db.database) {
                 exec("SELECT count(*) FROM flyway_schema_history WHERE success AND version IS NOT NULL") { rs ->
                     rs.next(); rs.getInt(1)
                 }
             }
-            assertEquals(3, applied)
+            assertEquals(4, applied)
         }
     }
 

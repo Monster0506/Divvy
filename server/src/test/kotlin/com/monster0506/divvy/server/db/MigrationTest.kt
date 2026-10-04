@@ -13,7 +13,7 @@ class MigrationTest {
         val history = TestDatabase.query(
             "SELECT version, success FROM flyway_schema_history WHERE version IS NOT NULL ORDER BY installed_rank",
         )
-        assertEquals(listOf("1", "2", "3"), history.map { it["version"] })
+        assertEquals(listOf("1", "2", "3", "6"), history.map { it["version"] })
         assertTrue(history.all { it["success"] == true })
     }
 
@@ -22,7 +22,7 @@ class MigrationTest {
         TestDatabase.db
         DatabaseFactory.connect(TestDatabase.appConfig).close()
         val count = TestDatabase.query("SELECT count(*) AS n FROM flyway_schema_history").single()["n"]
-        assertEquals(3L, count)
+        assertEquals(4L, count)
     }
 
     @Test
