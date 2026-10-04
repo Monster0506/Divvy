@@ -52,21 +52,47 @@ class ApiException(val failure: ApiFailure) : Exception(failure.toString())
 /** Typed wrappers over the raw HTTP calls. */
 class DivvyApi(private val client: HttpClient) {
     suspend fun createHousehold(name: String): HouseholdDto =
-        send { client.post("households") { contentType(ContentType.Application.Json); setBody(CreateHouseholdRequest(name)) } }
+        send {
+            client.post("households") {
+                contentType(ContentType.Application.Json); setBody(
+                CreateHouseholdRequest(
+                    name
+                )
+            )
+            }
+        }
 
     suspend fun getHousehold(id: String): HouseholdDto = send { client.get("households/$id") }
 
     suspend fun renameHousehold(id: String, name: String): HouseholdDto =
-        send { client.patch("households/$id") { contentType(ContentType.Application.Json); setBody(RenameHouseholdRequest(name)) } }
+        send {
+            client.patch("households/$id") {
+                contentType(ContentType.Application.Json); setBody(
+                RenameHouseholdRequest(name)
+            )
+            }
+        }
 
     suspend fun listPeople(householdId: String, includeArchived: Boolean = false): List<PersonDto> =
         send { client.get("households/$householdId/people?includeArchived=$includeArchived") }
 
     suspend fun addPerson(householdId: String, displayName: String): PersonDto =
-        send { client.post("households/$householdId/people") { contentType(ContentType.Application.Json); setBody(PersonRequest(displayName)) } }
+        send {
+            client.post("households/$householdId/people") {
+                contentType(ContentType.Application.Json); setBody(
+                PersonRequest(displayName)
+            )
+            }
+        }
 
     suspend fun renamePerson(householdId: String, personId: String, displayName: String): PersonDto =
-        send { client.patch("households/$householdId/people/$personId") { contentType(ContentType.Application.Json); setBody(PersonRequest(displayName)) } }
+        send {
+            client.patch("households/$householdId/people/$personId") {
+                contentType(ContentType.Application.Json); setBody(
+                PersonRequest(displayName)
+            )
+            }
+        }
 
     suspend fun archivePerson(householdId: String, personId: String): PersonDto =
         send { client.post("households/$householdId/people/$personId/archive") }
@@ -144,8 +170,15 @@ class DivvyApi(private val client: HttpClient) {
     suspend fun getPredictions(householdId: String, receiptId: String): PredictionsDto =
         send { client.get("households/$householdId/receipts/$receiptId/predictions") }
 
+    suspend fun rerunPredictions(householdId: String, receiptId: String): PredictionsDto =
+        send { client.post("households/$householdId/receipts/$receiptId/predictions") }
+
     /** Keeps the model's owners as the person's choice, for [itemIds] or every item that needs it when null. */
-    suspend fun acceptPredictions(householdId: String, receiptId: String, itemIds: List<String>? = null): AcceptedPredictionsDto =
+    suspend fun acceptPredictions(
+        householdId: String,
+        receiptId: String,
+        itemIds: List<String>? = null
+    ): AcceptedPredictionsDto =
         send {
             client.post("households/$householdId/receipts/$receiptId/predictions/accept") {
                 setBody(AcceptPredictionsRequest(itemIds))

@@ -81,6 +81,8 @@ fun ReviewReceiptScreen(
     onUndo: () -> Unit = {},
     notice: String? = null,
     onChoosePayer: ((personId: String) -> Unit)? = null,
+    onGuessAgain: (() -> Unit)? = null,
+    guessing: Boolean = false,
 ) {
     var choosingPayer by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<ReceiptLine?>(null) }
@@ -118,6 +120,8 @@ fun ReviewReceiptScreen(
             onToggleMerge = { merging = !merging; selected = emptySet() },
             onMerge = { onMergeLines(selected); merging = false; selected = emptySet() },
             onUndo = onUndo,
+            onGuessAgain = onGuessAgain,
+            guessing = guessing,
         )
         AnimatedVisibility(pendingCount > 0) {
             SectionHeader("Needs confirmation", pendingCount.toString(), warn = true)
@@ -201,6 +205,8 @@ private fun EditBar(
     onToggleMerge: () -> Unit,
     onMerge: () -> Unit,
     onUndo: () -> Unit,
+    onGuessAgain: (() -> Unit)?,
+    guessing: Boolean,
 ) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         if (merging) {
@@ -211,6 +217,11 @@ private fun EditBar(
         } else {
             TextButton(onClick = onAdd) { Text("Add item", fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
             TextButton(onClick = onToggleMerge) { Text("Merge", fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
+                        if (onGuessAgain != null) {
+                TextButton(onClick = onGuessAgain, enabled = !guessing) {
+                    Text(if (guessing) "Guessing..." else "Guess owners again", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
             if (canUndo) {
                 Spacer(Modifier.weight(1f))
                 TextButton(onClick = onUndo) { Text("Undo delete", fontSize = 13.sp, color = DivvyColors.Accent) }
@@ -279,7 +290,12 @@ private fun AutoHeader(count: Int, expanded: Boolean, onClick: () -> Unit) {
                     (slideInVertically { it } + fadeIn()) togetherWith (slideOutVertically { -it } + fadeOut())
                 },
             ) { n -> Text("$n", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = DivvyColors.Dim) }
-            Icon(DivvyIcons.ChevronDown, contentDescription = null, modifier = Modifier.rotate(angle), tint = DivvyColors.Dim)
+            Icon(
+                DivvyIcons.ChevronDown,
+                contentDescription = null,
+                modifier = Modifier.rotate(angle),
+                tint = DivvyColors.Dim
+            )
         }
     }
 }
@@ -298,22 +314,39 @@ private fun LineRow(
             Modifier.fillMaxWidth().background(if (selected) DivvyColors.Page else Color.Transparent)
                 .padding(horizontal = 20.dp, vertical = 12.dp),
         ) {
-            Row(Modifier.fillMaxWidth().clickable(onClick = onClick), horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(
+                Modifier.fillMaxWidth().clickable(onClick = onClick),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
                 Text(line.name, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = DivvyColors.Ink)
-                Text(line.priceCents.toMoney(), fontSize = 15.sp, fontWeight = FontWeight.Medium, color = DivvyColors.Ink)
+                Text(
+                    line.priceCents.toMoney(),
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = DivvyColors.Ink
+                )
             }
             if (line.confirmed) {
                 Text(line.ownersLabel(draft.people), fontSize = 12.sp, color = DivvyColors.Dim)
             } else {
                 val pct = (line.confidence * 100).toInt()
-                Text("Suggested ${line.ownersLabel(draft.people)}, $pct% sure", fontSize = 12.sp, color = DivvyColors.Warn)
+                Text(
+                    "Suggested ${line.ownersLabel(draft.people)}, $pct% sure",
+                    fontSize = 12.sp,
+                    color = DivvyColors.Warn
+                )
             }
             Spacer(Modifier.height(9.dp))
             OwnerPicker(draft.people, line.owners, onToggle = { onToggleOwner(line.id, it) }) {
                 if (!line.confirmed) {
                     Spacer(Modifier.weight(1f))
                     TextButton(onClick = { onConfirmLine(line.id) }) {
-                        Text("Looks right", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = DivvyColors.Accent)
+                        Text(
+                            "Looks right",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = DivvyColors.Accent
+                        )
                     }
                 }
             }
