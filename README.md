@@ -100,7 +100,7 @@ See JetBrains' guide on [running on a real iOS device](https://kotlinlang.org/do
 
 ### Taking a receipt photo
 
-From Receipts, tap Scan receipt, then the shutter button to open the device camera on Android or iOS. After taking a photo, the app shows a temporary preview; tap the shutter again to retake it, or choose Gallery to use an existing image. Camera failures show guidance on the screen. Photos are not saved or uploaded yet, and the receipt review screen still uses sample data.
+From Receipts, tap Scan receipt, then the shutter button to open the device camera on Android or iOS. Camera failures show guidance on the screen. Handling or uploading the captured photo comes later; the receipt review screen still uses sample data.
 
 ## ML service
 
