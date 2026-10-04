@@ -39,3 +39,6 @@ __pycache__/
 
 # environment
 .env
+# Local secrets (API keys); never commit
+secrets.txt
+**/secrets.txt

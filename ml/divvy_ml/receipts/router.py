@@ -1,28 +1,59 @@
-from datetime import date
+import logging
+from functools import lru_cache
+from typing import Annotated, Protocol
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
 
-from divvy_ml.receipts.schemas import Discount, ExtractedItem, ExtractedReceipt, ExtractRequest
+from divvy_ml.receipts import images
+from divvy_ml.receipts.config import NotConfiguredError, QwenConfig, image_dir
+from divvy_ml.receipts.images import ImageError, ReceiptImage
+from divvy_ml.receipts.qwen import ExtractionError, QwenExtractor
+from divvy_ml.receipts.schemas import ExtractedReceipt, ExtractRequest
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/receipts", tags=["receipts"])
 
-# Fixed response until a real extraction approach lands (#72).
-SAMPLE_RECEIPT = ExtractedReceipt(
-    store="Sample Grocer",
-    purchased_on=date(2026, 1, 15),
-    items=[
-        ExtractedItem(name="WHOLE MILK 1GAL", quantity=1, unit_price_cents=429, total_cents=429),
-        ExtractedItem(name="BANANAS", quantity=2.5, unit_price_cents=59, total_cents=148),
-        ExtractedItem(name="SOURDOUGH LOAF", quantity=1, unit_price_cents=550, total_cents=550),
-    ],
-    discounts=[Discount(description="MEMBER SAVINGS", amount_cents=100)],
-    subtotal_cents=1027,
-    tax_cents=72,
-    total_cents=1099,
-    warnings=["stub response: extraction not yet implemented"],
+
+class Extractor(Protocol):
+    def extract(self, image: ReceiptImage) -> ExtractedReceipt: ...
+
+
+@lru_cache(maxsize=1)
+def _configured_extractor() -> QwenExtractor:
+    return QwenExtractor(QwenConfig.from_env())
+
+
+def get_extractor() -> Extractor:
+    """The Qwen extractor from the environment. Tests replace this dependency."""
+    try:
+        return _configured_extractor()
+    except NotConfiguredError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from None
+
+
+@router.post(
+    "/extract",
+    response_model=ExtractedReceipt,
+    responses={
+        422: {"description": "The image is missing, unreadable or not a supported type"},
+        502: {"description": "The vision service failed or returned something unusable"},
+        503: {"description": "Extraction is not configured (no API key)"},
+    },
 )
-
-
-@router.post("/extract", response_model=ExtractedReceipt)
-def extract(request: ExtractRequest) -> ExtractedReceipt:
-    return SAMPLE_RECEIPT
+def extract(
+    request: ExtractRequest, extractor: Annotated[Extractor, Depends(get_extractor)]
+) -> ExtractedReceipt:
+    try:
+        image = (
+            images.from_base64(request.image_base64)
+            if request.image_base64 is not None
+            else images.from_stored_id(request.image_id or "", image_dir())
+        )
+    except ImageError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    try:
+        return extractor.extract(image)
+    except ExtractionError as exc:
+        log.warning("Extraction failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from None

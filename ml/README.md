@@ -20,7 +20,7 @@ Without make, run the commands from the Makefile directly.
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/health` | Liveness check |
-| POST | `/receipts/extract` | Extract a structured receipt from an image (currently returns a fixed sample) |
+| POST | `/receipts/extract` | Extract a structured receipt from an image with a Qwen vision model |
 | POST | `/ownership/predict` | Predict which household members own each item, from the household's stored history |
 | POST | `/embed` | Batched text embeddings |
 | PUT / DELETE / GET | `/ownership/households/{id}/...` | Push, remove and inspect a household's history (see Household history) |
@@ -28,6 +28,28 @@ Without make, run the commands from the Makefile directly.
 `POST /receipts/extract` takes exactly one of `image_id` (an image already in receipt storage) or `image_base64`, and returns an `ExtractedReceipt` (see `divvy_ml/receipts/schemas.py`). All money fields are integers in cents. Interactive docs are at `/docs` while the service is running.
 
 `POST /ownership/predict` takes a `household_id`, the household's `people` and the `items` to classify, and returns one prediction per item with its owners, a confidence between 0 and 1, and alternative owner sets (see `divvy_ml/ownership/schemas.py`). The `receipts` and `ownership` modules must not import each other; a test enforces this.
+
+## Receipt extraction
+
+`POST /receipts/extract` sends the image to a Qwen vision model (OpenAI-compatible chat API) with a strict JSON schema
+and a transcribe-only prompt, then converts the answer to the contract: dollars to integer cents, the printed date to
+`purchased_on` (null when not recognised), and arithmetic checks as `warnings` (line total, items against subtotal,
+subtotal plus tax against total; one cent of rounding is allowed). Values are never changed to make them agree.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `QWEN_API_KEY` | none | API key. Without a key the endpoint answers 503 |
+| `QWEN_API_KEY_FILE` | none | Path of a file holding only the key, used when `QWEN_API_KEY` is empty |
+| `QWEN_BASE_URL` | `https://maas.qwencloudapi.com/compatible-mode/v1` | Chat completions base |
+| `QWEN_MODEL` | `qwen3.7-plus` | Model name |
+| `QWEN_ENABLE_THINKING` / `QWEN_THINKING_BUDGET` | `true` / `512` | Thinking toggle and token budget |
+| `QWEN_TIMEOUT_SECONDS` | `60` | Per-call timeout |
+| `DIVVY_IMAGE_DIR` | none | Directory of stored receipt images (shared with the backend), needed for `image_id` |
+
+Errors: 422 for a missing, oversized (over 10 MB), unreadable or non-JPEG/PNG/WebP image, 502 when the vision service
+fails or returns something that is not a receipt, 503 when no key is set. Tests use a faked HTTP transport and the
+receipt-bot fixtures in `tests/data/qwen/`, so they need no network. To try it for real, set `QWEN_API_KEY_FILE` and run
+`pytest tests/test_receipts_live.py` with `DIVVY_LIVE_RECEIPT=<image path>`.
 
 ## API contract
 
@@ -253,4 +275,6 @@ Ground-truth receipts live in `tests/data/receipts/`, one JSON per receipt (same
     python evaluate_extraction.py --predictions DIR [--truth tests/data/receipts]
 
 It prints item price accuracy and the total reconciliation rate. The checked-in files are synthetic
-placeholders (`tests/data/make_fixtures.py`); real labelled receipts still need to be added.
+placeholders (`tests/data/make_fixtures.py`); real labelled receipts still need to be added. Hand-labelled real receipts go in `tests/data/labelled/` (kept apart so the
+synthetic set above stays at four); `test_labelled_receipts.py` checks each one adds up. The first is a Walmart receipt,
+where one blurry price was read from the printed subtotal.

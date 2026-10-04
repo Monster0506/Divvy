@@ -1,0 +1,11 @@
+{
+  "merchant": "Walmart",
+  "date": "08/12/26",
+  "items": [
+    {"name": "GV 2% MILK GAL", "quantity": 1, "unit_price": 3.98, "total_price": 3.98},
+    {"name": "WHT BREAD", "quantity": 1, "unit_price": 2.5, "total_price": 2.5}
+  ],
+  "subtotal": 6.48,
+  "tax": null,
+  "total": 6.48
+}

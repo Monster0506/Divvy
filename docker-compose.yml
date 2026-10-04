@@ -27,9 +27,14 @@ services:
     build:
       context: ./ml
     restart: unless-stopped
+    environment:
+      QWEN_API_KEY: ${QWEN_API_KEY:-}
+      QWEN_BASE_URL: ${QWEN_BASE_URL:-https://maas.qwencloudapi.com/compatible-mode/v1}
+      DIVVY_IMAGE_DIR: /receipts
     volumes:
       - mldata:/data
-    networks: [internal]
+      - receipts:/receipts:ro
+    networks: [internal, edge]   # edge for the outbound call to the vision API; no ports are published
     deploy:
       resources:
         limits:
