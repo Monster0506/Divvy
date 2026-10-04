@@ -95,6 +95,71 @@ See JetBrains' guide on [running on a real iOS device](https://kotlinlang.org/do
 
 The Python ML service lives in `ml/`. See [ml/README.md](ml/README.md) for setup, run, test and lint commands.
 
+## Deployment
+
+The stack (Postgres with pgvector, the ML service and the Ktor server) runs with Docker Compose on a single host. It is sized for 4 vCPU and 8 GB RAM.
+
+### Resource limits
+
+| Service | Memory | CPUs |
+| --- | --- | --- |
+| `db` | 1.5 GB | 1 |
+| `ml` | 3 GB | 2 |
+| `server` | 1.5 GB | 1 |
+
+That leaves about 2 GB for the OS, Caddy and page cache. Adjust the `deploy.resources.limits` blocks in `docker-compose.yml` for a different host.
+
+### Prerequisites
+
+- Docker Engine with the Compose plugin (v2)
+- Caddy on the host, proxying your domain to `127.0.0.1:8080` (the server only listens on loopback)
+- Git
+
+### First deploy
+
+```bash
+git clone https://github.com/Monster0506/Divvy.git
+cd Divvy
+cp .env.example .env
+# edit .env: set a real POSTGRES_PASSWORD and API_KEY
+docker compose up -d --build
+docker compose ps
+curl http://127.0.0.1:8080/health
+```
+
+`.env` is gitignored. Compose refuses to start if a required variable is missing. Data lives in the named volumes `pgdata` (database) and `receipts` (receipt images).
+
+### Updating
+
+```bash
+git pull
+docker compose up -d --build
+```
+
+Containers are recreated only when their image changed, and the volumes are kept. Check logs with `docker compose logs -f server`.
+
+### Backups
+
+Database dump:
+
+```bash
+docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > divvy-$(date +%F).dump
+```
+
+Restore into a running stack (this replaces existing objects):
+
+```bash
+docker compose exec -T db sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists' < divvy-2025-01-01.dump
+```
+
+Receipt images are in the `receipts` volume and are not part of the dump. Back them up with:
+
+```bash
+docker compose run --rm --no-deps -v "$PWD":/backup server tar czf /backup/receipts.tgz -C /data receipts
+```
+
+Copy the dump and archive off the host, for example with `rsync` on a cron job.
+
 ## Continuous integration
 
 GitHub Actions runs each workflow only when its files change, so a docs-only change runs no build jobs:
