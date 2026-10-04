@@ -15,12 +15,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -64,8 +69,10 @@ fun EditPersonScreen(
     onRemove: () -> Unit,
     onDone: () -> Unit,
     onTab: (Tab) -> Unit = {},
+    nameMessage: String? = null,
 ) {
     val scope = rememberCoroutineScope()
+    var confirmingRemove by remember { mutableStateOf(false) }
     val pickPhoto = rememberFilePickerLauncher(type = FileKitType.Image) { file ->
         if (file != null) scope.launch {
             val photo = runCatching { file.readBytes().decodeToImageBitmap().toAvatarPhoto() }.getOrNull()
@@ -111,6 +118,8 @@ fun EditPersonScreen(
             },
             label = { Text("Name") },
             singleLine = true,
+            isError = nameMessage != null,
+            supportingText = nameMessage?.let { message -> { Text(message) } },
             shape = RoundedCornerShape(8.dp),
             modifier = Modifier.fillMaxWidth().padding(start = 20.dp, top = 14.dp, end = 20.dp),
         )
@@ -154,13 +163,32 @@ fun EditPersonScreen(
         if (canRemove) {
             RowDivider()
             TextButton(
-                onClick = onRemove,
+                onClick = { confirmingRemove = true },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
             ) {
                 Text("Remove from household", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = DivvyColors.Warn)
             }
         }
         Spacer(Modifier.height(16.dp))
+    }
+
+    if (confirmingRemove) {
+        AlertDialog(
+            onDismissRequest = { confirmingRemove = false },
+            title = { Text("Remove ${person.name.ifBlank { "this member" }}?") },
+            text = {
+                Text("They are archived, not deleted. Their past receipts and balances stay, and they won't be added to new splits.")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmingRemove = false
+                    onRemove()
+                }) { Text("Remove") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmingRemove = false }) { Text("Cancel") }
+            },
+        )
     }
 }
 
@@ -196,5 +224,6 @@ private fun ImageBitmap.toAvatarPhoto(sizePx: Int = 256): ImageBitmap {
 @Preview(widthDp = 390, heightDp = 1000, showBackground = true)
 @Composable
 private fun EditPersonPreview() = DivvyTheme {
-    EditPersonScreen(SampleData.tj.copy(emoji = "🍕"), isMe = false, canRemove = true, {}, {}, {})
+    EditPersonScreen(SampleData.tj, isMe = false, canRemove = true, {}, {}, {})
 }
+
