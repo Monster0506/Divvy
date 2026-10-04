@@ -4,6 +4,7 @@ import com.monster0506.divvy.ui.model.ReceiptDraft
 import com.monster0506.divvy.ui.preview.SampleData
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class SplitTest {
     private fun draft() = SampleData.draft.copy(lines = SampleData.draft.lines.map { it.copy(confirmed = true) })
@@ -24,7 +25,7 @@ class SplitTest {
         val andrewBefore = before.getValue(SampleData.andrew)
         val andrewAfter = after.toMap().getValue(SampleData.andrew)
         // Andrew absorbs the extra $100 (plus his proportional share of tax is already included in the total).
-        assert(andrewAfter - andrewBefore >= 10_000)
+        assertTrue(andrewAfter - andrewBefore >= 10_000)
     }
 
     @Test
