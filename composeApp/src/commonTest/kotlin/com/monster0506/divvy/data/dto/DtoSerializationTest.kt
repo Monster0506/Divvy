@@ -112,7 +112,7 @@ class DtoSerializationTest {
 
     @Test
     fun large_amounts_keep_full_precision() {
-        val big = SettlementDto("s1", "h1", "p1", "p2", amountCents = 9_007_199_254_740_993L)
+        val big = SettlementDto("s1", "h1", "p1", "p2", amountMinor = 9_007_199_254_740_993L)
         assertEquals(big, roundTrip(big))
     }
 

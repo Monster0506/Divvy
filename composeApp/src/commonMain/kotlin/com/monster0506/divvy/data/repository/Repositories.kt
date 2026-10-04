@@ -6,6 +6,8 @@ import com.monster0506.divvy.data.api.DivvyApi
 import com.monster0506.divvy.data.dto.AcceptedPredictionsDto
 import com.monster0506.divvy.data.dto.BalancesDto
 import com.monster0506.divvy.data.dto.ConfirmedReceiptDto
+import com.monster0506.divvy.data.dto.CreateSettlementRequest
+import com.monster0506.divvy.data.dto.SettlementDto
 import com.monster0506.divvy.data.dto.EditedReceiptDto
 import com.monster0506.divvy.data.dto.ItemEditRequest
 import com.monster0506.divvy.data.dto.MlSettingsDto
@@ -106,5 +108,8 @@ class ReceiptRepository(private val api: DivvyApi) {
 }
 
 class BalanceRepository(private val api: DivvyApi) {
+    suspend fun settle(householdId: String, request: CreateSettlementRequest): ApiResult<SettlementDto> =
+        apiCall { api.recordSettlement(householdId, request) }
+
     suspend fun balances(householdId: String): ApiResult<BalancesDto> = apiCall { api.balances(householdId) }
 }
