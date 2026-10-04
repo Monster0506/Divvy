@@ -24,6 +24,8 @@ class CreateHouseholdState(
         private set
     var submitting by mutableStateOf(false)
         private set
+    var joiningExisting by mutableStateOf(false)
+        private set
     /** Network/server problem, shown above the button. */
     var error by mutableStateOf<String?>(null)
         private set
@@ -48,9 +50,11 @@ class CreateHouseholdState(
         submitting = true
         error = null
         serverFieldError = null
+        joiningExisting = false
         try {
             return when (val result = create(name.trim())) {
                 is CreateHouseholdResult.Created -> result.id
+                is CreateHouseholdResult.Existing -> { joiningExisting = true; result.id }
                 is CreateHouseholdResult.Invalid -> { serverFieldError = result.message; null }
                 is CreateHouseholdResult.Failure -> { error = result.message; null }
             }
