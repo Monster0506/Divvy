@@ -1,0 +1,35 @@
+{
+  "store": "Corner Market",
+  "purchased_on": "2026-02-03",
+  "synthetic": true,
+  "items": [
+    {
+      "name": "EGGS DOZEN",
+      "quantity": 1,
+      "unit_price_cents": 389,
+      "total_cents": 389
+    },
+    {
+      "name": "CHEDDAR BLOCK",
+      "quantity": 1,
+      "unit_price_cents": 699,
+      "total_cents": 669
+    },
+    {
+      "name": "APPLES",
+      "quantity": 1,
+      "unit_price_cents": 312,
+      "total_cents": 312
+    },
+    {
+      "name": "PASTA",
+      "quantity": 1,
+      "unit_price_cents": 179,
+      "total_cents": 179
+    }
+  ],
+  "discounts": [],
+  "subtotal_cents": 1579,
+  "tax_cents": 0,
+  "total_cents": 1549
+}
