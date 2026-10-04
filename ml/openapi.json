@@ -27,6 +27,15 @@
         "title": "Alternative",
         "type": "object"
       },
+      "AssignmentSource": {
+        "enum": [
+          "manual",
+          "predicted_accepted",
+          "predicted_corrected"
+        ],
+        "title": "AssignmentSource",
+        "type": "string"
+      },
       "Discount": {
         "properties": {
           "amount_cents": {
@@ -46,6 +55,59 @@
           "amount_cents"
         ],
         "title": "Discount",
+        "type": "object"
+      },
+      "EmbedRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "texts": {
+            "description": "Item descriptions",
+            "items": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 256,
+            "minItems": 1,
+            "title": "Texts",
+            "type": "array"
+          }
+        },
+        "required": [
+          "texts"
+        ],
+        "title": "EmbedRequest",
+        "type": "object"
+      },
+      "EmbedResponse": {
+        "properties": {
+          "dimensions": {
+            "title": "Dimensions",
+            "type": "integer"
+          },
+          "embedder": {
+            "description": "Which embedder produced the vectors",
+            "title": "Embedder",
+            "type": "string"
+          },
+          "embeddings": {
+            "description": "One L2-normalised vector per text, in order",
+            "items": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "title": "Embeddings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "embedder",
+          "dimensions",
+          "embeddings"
+        ],
+        "title": "EmbedResponse",
         "type": "object"
       },
       "ExtractRequest": {
@@ -221,6 +283,53 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "HistoryStatus": {
+        "properties": {
+          "digest": {
+            "description": "SHA-256 of the stored history in the form the backend also computes, so both sides can tell whether they hold the same labels",
+            "title": "Digest",
+            "type": "string"
+          },
+          "history_size": {
+            "title": "History Size",
+            "type": "integer"
+          },
+          "household_id": {
+            "title": "Household Id",
+            "type": "string"
+          },
+          "min_history": {
+            "description": "Labelled items needed before predictions are made",
+            "title": "Min History",
+            "type": "integer"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Version of the model currently serving, if one is built",
+            "title": "Model Version"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "household_id",
+          "history_size",
+          "min_history",
+          "ready",
+          "digest"
+        ],
+        "title": "HistoryStatus",
+        "type": "object"
+      },
       "ItemPrediction": {
         "properties": {
           "alternatives": {
@@ -259,6 +368,65 @@
           "confidence"
         ],
         "title": "ItemPrediction",
+        "type": "object"
+      },
+      "ObservationIn": {
+        "additionalProperties": false,
+        "description": "One confirmed item and who owns it. Resending an observation_id updates it in place.",
+        "properties": {
+          "description": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Description",
+            "type": "string"
+          },
+          "member_ids": {
+            "description": "Person ids in the household on that date",
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Member Ids",
+            "type": "array"
+          },
+          "observation_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Observation Id",
+            "type": "string"
+          },
+          "owner_ids": {
+            "description": "Person ids who own the item",
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Owner Ids",
+            "type": "array"
+          },
+          "purchased_on": {
+            "description": "Original purchase date; a correction keeps it",
+            "format": "date",
+            "title": "Purchased On",
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/AssignmentSource",
+            "default": "manual"
+          }
+        },
+        "required": [
+          "observation_id",
+          "purchased_on",
+          "description",
+          "member_ids",
+          "owner_ids"
+        ],
+        "title": "ObservationIn",
         "type": "object"
       },
       "Person": {
@@ -306,7 +474,8 @@
         "additionalProperties": false,
         "properties": {
           "household_id": {
-            "minLength": 1,
+            "description": "Letters, digits, - and _",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
             "title": "Household Id",
             "type": "string"
           },
@@ -363,6 +532,128 @@
         "title": "PredictionStatus",
         "type": "string"
       },
+      "RetrainRunOut": {
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "finished_at": {
+            "title": "Finished At",
+            "type": "string"
+          },
+          "history_size": {
+            "title": "History Size",
+            "type": "integer"
+          },
+          "household_id": {
+            "title": "Household Id",
+            "type": "string"
+          },
+          "metrics": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metrics"
+          },
+          "new_observations": {
+            "title": "New Observations",
+            "type": "integer"
+          },
+          "reason": {
+            "description": "first, new-observations or interval",
+            "title": "Reason",
+            "type": "string"
+          },
+          "seconds": {
+            "title": "Seconds",
+            "type": "number"
+          },
+          "started_at": {
+            "title": "Started At",
+            "type": "string"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Model version built; null if history was too small",
+            "title": "Version"
+          }
+        },
+        "required": [
+          "household_id",
+          "started_at",
+          "finished_at",
+          "seconds",
+          "history_size",
+          "new_observations",
+          "reason",
+          "version"
+        ],
+        "title": "RetrainRunOut",
+        "type": "object"
+      },
+      "UpsertObservationsRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "observations": {
+            "description": "May be empty only together with replace=true",
+            "items": {
+              "$ref": "#/components/schemas/ObservationIn"
+            },
+            "maxItems": 5000,
+            "title": "Observations",
+            "type": "array"
+          }
+        },
+        "required": [
+          "observations"
+        ],
+        "title": "UpsertObservationsRequest",
+        "type": "object"
+      },
+      "UpsertObservationsResponse": {
+        "properties": {
+          "history_size": {
+            "title": "History Size",
+            "type": "integer"
+          },
+          "household_id": {
+            "title": "Household Id",
+            "type": "string"
+          },
+          "received": {
+            "title": "Received",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "household_id",
+          "received",
+          "history_size"
+        ],
+        "title": "UpsertObservationsResponse",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -411,6 +702,47 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/embed": {
+      "post": {
+        "operationId": "embed_embed_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmbedRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmbedResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Embed",
+        "tags": [
+          "embeddings"
+        ]
+      }
+    },
     "/health": {
       "get": {
         "operationId": "health_health_get",
@@ -433,8 +765,161 @@
         "summary": "Health"
       }
     },
+    "/ownership/households/{household_id}/history": {
+      "get": {
+        "operationId": "history_status_ownership_households__household_id__history_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "household_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
+              "title": "Household Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "History Status",
+        "tags": [
+          "ownership"
+        ]
+      }
+    },
+    "/ownership/households/{household_id}/observations": {
+      "put": {
+        "description": "Add or update confirmed observations by id; `replace=true` swaps the whole history.",
+        "operationId": "upsert_observations_ownership_households__household_id__observations_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "household_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
+              "title": "Household Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "replace",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Replace",
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertObservationsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpsertObservationsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upsert Observations",
+        "tags": [
+          "ownership"
+        ]
+      }
+    },
+    "/ownership/households/{household_id}/observations/{observation_id}": {
+      "delete": {
+        "operationId": "delete_observation_ownership_households__household_id__observations__observation_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "household_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
+              "title": "Household Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "observation_id",
+            "required": true,
+            "schema": {
+              "title": "Observation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Observation",
+        "tags": [
+          "ownership"
+        ]
+      }
+    },
     "/ownership/predict": {
       "post": {
+        "description": "Predict who owns each item from the household's stored history.\n\nItems come back as `unknown` while the household has too little history, or when nothing in it\nresembles the item.",
         "operationId": "predict_ownership_predict_post",
         "requestBody": {
           "content": {
@@ -469,6 +954,32 @@
           }
         },
         "summary": "Predict",
+        "tags": [
+          "ownership"
+        ]
+      }
+    },
+    "/ownership/retraining": {
+      "get": {
+        "description": "Recent scheduled retraining runs, newest first; empty when the schedule is off.",
+        "operationId": "retraining_runs_ownership_retraining_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RetrainRunOut"
+                  },
+                  "title": "Response Retraining Runs Ownership Retraining Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Retraining Runs",
         "tags": [
           "ownership"
         ]
