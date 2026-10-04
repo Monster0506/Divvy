@@ -46,6 +46,7 @@ kotlin {
         target.binaries.framework {
             baseName = "ComposeApp"
             isStatic = true
+            binaryOption("bundleId", "com.monster0506.divvy.ComposeApp")
         }
     }
 
