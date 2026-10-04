@@ -62,13 +62,13 @@ class ReceiptAssignmentRoutesTest : RepositoryTestBase() {
     }
 
     @Test
-    fun `put owners rejects archived, foreign and duplicate people`() = withApp {
+    fun `put owners accepts archived household members and rejects foreign or duplicate people`() = withApp {
         val (house, people) = household("Ann", "Ben")
         val (_, others) = household("Zed")
         val receipt = receipt(house, people[0], "Milk" to 400L)
         repos.people.archive(people[1].id)
 
-        assertEquals(HttpStatusCode.BadRequest, putOwners(receipt, 0, """{"owners":[{"personId":"${people[1].id}"}]}""").status)
+        assertEquals(HttpStatusCode.OK, putOwners(receipt, 0, """{"owners":[{"personId":"${people[1].id}"}]}""").status)
         assertEquals(HttpStatusCode.BadRequest, putOwners(receipt, 0, """{"owners":[{"personId":"${others[0].id}"}]}""").status)
         assertEquals(
             HttpStatusCode.BadRequest,

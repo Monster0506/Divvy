@@ -604,11 +604,6 @@ class ExposedItemOwnerRepository(private val db: Database) : ItemOwnerRepository
         require(owners.map { it.personId }.toSet().size == owners.size) { "Each person may own an item only once" }
         val householdId = householdOfItem(receiptItemId)
         val keep = owners.map { it.personId }
-        val existing = ItemOwnerTable.select(ItemOwnerTable.personId)
-            .where { ItemOwnerTable.receiptItemId eq receiptItemId }
-            .map { it[ItemOwnerTable.personId] }
-            .toSet()
-        rejectArchivedPeople(keep, alreadyOwners = existing)
         ItemOwnerTable.deleteWhere {
             (ItemOwnerTable.receiptItemId eq receiptItemId) and (ItemOwnerTable.personId notInList keep)
         }
