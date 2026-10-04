@@ -139,6 +139,23 @@ fun OwnerPicker(
     trailing: @Composable RowScope.() -> Unit = {},
 ) {
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+        val everyone = people.isNotEmpty() && people.all { it.id in owners }
+        val allFill by animateColorAsState(if (everyone) DivvyColors.Ink else DivvyColors.Surface, tween(150))
+        val allEdge by animateColorAsState(if (everyone) DivvyColors.Ink else DivvyColors.Outline, tween(150))
+        val allFg by animateColorAsState(if (everyone) Color.White else DivvyColors.Dim, tween(150))
+        Box(
+            Modifier.height(32.dp).clip(CircleShape)
+                .background(allFill)
+                .border(1.dp, allEdge, CircleShape)
+                .clickable {
+                    val targets = if (everyone) people else people.filter { it.id !in owners }
+                    targets.forEach { onToggle(it.id) }
+                }
+                .padding(horizontal = 12.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("All", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = allFg)
+        }
         people.forEach { p ->
             val on = p.id in owners
             val fill by animateColorAsState(if (on) DivvyColors.Ink else DivvyColors.Surface, tween(150))
