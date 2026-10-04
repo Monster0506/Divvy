@@ -102,10 +102,12 @@ private fun Throwable.uploadMessage(): String = when (this) {
         is ApiFailure.Validation -> if (reason.error.code == "http_404") {
             "No receipt upload endpoint at this server address. Check the URL or update the server."
         } else reason.error.message
+
         is ApiFailure.ServerError -> if (reason.status == 503) {
             "Server unavailable (503). Check that the backend is running and try again."
         } else "The server could not save this receipt. Please try again."
     }
+
     else -> "Could not prepare this photo. Please choose a different image."
 }
 
@@ -199,7 +201,9 @@ fun DivvyApp(
     val members = remember(api) {
         MemberSyncController(
             scope = scope,
-            listMembers = { id -> api.listPeople(id).filter { !it.isArchived }.map { HouseholdMember(it.id, it.displayName) } },
+            listMembers = { id ->
+                api.listPeople(id).filter { !it.isArchived }.map { HouseholdMember(it.id, it.displayName) }
+            },
             renameMember = { id, personId, name ->
                 api.renamePerson(id, personId, name).let { HouseholdMember(it.id, it.displayName, it.isArchived) }
             },
@@ -212,7 +216,8 @@ fun DivvyApp(
     val detailState by detail.state.collectAsState()
     val autoState by autoAssign.state.collectAsState()
     var viewedPhoto by remember { mutableStateOf<ImageBitmap?>(null) }
-    fun activeHousehold(): String? = router?.currentHouseholdId()?.takeIf { it.isNotBlank() && it != LOCAL_HOUSEHOLD_ID }
+    fun activeHousehold(): String? =
+        router?.currentHouseholdId()?.takeIf { it.isNotBlank() && it != LOCAL_HOUSEHOLD_ID }
     LaunchedEffect(route) {
         val household = activeHousehold() ?: return@LaunchedEffect
         when (route) {
@@ -221,22 +226,30 @@ fun DivvyApp(
                 nameSync.open(household)
                 members.load(household)
             }
+
             Route.Account -> {
                 autoAssign.load(household)
                 nameSync.open(household)
                 members.load(household)
             }
+
             else -> Unit
         }
     }
     LaunchedEffect(autoState.autoAssign, autoState.threshold) {
         val on = autoState.autoAssign
         val threshold = autoState.threshold
-        if (on != null && threshold != null) state.settings = state.settings.copy(autoAssign = on, autoAssignThreshold = threshold)
+        if (on != null && threshold != null) state.settings =
+            state.settings.copy(autoAssign = on, autoAssignThreshold = threshold)
     }
     viewedPhoto?.let { photo ->
         Dialog(onDismissRequest = { viewedPhoto = null }) {
-            Image(photo, contentDescription = "Receipt photo", modifier = Modifier.fillMaxWidth(), contentScale = ContentScale.Fit)
+            Image(
+                photo,
+                contentDescription = "Receipt photo",
+                modifier = Modifier.fillMaxWidth(),
+                contentScale = ContentScale.Fit
+            )
         }
     }
     val balancesController = remember(api) {
@@ -250,11 +263,11 @@ fun DivvyApp(
     }
     val balancesState by balancesController.state.collectAsState()
     LaunchedEffect(reviewState.phase) {
-    if (reviewState.phase == ReviewPhase.Confirmed) {
-        review.close()
-        route = Route.Balances
+        if (reviewState.phase == ReviewPhase.Confirmed) {
+            review.close()
+            route = Route.Balances
+        }
     }
-}
     val onTab = { tab: Tab ->
         route = when (tab) {
             Tab.Receipts -> Route.History
@@ -263,6 +276,7 @@ fun DivvyApp(
             Tab.Account -> Route.Account
         }
     }
+
     fun selectPhoto(bytes: ByteArray) {
         scope.launch {
             photoStage = ReceiptPhotoStage.Preparing
@@ -280,6 +294,7 @@ fun DivvyApp(
             }
         }
     }
+
     fun uploadPhoto() {
         val photo = selectedPhoto ?: return
         if (photoStage != ReceiptPhotoStage.Ready) return
@@ -291,6 +306,7 @@ fun DivvyApp(
                 val savedId = router?.currentHouseholdId()
                 suspend fun createServerHousehold(): String =
                     api.createHousehold(state.householdName).id.also { router?.onboardingCompleted(it) }
+
                 val householdId = if (savedId.isNullOrBlank() || savedId == LOCAL_HOUSEHOLD_ID) {
                     createServerHousehold()
                 } else savedId
@@ -323,9 +339,12 @@ fun DivvyApp(
             }
         }
     }
+
     val cameraCapture = rememberCameraCapture(
         onResult = ::selectPhoto,
-        onError = { cameraError = "Camera unavailable. Check camera access in Settings, or choose a photo from Gallery." },
+        onError = {
+            cameraError = "Camera unavailable. Check camera access in Settings, or choose a photo from Gallery."
+        },
     )
     val galleryPicker = rememberGalleryPicker { bytes ->
         if (bytes != null) selectPhoto(bytes)
@@ -428,6 +447,7 @@ fun DivvyApp(
                         canUndo = state.canUndoDelete,
                         onUndo = state::undoDelete,
                     )
+
                     live != null && (reviewState.phase == ReviewPhase.Ready || reviewState.phase == ReviewPhase.Confirming) ->
                         ReviewReceiptScreen(
                             draft = live,
@@ -444,8 +464,11 @@ fun DivvyApp(
                             canUndo = reviewState.canUndo,
                             onUndo = review::undoDelete,
                             notice = reviewState.message ?: reviewState.warning,
-                            onChoosePayer = review::setPayer,
+
+                            onGuessAgain = review::guessAgain,
+                            guessing = reviewState.guessing,
                         )
+
                     else -> ReviewStatusScreen(
                         title = when (reviewState.phase) {
                             ReviewPhase.Reading -> "Reading your receipt"
@@ -476,7 +499,10 @@ fun DivvyApp(
                 if (household == null) {
                     ReceiptHistoryScreen(
                         entries = state.history,
-                        onOpen = { route = if (it == 0 && state.history[0].status == ReceiptStatus.NeedsReview) Route.Review else Route.Detail },
+                        onOpen = {
+                            route =
+                                if (it == 0 && state.history[0].status == ReceiptStatus.NeedsReview) Route.Review else Route.Detail
+                        },
                         onScan = { route = Route.Camera },
                         onTab = onTab,
                     )
@@ -491,6 +517,7 @@ fun DivvyApp(
                                     detail.open(household, row.id)
                                     route = Route.Detail
                                 }
+
                                 ReceiptStatusDto.Void -> Unit
                                 else -> {
                                     review.open(household, row.id)
@@ -500,7 +527,8 @@ fun DivvyApp(
                         },
                         onScan = { route = Route.Camera },
                         onTab = onTab,
-                        message = historyState.message ?: if (historyState.loaded && rows.isEmpty()) "No receipts yet. Scan one to get started." else null,
+                        message = historyState.message
+                            ?: if (historyState.loaded && rows.isEmpty()) "No receipts yet. Scan one to get started." else null,
                     )
                 }
             }
@@ -516,6 +544,7 @@ fun DivvyApp(
                         onReopen = {},
                         onTab = onTab,
                     )
+
                     shown != null && detailState.phase == DetailPhase.Ready -> ReceiptDetailScreen(
                         receipt = shown,
                         shares = detailState.shares,
@@ -533,6 +562,7 @@ fun DivvyApp(
                         onTab = onTab,
                         notice = detailState.message,
                     )
+
                     else -> ReviewStatusScreen(
                         title = if (detailState.phase == DetailPhase.Loading) "Opening receipt" else "Could not open the receipt",
                         message = detailState.message,
@@ -561,6 +591,7 @@ fun DivvyApp(
                     onUndo = balancesController::undo,
                 )
             }
+
             Route.Shopping -> ShoppingListScreen(
                 items = state.shopping,
                 suggestions = state.suggestions,
