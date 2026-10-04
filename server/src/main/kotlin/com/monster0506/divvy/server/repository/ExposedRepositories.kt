@@ -32,6 +32,7 @@ import com.monster0506.divvy.server.domain.OwnerShare
 import com.monster0506.divvy.server.domain.OwnershipChange
 import com.monster0506.divvy.server.domain.OwnershipSource
 import com.monster0506.divvy.server.domain.Person
+import com.monster0506.divvy.server.domain.PersonPatch
 import com.monster0506.divvy.server.domain.Receipt
 import com.monster0506.divvy.server.domain.ReceiptCursor
 import com.monster0506.divvy.server.domain.ReceiptFilter
@@ -144,9 +145,11 @@ class ExposedPersonRepository(private val db: Database) : PersonRepository {
         peopleOf(householdId, includeArchived)
     }
 
-    override suspend fun rename(id: Uuid, displayName: String): Person? = db.dbQuery {
+    override suspend fun update(id: Uuid, patch: PersonPatch): Person? = db.dbQuery {
+        if (patch.isEmpty) return@dbQuery PersonTable.selectAll().where { PersonTable.id eq id }.singleOrNull()?.toPerson()
         PersonTable.updateReturning(where = { PersonTable.id eq id }) {
-            it[PersonTable.displayName] = displayName
+            patch.displayName?.let { name -> it[PersonTable.displayName] = name }
+            patch.venmoUsername?.let { username -> it[PersonTable.venmoUsername] = username.ifEmpty { null } }
         }.singleOrNull()?.toPerson()
     }
 
@@ -881,6 +884,7 @@ private fun ResultRow.toPerson() = Person(
     archivedAt = this[PersonTable.archivedAt]?.toInstant(),
     createdAt = this[PersonTable.createdAt].toInstant(),
     updatedAt = this[PersonTable.updatedAt].toInstant(),
+    venmoUsername = this[PersonTable.venmoUsername],
 )
 
 private fun ResultRow.toReceipt(items: List<ReceiptItem>): Receipt {

@@ -3,6 +3,7 @@ package com.monster0506.divvy.platform
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 
 class VenmoTest {
     @Test
@@ -30,6 +31,19 @@ class VenmoTest {
             "https://venmo.com/sam?txn=pay&amount=3.00&note=Dinner",
             venmoWebUrl("sam", 300, "Dinner"),
         )
+    }
+
+    @Test
+    fun usernames_follow_venmo_rules() {
+        listOf("sam-r", "Sam_Roddy-7", " @sam_r ", "a".repeat(30), "", "  ").forEach {
+            assertNull(venmoUsernameProblem(it), it)
+        }
+        assertEquals("Venmo usernames are at least 5 characters.", venmoUsernameProblem("@sam"))
+        assertEquals("Venmo usernames are at most 30 characters.", venmoUsernameProblem("a".repeat(31)))
+        listOf("sam r", "sam.r", "sam!r", "@@samr").forEach {
+            assertEquals("Use only letters, numbers, - and _.", venmoUsernameProblem(it), it)
+        }
+        assertEquals("sam_r", normalizeVenmoUsername(" @sam_r "))
     }
 
     @Test

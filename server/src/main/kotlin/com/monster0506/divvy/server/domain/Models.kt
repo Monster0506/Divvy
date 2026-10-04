@@ -37,7 +37,14 @@ data class Person(
     val archivedAt: Instant?,
     val createdAt: Instant,
     val updatedAt: Instant,
+    /** Where the person receives payments, without the leading "@". Null if they have not said. */
+    val venmoUsername: String? = null,
 )
+
+/** Fields to change on a person; null leaves a field as it is and an empty [venmoUsername] clears it. */
+data class PersonPatch(val displayName: String? = null, val venmoUsername: String? = null) {
+    val isEmpty get() = displayName == null && venmoUsername == null
+}
 
 enum class ReceiptStatus(val dbValue: String) {
     /** Image uploaded, nothing extracted yet. */

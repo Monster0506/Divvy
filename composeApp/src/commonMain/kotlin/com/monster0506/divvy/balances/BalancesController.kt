@@ -23,8 +23,20 @@ import kotlinx.coroutines.launch
 
 enum class BalancesPhase { Idle, Loading, Ready, Failed }
 
-/** One payment that would settle part of the household: [from] pays [to]. [involvesMe] is true for this device's person. */
-data class SettleTransfer(val from: Person, val to: Person, val amountCents: Int, val involvesMe: Boolean = false)
+/**
+ * One payment that would settle part of the household: [from] pays [to]. [involvesMe] is true for this device's
+ * person. [toVenmo] is where [to] receives payments, if they have said.
+ */
+data class SettleTransfer(
+    val from: Person,
+    val to: Person,
+    val amountCents: Int,
+    val involvesMe: Boolean = false,
+    val toVenmo: String? = null,
+)
+
+/** The note Venmo shows on a settle-up payment. */
+const val VENMO_NOTE = "Divvy settle-up"
 
 /** A payment just recorded, which [BalancesController.undo] can reverse for a short while. */
 data class Payment(val from: Person, val to: Person, val amountCents: Int)
@@ -183,17 +195,33 @@ class BalancesController(
             balances = people.mapIndexed { index, p -> Balance(ui[index], p.netMinor.toInt()) }
                 .sortedWith(compareByDescending<Balance> { it.netCents }.thenBy { it.person.name }),
             otherCurrencies = balances.size > 1,
-            transfers = transfersFor(people.map { it.personId to it.netMinor }, ui, me),
+            transfers = transfersFor(
+                net = people.map { it.personId to it.netMinor },
+                people = ui,
+                venmo = people.mapNotNull { p -> p.venmoUsername?.takeIf { it.isNotBlank() }?.let { p.personId to it } }.toMap(),
+                me = me,
+            ),
         )
     }
 
-    private fun transfersFor(net: List<Pair<String, Long>>, people: List<Person>, me: String?): List<SettleTransfer> {
+    private fun transfersFor(
+        net: List<Pair<String, Long>>,
+        people: List<Person>,
+        venmo: Map<String, String>,
+        me: String?,
+    ): List<SettleTransfer> {
         if (net.sumOf { it.second } != 0L) return emptyList()
         val byId = people.associateBy { it.id }
         return simplifyDebts(net.toMap()).mapNotNull { t ->
             val from = byId[t.fromPersonId] ?: return@mapNotNull null
             val to = byId[t.toPersonId] ?: return@mapNotNull null
-            SettleTransfer(from, to, t.amountCents.toInt(), involvesMe = me != null && (from.id == me || to.id == me))
+            SettleTransfer(
+                from,
+                to,
+                t.amountCents.toInt(),
+                involvesMe = me != null && (from.id == me || to.id == me),
+                toVenmo = venmo[to.id],
+            )
         }.sortedWith(compareByDescending<SettleTransfer> { it.involvesMe }.thenByDescending { it.amountCents })
     }
 

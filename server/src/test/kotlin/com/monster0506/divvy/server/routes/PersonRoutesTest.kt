@@ -121,6 +121,56 @@ class PersonRoutesTest {
     }
 
     @Test
+    fun `patch saves, shows and clears a venmo username`() = withApp {
+        val home = newHousehold()
+        val id = post("/households/$home/people", """{"displayName":"Andrew"}""").field("id")
+        val nullVenmo = Json.parseToJsonElement(client.get("/households/$home/people").bodyAsText())
+            .jsonArray.single().jsonObject["venmoUsername"]
+        assertEquals(null, nullVenmo)
+
+        val saved = patch("/households/$home/people/$id", """{"venmoUsername":" @Andrew-Roddy_7 "}""")
+        assertEquals(HttpStatusCode.OK, saved.status)
+        assertEquals("Andrew-Roddy_7", saved.field("venmoUsername"))
+        assertEquals("Andrew", saved.field("displayName"))
+        val listed = Json.parseToJsonElement(client.get("/households/$home/people").bodyAsText()).jsonArray.single()
+        assertEquals("Andrew-Roddy_7", listed.jsonObject.getValue("venmoUsername").jsonPrimitive.content)
+
+        // Renaming leaves the username alone.
+        assertEquals("Andrew-Roddy_7", patch("/households/$home/people/$id", """{"displayName":"Drew"}""").field("venmoUsername"))
+
+        val cleared = patch("/households/$home/people/$id", """{"venmoUsername":""}""")
+        assertEquals(HttpStatusCode.OK, cleared.status)
+        assertEquals(null, Json.parseToJsonElement(cleared.bodyAsText()).jsonObject["venmoUsername"])
+    }
+
+    @Test
+    fun `invalid venmo usernames return 400 and change nothing`() = withApp {
+        val home = newHousehold()
+        val id = post("/households/$home/people", """{"displayName":"Andrew"}""").field("id")
+        patch("/households/$home/people/$id", """{"venmoUsername":"andrew-r"}""")
+        listOf("abcd", "a".repeat(31), "andrew r", "andrew.r", "andrew!", "@@andrew").forEach { bad ->
+            val res = patch("/households/$home/people/$id", """{"venmoUsername":"$bad"}""")
+            assertEquals(HttpStatusCode.BadRequest, res.status, bad)
+            assertEquals("validation_error", res.field("code"))
+        }
+        // A bad username fails the whole request, so the name is not changed either.
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            patch("/households/$home/people/$id", """{"displayName":"Drew","venmoUsername":"bad!"}""").status,
+        )
+        val listed = Json.parseToJsonElement(client.get("/households/$home/people").bodyAsText()).jsonArray.single().jsonObject
+        assertEquals("Andrew", listed.getValue("displayName").jsonPrimitive.content)
+        assertEquals("andrew-r", listed.getValue("venmoUsername").jsonPrimitive.content)
+    }
+
+    @Test
+    fun `patch with no fields returns 400`() = withApp {
+        val home = newHousehold()
+        val id = post("/households/$home/people", """{"displayName":"Andrew"}""").field("id")
+        assertEquals(HttpStatusCode.BadRequest, patch("/households/$home/people/$id", "{}").status)
+    }
+
+    @Test
     fun `unknown households and people return 404`() = withApp {
         val home = newHousehold()
         val other = newHousehold()
