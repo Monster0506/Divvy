@@ -7,6 +7,7 @@ import com.monster0506.divvy.data.dto.AcceptedPredictionsDto
 import com.monster0506.divvy.data.dto.ConfirmedReceiptDto
 import com.monster0506.divvy.data.dto.CreateHouseholdRequest
 import com.monster0506.divvy.data.dto.PredictionsDto
+import com.monster0506.divvy.data.dto.SetReceiptPayerRequest
 import com.monster0506.divvy.data.dto.HouseholdDto
 import com.monster0506.divvy.data.dto.ItemOwnerDto
 import com.monster0506.divvy.data.dto.ItemOwnersDto
@@ -80,6 +81,13 @@ class DivvyApi(private val client: HttpClient) {
     }
 
     suspend fun confirmReceipt(id: String): ConfirmedReceiptDto = send { client.post("receipts/$id/confirm") }
+
+    /** Records who paid. The response is not needed, only that the change was accepted. */
+    suspend fun setReceiptPayer(receiptId: String, personId: String) {
+        send<kotlinx.serialization.json.JsonElement> {
+            client.patch("receipts/$receiptId") { setBody(SetReceiptPayerRequest(personId)) }
+        }
+    }
 
     /** Reads a receipt photo again after it failed. */
     suspend fun retryReceipt(householdId: String, receiptId: String): ReceiptUploadDto =
