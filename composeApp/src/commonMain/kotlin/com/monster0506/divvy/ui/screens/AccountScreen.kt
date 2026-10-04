@@ -165,7 +165,7 @@ fun AccountScreen(
 
         SectionHeader("Payments")
         Column(Modifier.fillMaxWidth().clickable(onClick = onOpenHouseholdSettings).padding(horizontal = 20.dp, vertical = 14.dp)) {
-            Text("Venmo usernames", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = DivvyColors.Accent)
+            Text("Household settings", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = DivvyColors.Accent)
             Text(
                 "Set each member's Venmo in Household settings so housemates can pay them when settling up.",
                 fontSize = 12.sp,
