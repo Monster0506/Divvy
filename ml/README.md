@@ -81,3 +81,10 @@ database export should produce. A file holds one source and one fixed set of peo
 - `chrono_split(dates)` and `walk_forward(dates, start, stop, step)`: time-ordered boundaries that never put one purchase date on both sides,
   because items bought on one trip belong together.
 - `check_no_leakage(dates, split)` raises unless every later period is strictly after every earlier one.
+
+## Model promotion
+
+`divvy_ml.promotion` keeps a retrained model from replacing the serving one if it got worse.
+
+- `compare(truth, candidate_probs, current_probs)` scores both on the same held-out data and returns a `Decision`. The candidate is rejected if accuracy at the auto-assign threshold or item ECE regresses beyond `Tolerance` (default 0.01 each).
+- `Promoter.consider(candidate, predict, truth)` swaps the candidate in only when accepted. A rejected candidate or a failed evaluation keeps the previous model, and every decision is logged and kept in `history`.
