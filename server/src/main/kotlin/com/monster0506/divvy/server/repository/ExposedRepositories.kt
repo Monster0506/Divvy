@@ -50,10 +50,14 @@ import java.time.ZoneOffset
 import kotlin.uuid.Uuid
 
 /** Exposed-backed implementations of the repository interfaces, sharing one [Database]. */
-class ExposedRepositories(db: Database) {
+class ExposedRepositories(
+    db: Database,
+    /** Lets the app wrap receipts, for example to push confirmed labels to the ML service. */
+    wrapReceipts: (ReceiptRepository) -> ReceiptRepository = { it },
+) {
     val households: HouseholdRepository = ExposedHouseholdRepository(db)
     val people: PersonRepository = ExposedPersonRepository(db)
-    val receipts: ReceiptRepository = ExposedReceiptRepository(db)
+    val receipts: ReceiptRepository = wrapReceipts(ExposedReceiptRepository(db))
     val itemOwners: ItemOwnerRepository = ExposedItemOwnerRepository(db)
     val settlements: SettlementRepository = ExposedSettlementRepository(db)
 }
