@@ -302,3 +302,49 @@ data class NewLedgerEntry(
         require(debtorPersonId != creditorPersonId) { "A person cannot owe themselves" }
     }
 }
+enum class ListItemStatus(val dbValue: String) {
+    OPEN("open"),
+    PURCHASED("purchased");
+
+    companion object {
+        fun fromDb(value: String): ListItemStatus = entries.first { it.dbValue == value }
+    }
+}
+
+/** One entry on a household's shared grocery list. */
+data class ListItem(
+    val id: Uuid,
+    val householdId: Uuid,
+    val text: String,
+    /** Free text such as "2" or "1 dozen". */
+    val quantity: String?,
+    val notes: String?,
+    /** Who put it on the list, if the app said. */
+    val addedByPersonId: Uuid?,
+    val status: ListItemStatus,
+    val purchasedAt: Instant?,
+    val createdAt: Instant,
+    val updatedAt: Instant,
+)
+
+data class NewListItem(
+    val householdId: Uuid,
+    val text: String,
+    val quantity: String? = null,
+    val notes: String? = null,
+    val addedByPersonId: Uuid? = null,
+) {
+    init {
+        require(text.isNotBlank()) { "List item text must not be blank" }
+    }
+}
+
+/** Fields left null are unchanged. An empty [quantity] or [notes] clears it. */
+data class ListItemPatch(
+    val text: String? = null,
+    val quantity: String? = null,
+    val notes: String? = null,
+    val purchased: Boolean? = null,
+) {
+    val isEmpty get() = this == ListItemPatch()
+}

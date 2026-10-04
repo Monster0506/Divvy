@@ -5,6 +5,7 @@ import com.monster0506.divvy.server.db.HouseholdTable
 import com.monster0506.divvy.server.db.ItemOwnerHistoryTable
 import com.monster0506.divvy.server.db.ItemOwnerTable
 import com.monster0506.divvy.server.db.LedgerEntryTable
+import com.monster0506.divvy.server.db.ListItemTable
 import com.monster0506.divvy.server.db.PersonTable
 import com.monster0506.divvy.server.db.ReceiptItemTable
 import com.monster0506.divvy.server.db.ReceiptTable
@@ -19,7 +20,11 @@ import com.monster0506.divvy.server.domain.Money
 import com.monster0506.divvy.server.domain.ProcessedReceipt
 import com.monster0506.divvy.server.domain.LedgerEntry
 import com.monster0506.divvy.server.domain.LedgerSourceType
+import com.monster0506.divvy.server.domain.ListItem
+import com.monster0506.divvy.server.domain.ListItemPatch
+import com.monster0506.divvy.server.domain.ListItemStatus
 import com.monster0506.divvy.server.domain.NewLedgerEntry
+import com.monster0506.divvy.server.domain.NewListItem
 import com.monster0506.divvy.server.domain.NewReceipt
 import com.monster0506.divvy.server.domain.NewReceiptItem
 import com.monster0506.divvy.server.domain.NewSettlement
@@ -36,7 +41,9 @@ import com.monster0506.divvy.server.domain.ReceiptItemPatch
 import com.monster0506.divvy.server.domain.ReceiptPatch
 import com.monster0506.divvy.server.domain.ReceiptStatus
 import com.monster0506.divvy.server.domain.Settlement
+import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.ResultRow
+import org.jetbrains.exposed.v1.core.like
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.count
 import org.jetbrains.exposed.v1.core.and
@@ -81,6 +88,7 @@ class ExposedRepositories(
     val itemOwners: ItemOwnerRepository = ExposedItemOwnerRepository(db)
     val settlements: SettlementRepository = ExposedSettlementRepository(db)
     val ledger: LedgerRepository = ExposedLedgerRepository(db)
+    val listItems: ListItemRepository = ExposedListItemRepository(db)
 
     /**
      * Gives confirmed receipts the balances and item labels they should have had. Receipts confirmed through the app
@@ -668,6 +676,86 @@ class ExposedSettlementRepository(private val db: Database) : SettlementReposito
     }
 }
 
+class ExposedListItemRepository(private val db: Database) : ListItemRepository {
+    override suspend fun add(item: NewListItem): ListItem = db.dbQuery {
+        ListItemTable.insertReturning {
+            it[householdId] = item.householdId
+            it[text] = item.text
+            it[quantity] = item.quantity
+            it[notes] = item.notes
+            it[addedByPersonId] = item.addedByPersonId
+        }.single().toListItem()
+    }
+
+    override suspend fun findById(id: Uuid): ListItem? = db.dbQuery {
+        ListItemTable.selectAll().where { ListItemTable.id eq id }.singleOrNull()?.toListItem()
+    }
+
+    override suspend fun listByHousehold(householdId: Uuid): List<ListItem> = db.dbQuery {
+        ListItemTable.selectAll()
+            .where { ListItemTable.householdId eq householdId }
+            .orderBy(ListItemTable.createdAt to SortOrder.ASC, ListItemTable.id to SortOrder.ASC)
+            .map { it.toListItem() }
+            .sortedBy { it.status != ListItemStatus.OPEN }
+    }
+
+    override suspend fun update(id: Uuid, patch: ListItemPatch): ListItem? = db.dbQuery {
+        val row = ListItemTable.selectAll().where { ListItemTable.id eq id }.forUpdate().singleOrNull()
+            ?: return@dbQuery null
+        val wasPurchased = ListItemStatus.fromDb(row[ListItemTable.status]) == ListItemStatus.PURCHASED
+        // Checking off an item that is already checked off keeps the time it was first bought.
+        val purchased = patch.purchased?.takeIf { it != wasPurchased }
+        if (patch.copy(purchased = purchased).isEmpty) return@dbQuery row.toListItem()
+        ListItemTable.updateReturning(where = { ListItemTable.id eq id }) {
+            patch.text?.let { v -> it[text] = v }
+            patch.quantity?.let { v -> it[quantity] = v.ifEmpty { null } }
+            patch.notes?.let { v -> it[notes] = v.ifEmpty { null } }
+            when (purchased) {
+                true -> {
+                    it[status] = ListItemStatus.PURCHASED.dbValue
+                    it[purchasedAt] = CurrentTimestampWithTimeZone
+                }
+                false -> {
+                    it[status] = ListItemStatus.OPEN.dbValue
+                    it[purchasedAt] = null
+                }
+                null -> Unit
+            }
+        }.single().toListItem()
+    }
+
+    override suspend fun delete(id: Uuid): Boolean = db.dbQuery {
+        ListItemTable.deleteWhere { ListItemTable.id eq id } > 0
+    }
+
+    override suspend fun autocomplete(householdId: Uuid, query: String, limit: Int): List<String> = db.dbQuery {
+        val needle = query.trim().lowercase()
+        val times = ReceiptItemTable.id.count()
+        val names = ReceiptItemTable.join(ReceiptTable, JoinType.INNER, ReceiptItemTable.receiptId, ReceiptTable.id)
+            .select(ReceiptItemTable.description, times)
+            .where {
+                (ReceiptItemTable.householdId eq householdId) and
+                    (ReceiptTable.status eq ReceiptStatus.CONFIRMED.dbValue)
+            }
+        if (needle.isNotEmpty()) names.andWhere { ReceiptItemTable.description.lowerCase() like "%${needle.escapeLike()}%" }
+        names.groupBy(ReceiptItemTable.description)
+            .map { it[ReceiptItemTable.description].trim() to it[times] }
+            // The same product written in different cases is one suggestion, shown as most often written.
+            .groupBy { (name, _) -> name.lowercase() }
+            .map { (_, spellings) -> spellings.maxBy { it.second }.first to spellings.sumOf { it.second } }
+            .sortedWith(
+                compareByDescending<Pair<String, Long>> { it.first.lowercase().startsWith(needle) }
+                    .thenByDescending { it.second }
+                    .thenBy { it.first.lowercase() },
+            )
+            .take(limit)
+            .map { it.first }
+    }
+}
+
+/** Escapes LIKE wildcards so a search for "50%" matches the text "50%" only. */
+private fun String.escapeLike(): String = replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
 class ExposedLedgerRepository(private val db: Database) : LedgerRepository {
     override suspend fun append(entry: NewLedgerEntry): LedgerEntry = db.dbQuery { insertLedgerEntry(entry, null) }
 
@@ -863,6 +951,19 @@ private fun ResultRow.toLedgerEntry() = LedgerEntry(
     sourceId = this[LedgerEntryTable.sourceId],
     reversesEntryId = this[LedgerEntryTable.reversesEntryId],
     createdAt = this[LedgerEntryTable.createdAt].toInstant(),
+)
+
+private fun ResultRow.toListItem() = ListItem(
+    id = this[ListItemTable.id],
+    householdId = this[ListItemTable.householdId],
+    text = this[ListItemTable.text],
+    quantity = this[ListItemTable.quantity],
+    notes = this[ListItemTable.notes],
+    addedByPersonId = this[ListItemTable.addedByPersonId],
+    status = ListItemStatus.fromDb(this[ListItemTable.status]),
+    purchasedAt = this[ListItemTable.purchasedAt]?.toInstant(),
+    createdAt = this[ListItemTable.createdAt].toInstant(),
+    updatedAt = this[ListItemTable.updatedAt].toInstant(),
 )
 
 private fun ResultRow.toSettlement() = Settlement(
