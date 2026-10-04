@@ -2,12 +2,15 @@ package com.monster0506.divvy.review
 
 import com.monster0506.divvy.data.api.ApiFailure
 import com.monster0506.divvy.data.api.ApiResult
+import com.monster0506.divvy.data.dto.EditedReceiptDto
+import com.monster0506.divvy.data.dto.ItemEditRequest
 import com.monster0506.divvy.data.dto.ItemOwnerDto
 import com.monster0506.divvy.data.dto.PersonDto
 import com.monster0506.divvy.data.dto.ReceiptDto
 import com.monster0506.divvy.data.dto.ReceiptStatusDto
 import com.monster0506.divvy.ui.model.Person
 import com.monster0506.divvy.ui.model.ReceiptDraft
+import com.monster0506.divvy.ui.model.ReceiptLine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -40,6 +43,10 @@ data class ReviewState(
     val message: String? = null,
     val draft: ReceiptDraft? = null,
     val receiptId: String? = null,
+    /** Set when the lines do not add up to the receipt's printed amounts. */
+    val warning: String? = null,
+    /** True when the last deleted line can be put back. */
+    val canUndo: Boolean = false,
 )
 
 /**
@@ -64,6 +71,7 @@ class ReceiptReviewController(
     private var people: List<Person> = emptyList()
     private var itemIds: Map<Int, String> = emptyMap()
     private var payerSaved = false
+    private var lastDeleted: ItemEditRequest? = null
     private var job: Job? = null
     private val writes = Mutex()
 
@@ -153,6 +161,40 @@ class ReceiptReviewController(
         }
     }
 
+    /** Renames a line and changes its price. */
+    fun editLine(lineId: Int, name: String, priceCents: Int) {
+        val itemId = itemIds[lineId] ?: return
+        edit { api.updateItem(receiptId, itemId, ItemEditRequest(description = name.trim(), totalMinor = priceCents.toLong())) }
+    }
+
+    fun addLine(name: String, priceCents: Int) {
+        edit { api.addItem(receiptId, ItemEditRequest(description = name.trim(), totalMinor = priceCents.toLong())) }
+    }
+
+    /** Removes a line. [undoDelete] puts it back (without its owners). */
+    fun deleteLine(lineId: Int) {
+        val itemId = itemIds[lineId] ?: return
+        val line = mutableState.value.draft?.lines?.find { it.id == lineId } ?: return
+        val removed = ItemEditRequest(description = line.name, totalMinor = line.priceCents.toLong())
+        edit(onSuccess = { lastDeleted = removed; mutableState.update { it.copy(canUndo = true) } }) {
+            api.deleteItem(receiptId, itemId)
+        }
+    }
+
+    fun undoDelete() {
+        val removed = lastDeleted ?: return
+        edit(onSuccess = { lastDeleted = null; mutableState.update { it.copy(canUndo = false) } }) {
+            api.addItem(receiptId, removed)
+        }
+    }
+
+    /** Combines lines into the first of them, adding their prices. */
+    fun mergeLines(lineIds: Set<Int>) {
+        val ids = lineIds.sorted().mapNotNull { itemIds[it] }
+        if (ids.size < 2) return
+        edit { api.mergeItems(receiptId, ids) }
+    }
+
     fun confirm() {
         val current = mutableState.value
         if (current.phase != ReviewPhase.Ready) return
@@ -173,6 +215,48 @@ class ReceiptReviewController(
                     }
                 }
             }
+        }
+    }
+
+    /** Sends a change to the server and shows the receipt it answers with, or says why it could not be saved. */
+    private fun edit(onSuccess: () -> Unit = {}, call: suspend () -> ApiResult<EditedReceiptDto>) {
+        if (mutableState.value.phase != ReviewPhase.Ready) return
+        scope.launch {
+            when (val result = writes.withLock { call() }) {
+                is ApiResult.Success -> {
+                    onSuccess()
+                    applyEdited(result.value)
+                }
+                is ApiResult.Failure ->
+                    mutableState.update { it.copy(message = "Could not save that change. ${describe(result.failure)}") }
+            }
+        }
+    }
+
+    /** Rebuilds the lines from an edit response, keeping what is known about the lines that were already there. */
+    private fun applyEdited(edited: EditedReceiptDto) {
+        mutableState.update { state ->
+            val draft = state.draft ?: return@update state
+            val before = itemIds.entries.associate { (lineId, itemId) -> itemId to draft.lines.find { it.id == lineId } }
+            val ordered = edited.items.sortedBy { it.lineNumber }
+            val ids = ordered.mapIndexed { index, item -> (if (item.lineNumber > 0) item.lineNumber else index + 1) to item.id }.toMap()
+            val lines = ordered.mapIndexed { index, item ->
+                val old = before[item.id]
+                ReceiptLine(
+                    id = if (item.lineNumber > 0) item.lineNumber else index + 1,
+                    name = item.description,
+                    priceCents = item.totalMinor.toInt(),
+                    owners = item.owners.map { it.personId }.toSet(),
+                    confidence = old?.confidence ?: 0f,
+                    confirmed = item.owners.isNotEmpty() && old?.confirmed == true,
+                )
+            }
+            itemIds = ids
+            state.copy(
+                draft = draft.copy(lines = lines, taxCents = edited.taxMinor?.toInt() ?: draft.taxCents),
+                warning = reconciliationWarning(edited.reconciliation),
+                message = null,
+            )
         }
     }
 
@@ -230,7 +314,10 @@ class ReceiptReviewController(
             it.copy(draft = it.draft.copy(payerChosen = payerId != null))
         }
         itemIds = lines.itemIds
-        mutableState.value = ReviewState(ReviewPhase.Ready, message, lines.draft, receiptId)
+        lastDeleted = null
+        mutableState.value = ReviewState(
+            ReviewPhase.Ready, message, lines.draft, receiptId, reconciliationWarning(reconcile(receipt)),
+        )
     }
 
     /** A bug or an unreadable response must end in a message the person can see, never a screen that waits forever. */

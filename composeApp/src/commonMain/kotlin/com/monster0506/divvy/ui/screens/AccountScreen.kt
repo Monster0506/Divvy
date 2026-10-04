@@ -10,6 +10,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -23,6 +25,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 import com.monster0506.divvy.ui.components.AppScaffold
 import com.monster0506.divvy.data.api.ApiConfig
 import com.monster0506.divvy.data.api.normalizedOrNull
@@ -48,6 +51,7 @@ fun AccountScreen(
     onEditPerson: (id: String) -> Unit,
     onAddMember: () -> Unit,
     onSettingsChange: (Settings) -> Unit,
+    settingsMessage: String? = null,
     apiConfig: ApiConfig = ApiConfig(),
     onApiConfigChange: (ApiConfig) -> Unit = {},
     onTab: (Tab) -> Unit = {},
@@ -114,6 +118,47 @@ fun AccountScreen(
             fontWeight = FontWeight.SemiBold,
             color = DivvyColors.Accent,
         )
+
+        SectionHeader("Receipts")
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Auto-assign items", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = DivvyColors.Ink)
+                Text(
+                    "Items Divvy is sure about are assigned for you. The rest wait for you to confirm.",
+                    fontSize = 12.sp,
+                    color = DivvyColors.Dim,
+                )
+            }
+            Switch(
+                checked = settings.autoAssign,
+                onCheckedChange = { onSettingsChange(settings.copy(autoAssign = it)) },
+            )
+        }
+        if (settings.autoAssign) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)) {
+                Text(
+                    "Confidence needed: ${(settings.autoAssignThreshold * 100).roundToInt()}%",
+                    fontSize = 13.sp,
+                    color = DivvyColors.Dim,
+                )
+                Slider(
+                    value = settings.autoAssignThreshold,
+                    onValueChange = { onSettingsChange(settings.copy(autoAssignThreshold = it)) },
+                    valueRange = 0.5f..0.99f,
+                )
+            }
+        }
+        if (settingsMessage != null) {
+            Text(
+                settingsMessage,
+                Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
+                fontSize = 12.sp,
+                color = DivvyColors.Warn,
+            )
+        }
 
         SectionHeader("Payments")
         OutlinedTextField(

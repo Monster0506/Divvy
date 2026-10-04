@@ -6,6 +6,11 @@ import com.monster0506.divvy.data.dto.AcceptPredictionsRequest
 import com.monster0506.divvy.data.dto.AcceptedPredictionsDto
 import com.monster0506.divvy.data.dto.ConfirmedReceiptDto
 import com.monster0506.divvy.data.dto.CreateHouseholdRequest
+import com.monster0506.divvy.data.dto.EditedReceiptDto
+import com.monster0506.divvy.data.dto.ItemEditRequest
+import com.monster0506.divvy.data.dto.MergeItemsRequest
+import com.monster0506.divvy.data.dto.MlSettingsDto
+import com.monster0506.divvy.data.dto.ReceiptPageDto
 import com.monster0506.divvy.data.dto.PredictionsDto
 import com.monster0506.divvy.data.dto.SetReceiptPayerRequest
 import com.monster0506.divvy.data.dto.HouseholdDto
@@ -19,13 +24,15 @@ import com.monster0506.divvy.data.dto.RenameHouseholdRequest
 import com.monster0506.divvy.data.dto.SetItemOwnersRequest
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
+import io.ktor.client.request.parameter
+import io.ktor.client.request.put
 import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.plugins.onUpload
 import io.ktor.client.request.forms.MultiPartFormDataContent
 import io.ktor.client.request.forms.formData
-import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.http.HttpStatusCode
@@ -81,6 +88,45 @@ class DivvyApi(private val client: HttpClient) {
     }
 
     suspend fun confirmReceipt(id: String): ConfirmedReceiptDto = send { client.post("receipts/$id/confirm") }
+
+    /** One page of the household's receipts, newest first. [status] limits it to one status, for example `draft`. */
+    suspend fun listReceipts(
+        householdId: String,
+        status: String? = null,
+        cursor: String? = null,
+        limit: Int = 50,
+    ): ReceiptPageDto = send {
+        client.get("households/$householdId/receipts") {
+            parameter("limit", limit)
+            status?.let { parameter("status", it) }
+            cursor?.let { parameter("cursor", it) }
+        }
+    }
+
+    suspend fun addItem(receiptId: String, item: ItemEditRequest): EditedReceiptDto =
+        send { client.post("receipts/$receiptId/items") { setBody(item) } }
+
+    suspend fun updateItem(receiptId: String, itemId: String, change: ItemEditRequest): EditedReceiptDto =
+        send { client.patch("receipts/$receiptId/items/$itemId") { setBody(change) } }
+
+    suspend fun deleteItem(receiptId: String, itemId: String): EditedReceiptDto =
+        send { client.delete("receipts/$receiptId/items/$itemId") }
+
+    /** Combines items into the first one (lowest line), summing their prices. */
+    suspend fun mergeItems(receiptId: String, itemIds: List<String>, description: String? = null): EditedReceiptDto =
+        send { client.post("receipts/$receiptId/items/merge") { setBody(MergeItemsRequest(itemIds, description)) } }
+
+    suspend fun getMlSettings(householdId: String): MlSettingsDto =
+        send { client.get("households/$householdId/ml/settings") }
+
+    suspend fun putMlSettings(householdId: String, settings: MlSettingsDto): MlSettingsDto =
+        send { client.put("households/$householdId/ml/settings") { setBody(settings) } }
+
+    /** Moves a confirmed receipt back to a draft so it can be corrected. */
+    suspend fun reopenReceipt(id: String): ReceiptDto = send { client.post("receipts/$id/reopen") }
+
+    /** The receipt's photo exactly as it was uploaded. */
+    suspend fun getReceiptImage(id: String): ByteArray = send { client.get("receipts/$id/image") }
 
     /** Records who paid. The response is not needed, only that the change was accepted. */
     suspend fun setReceiptPayer(receiptId: String, personId: String) {

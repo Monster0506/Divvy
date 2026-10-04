@@ -70,7 +70,13 @@ data class Balance(val person: Person, val netCents: Int)
 
 data class Transfer(val from: Person, val to: Person, val amountCents: Int, val paid: Boolean = false)
 
-enum class ReceiptStatus(val label: String) { NeedsReview("Needs review"), Confirmed("Confirmed") }
+enum class ReceiptStatus(val label: String) {
+    NeedsReview("Needs review"),
+    Confirmed("Confirmed"),
+    Reading("Reading..."),
+    Failed("Could not read"),
+    Voided("Voided"),
+}
 
 data class HistoryEntry(
     val store: String,

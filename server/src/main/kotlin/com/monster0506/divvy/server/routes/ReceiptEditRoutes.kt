@@ -88,7 +88,7 @@ data class ReconciliationResponse(
 data class ReceiptResponse(
     val id: String,
     val householdId: String,
-    val paidByPersonId: String,
+    val paidByPersonId: String?,
     val merchantName: String?,
     val purchasedAt: String,
     val currency: String,
@@ -117,7 +117,7 @@ internal fun Receipt.toResponse(): ReceiptResponse {
     return ReceiptResponse(
         id = id.toString(),
         householdId = householdId.toString(),
-        paidByPersonId = paidByPersonId.toString(),
+        paidByPersonId = paidByPersonId?.toString(),
         merchantName = merchantName,
         purchasedAt = purchasedAt.toString(),
         currency = currency.code,
