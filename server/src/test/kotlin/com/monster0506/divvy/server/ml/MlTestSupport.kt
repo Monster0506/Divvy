@@ -28,7 +28,9 @@ fun item(
     owners: List<Person>,
     source: LabelSource? = LabelSource.MANUAL,
     line: Int = 1,
-) : ReceiptItem {
+    ownerSource: OwnershipSource = OwnershipSource.USER,
+    confidence: BigDecimal? = null,
+): ReceiptItem {
     val id = Uuid.random()
     return ReceiptItem(
         id = id,
@@ -40,7 +42,7 @@ fun item(
         unitPrice = null,
         discount = Money(0, usd),
         total = Money(100, usd),
-        owners = owners.map { ItemOwner(id, it.id, 1, OwnershipSource.USER, null, t0, t0) },
+        owners = owners.map { ItemOwner(id, it.id, 1, ownerSource, confidence, t0, t0) },
         labelSource = source,
         createdAt = t0,
         updatedAt = t0,
@@ -96,8 +98,15 @@ class FakeMl : MlClient {
     var historyResult: (String) -> MlResult<MlHistoryStatus> =
         { MlResult.Success(MlHistoryStatus(it, 0, 30, false)) }
     var upsertDelayMillis = 0L
+    val predictRequests = CopyOnWriteArrayList<MlPredictRequest>()
+    var predictResult: (MlPredictRequest) -> MlResult<MlPredictResponse> =
+        { MlResult.Success(MlPredictResponse("fake-1", emptyList())) }
 
-    override suspend fun predict(request: MlPredictRequest): MlResult<MlPredictResponse> = error("not used")
+    override suspend fun predict(request: MlPredictRequest): MlResult<MlPredictResponse> {
+        events += "predict"
+        predictRequests += request
+        return predictResult(request)
+    }
 
     override suspend fun upsertObservations(
         householdId: String,

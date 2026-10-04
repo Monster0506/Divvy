@@ -3,7 +3,10 @@ package com.monster0506.divvy.server
 import com.monster0506.divvy.server.db.DatabaseFactory
 import com.monster0506.divvy.server.db.DivyDatabase
 import com.monster0506.divvy.server.ml.LabelSync
+import com.monster0506.divvy.server.ml.ExposedPredictionRepository
 import com.monster0506.divvy.server.ml.MlIntegration
+import com.monster0506.divvy.server.ml.MlStats
+import com.monster0506.divvy.server.ml.PredictionService
 import com.monster0506.divvy.server.ml.MlResync
 import com.monster0506.divvy.server.ml.SyncingReceiptRepository
 import com.monster0506.divvy.server.ml.createMlClient
@@ -11,6 +14,8 @@ import com.monster0506.divvy.server.repository.ExposedPersonRepository
 import com.monster0506.divvy.server.repository.ExposedRepositories
 import com.monster0506.divvy.server.routes.householdRoutes
 import com.monster0506.divvy.server.routes.mlRoutes
+import com.monster0506.divvy.server.routes.mlStatsRoutes
+import com.monster0506.divvy.server.routes.predictionRoutes
 import com.monster0506.divvy.server.routes.personRoutes
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.auth.HttpAuthHeader
@@ -109,6 +114,8 @@ fun Application.module(connectDatabase: Boolean = true) {
             householdRoutes { repositories.households }
             personRoutes({ repositories.households }, { repositories.people })
             mlRoutes({ repositories.households }, { ml.resync })
+            mlStatsRoutes({ repositories.households }, { ml.stats })
+            predictionRoutes({ repositories.receipts }, { ml.predictions })
         }
     }
 
@@ -140,7 +147,15 @@ fun Application.configureDatabase(config: AppConfig): DivyDatabase {
         database.close()
     }
     val repos = ExposedRepositories(database.database) { SyncingReceiptRepository(it, labelSync) }
-    attributes.put(MlKey, MlIntegration(mlClient, labelSync, MlResync(mlClient, repos.receipts, repos.people, labelSync)))
+    val resync = MlResync(mlClient, repos.receipts, repos.people, labelSync)
+    val predictionRepository = ExposedPredictionRepository(database.database)
+    val predictions = PredictionService(
+        mlClient, resync, repos.receipts, repos.people, repos.itemOwners, predictionRepository,
+    )
+    attributes.put(
+        MlKey,
+        MlIntegration(mlClient, labelSync, resync, predictions, MlStats(repos.receipts, predictionRepository)),
+    )
     attributes.put(RepositoriesKey, repos)
     return database
 }
