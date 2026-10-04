@@ -36,6 +36,8 @@ data class ItemPredictionView(
     /** The model's confidence, or null when there is no prediction. */
     val confidence: Double?,
     val alternatives: List<StoredAlternative>,
+    /** True when the owners are the model's and are not sure enough to apply without a person confirming. */
+    val needsConfirmation: Boolean = false,
 )
 
 data class ReceiptPredictions(
@@ -56,6 +58,15 @@ sealed interface PredictionResult {
     data class Done(val predictions: ReceiptPredictions) : PredictionResult
 }
 
+sealed interface AcceptResult {
+    data object NotFound : AcceptResult
+
+    data object NotDraft : AcceptResult
+
+    /** The items whose model owners were confirmed as they were. */
+    data class Done(val itemIds: List<Uuid>) : AcceptResult
+}
+
 /**
  * Asks the ML service who owns the items on a draft receipt and stores the answer as model-sourced owners
  * with their confidence. A person's choice always wins: an item someone has assigned is never overwritten.
@@ -68,6 +79,7 @@ class PredictionService(
     private val people: PersonRepository,
     private val itemOwners: ItemOwnerRepository,
     private val predictions: PredictionRepository,
+    private val settings: MlSettingsRepository,
     private val now: () -> Instant = Instant::now,
 ) {
     private val log = LoggerFactory.getLogger(PredictionService::class.java)
@@ -78,6 +90,7 @@ class PredictionService(
         if (receipt.items.isEmpty()) return PredictionResult.Done(ReceiptPredictions(receiptId, true, null, null, emptyList()))
 
         val members = people.listByHousehold(receipt.householdId)
+        val rules = settings.get(receipt.householdId)
         resync.ensureSynced(receipt.householdId)
         val request = MlPredictRequest(
             householdId = receipt.householdId.toString(),
@@ -86,7 +99,7 @@ class PredictionService(
         )
 
         return when (val result = ml.predict(request)) {
-            is MlResult.Success -> PredictionResult.Done(apply(receipt, members, result.value))
+            is MlResult.Success -> PredictionResult.Done(apply(receipt, members, result.value, rules))
             is MlResult.Unavailable -> PredictionResult.Done(unavailable(receipt, result.reason))
             is MlResult.Rejected -> PredictionResult.Done(unavailable(receipt, "the ML service refused the request: ${result.message}"))
         }
@@ -96,6 +109,7 @@ class PredictionService(
     suspend fun stored(receiptId: Uuid): PredictionResult {
         val receipt = receipts.findById(receiptId) ?: return PredictionResult.NotFound
         val byItem = predictions.forReceipt(receiptId).associateBy { it.receiptItemId }
+        val rules = settings.get(receipt.householdId)
         val items = receipt.items.map { item ->
             val saved = byItem[item.id]
             val owners = item.owners.map { it.personId }
@@ -105,14 +119,14 @@ class PredictionService(
                 saved.status == MlPredictionStatus.PREDICTED -> PredictionState.PREDICTED
                 else -> PredictionState.UNKNOWN
             }
-            ItemPredictionView(item.id, state, owners, saved?.confidence, saved?.alternatives.orEmpty())
+            ItemPredictionView(item.id, state, owners, saved?.confidence, saved?.alternatives.orEmpty(), rules.needsConfirmation(item))
         }
         return PredictionResult.Done(
             ReceiptPredictions(receiptId, true, byItem.values.firstOrNull()?.modelVersion, null, items),
         )
     }
 
-    private suspend fun apply(receipt: Receipt, members: List<Person>, response: MlPredictResponse): ReceiptPredictions {
+    private suspend fun apply(receipt: Receipt, members: List<Person>, response: MlPredictResponse, rules: MlSettings): ReceiptPredictions {
         val memberIds = members.map { it.id }.toSet()
         val byItem = response.predictions.associateBy { it.itemId }
         val saved = mutableListOf<StoredPrediction>()
@@ -132,7 +146,9 @@ class PredictionService(
                 if (known) MlPredictionStatus.PREDICTED else MlPredictionStatus.UNKNOWN,
                 confidence, alternatives, now(),
             )
-            ItemPredictionView(item.id, stateOf(item, known), ownersAfter(item, owners, confidence, known), confidence.takeIf { known }, alternatives)
+            val state = stateOf(item, known)
+            val pending = state == PredictionState.PREDICTED && (!rules.autoAssign || stored4(confidence) < rules.autoAssignThreshold)
+            ItemPredictionView(item.id, state, ownersAfter(item, owners, confidence, known), confidence.takeIf { known }, alternatives, pending)
         }
         predictions.save(saved)
         log.info(
@@ -143,6 +159,18 @@ class PredictionService(
             views.count { it.state == PredictionState.USER_ASSIGNED },
         )
         return ReceiptPredictions(receipt.id, true, response.modelVersion, null, views)
+    }
+
+    /** Confirms the model's owners as they are, for the items that need it (all of them when [itemIds] is null). */
+    suspend fun accept(receiptId: Uuid, itemIds: Set<Uuid>?): AcceptResult {
+        val receipt = receipts.findById(receiptId) ?: return AcceptResult.NotFound
+        if (receipt.status != ReceiptStatus.DRAFT) return AcceptResult.NotDraft
+        val rules = settings.get(receipt.householdId)
+        val accepted = receipt.items.filter { rules.needsConfirmation(it) && (itemIds == null || it.id in itemIds) }
+        accepted.forEach { item ->
+            itemOwners.setOwners(item.id, item.owners.map { OwnerShare(it.personId, it.shareWeight, OwnershipSource.USER) })
+        }
+        return AcceptResult.Done(accepted.map { it.id })
     }
 
     private fun stateOf(item: ReceiptItem, known: Boolean): PredictionState = when {
@@ -178,6 +206,9 @@ class PredictionService(
             },
         )
     }
+
+    /** The confidence as it is stored on the owner row, so the decision matches what confirm sees later. */
+    private fun stored4(confidence: Double) = Math.round(confidence * 10_000) / 10_000.0
 
     private fun parseId(raw: String): Uuid? = runCatching { Uuid.parse(raw) }.getOrNull()
 }

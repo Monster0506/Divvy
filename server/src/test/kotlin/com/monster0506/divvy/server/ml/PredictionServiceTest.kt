@@ -26,6 +26,7 @@ class PredictionServiceTest {
     private val ml = FakeMl()
     private val owners = FakeItemOwners()
     private val predictions = FakePredictions()
+    private val settings = FakeSettings()
 
     @AfterTest
     fun stop() = scope.cancel()
@@ -36,7 +37,7 @@ class PredictionServiceTest {
         val receipts = FakeReceipts(listOfNotNull(receipt))
         val resync = MlResync(ml, receipts, people, sync)
         ml.historyResult = { MlResult.Success(MlHistoryStatus(it, 0, 30, false, null, historyDigest(emptyList()))) }
-        return PredictionService(ml, resync, receipts, people, owners, predictions, now = { t0 })
+        return PredictionService(ml, resync, receipts, people, owners, predictions, settings, now = { t0 })
     }
 
     private fun draft(vararg lines: (Uuid) -> com.monster0506.divvy.server.domain.ReceiptItem) =
