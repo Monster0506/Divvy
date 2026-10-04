@@ -76,8 +76,17 @@ class ReceiptRepository(private val api: DivvyApi) {
 
     suspend fun confirm(id: String): ApiResult<ConfirmedReceiptDto> = apiCall { api.confirmReceipt(id) }
 
-    suspend fun list(householdId: String, status: String? = null, cursor: String? = null, limit: Int = 50): ApiResult<ReceiptPageDto> =
-        apiCall { api.listReceipts(householdId, status, cursor, limit) }
+        suspend fun list(
+        householdId: String,
+        status: String? = null,
+        cursor: String? = null,
+        limit: Int = 50,
+        merchant: String? = null,
+        from: String? = null,
+        to: String? = null,
+        paidBy: String? = null,
+    ): ApiResult<ReceiptPageDto> =
+        apiCall { api.listReceipts(householdId, status, cursor, limit, merchant, from, to, paidBy) }
 
     suspend fun addItem(receiptId: String, item: ItemEditRequest): ApiResult<EditedReceiptDto> =
         apiCall { api.addItem(receiptId, item) }
