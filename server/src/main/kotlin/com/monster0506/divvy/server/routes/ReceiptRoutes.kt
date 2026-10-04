@@ -45,6 +45,7 @@ fun Route.receiptRoutes(
     receipts: () -> ReceiptRepository,
     storage: () -> ImageStorage,
     maxUploadBytes: Long,
+    onUploaded: (Uuid) -> Unit = {},
 ) {
     route("/households/{id}/receipts") {
         post {
@@ -93,6 +94,7 @@ fun Route.receiptRoutes(
                 storage().delete(key)
                 throw e
             }
+            onUploaded(receipt.id)
             call.respond(
                 HttpStatusCode.Created,
                 ReceiptUploadResponse(receipt.id.toString(), receipt.status.dbValue),

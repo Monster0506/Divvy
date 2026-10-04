@@ -6,6 +6,9 @@ package com.monster0506.divvy.server.ml
  * prediction or a label push that fails must not fail the request that triggered it.
  */
 interface MlClient {
+    /** Reads a receipt photo (base64 JPEG, PNG or WebP). Can take a minute, so it has its own timeout. */
+    suspend fun extract(imageBase64: String): MlResult<MlExtractedReceipt>
+
     /** Predicts owners for [request]'s items from the household's stored history. */
     suspend fun predict(request: MlPredictRequest): MlResult<MlPredictResponse>
 
@@ -41,6 +44,8 @@ fun <T> MlResult<T>.valueOrNull(): T? = (this as? MlResult.Success<T>)?.value
 /** Used when `ML_SERVICE_URL` is not set: every call reports the service as unavailable. */
 object NoopMlClient : MlClient {
     private const val REASON = "ML service is not configured"
+
+    override suspend fun extract(imageBase64: String) = MlResult.Unavailable(REASON)
 
     override suspend fun predict(request: MlPredictRequest) = MlResult.Unavailable(REASON)
 

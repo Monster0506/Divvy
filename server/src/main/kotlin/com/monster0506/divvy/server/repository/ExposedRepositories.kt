@@ -16,6 +16,7 @@ import com.monster0506.divvy.server.domain.ItemOwner
 import com.monster0506.divvy.server.domain.ItemOwnerHistoryEntry
 import com.monster0506.divvy.server.domain.LabelSource
 import com.monster0506.divvy.server.domain.Money
+import com.monster0506.divvy.server.domain.ProcessedReceipt
 import com.monster0506.divvy.server.domain.LedgerEntry
 import com.monster0506.divvy.server.domain.LedgerSourceType
 import com.monster0506.divvy.server.domain.NewLedgerEntry
@@ -137,6 +138,8 @@ class ExposedPersonRepository(private val db: Database) : PersonRepository {
     }
 }
 
+private const val MAX_FAILURE_REASON = 300
+
 class ExposedReceiptRepository(private val db: Database) : ReceiptRepository {
     override suspend fun create(receipt: NewReceipt): Receipt = db.dbQuery {
         rejectArchivedPeople(receipt.items.flatMap { item -> item.owners.map { it.personId } })
@@ -191,6 +194,64 @@ class ExposedReceiptRepository(private val db: Database) : ReceiptRepository {
             it[status] = ReceiptStatus.PROCESSING.dbValue
         }.single()[ReceiptTable.id]
         loadReceipts(listOf(receiptId)).single()
+    }
+
+    override suspend fun completeProcessing(id: Uuid, processed: ProcessedReceipt): Receipt? = db.dbQuery {
+        val row = ReceiptTable.selectAll()
+            .where { (ReceiptTable.id eq id) and (ReceiptTable.status eq ReceiptStatus.PROCESSING.dbValue) }
+            .forUpdate()
+            .singleOrNull() ?: return@dbQuery null
+        val householdId = row[ReceiptTable.householdId]
+        processed.items.forEachIndexed { index, item ->
+            ReceiptItemTable.insert {
+                it[ReceiptItemTable.householdId] = householdId
+                it[receiptId] = id
+                it[lineNumber] = index + 1
+                it[rawText] = item.rawText
+                it[description] = item.description
+                it[quantity] = item.quantity
+                it[unitPriceMinor] = item.unitPriceMinor
+                it[discountMinor] = item.discountMinor
+                it[totalMinor] = item.totalMinor
+            }
+        }
+        ReceiptTable.update({ ReceiptTable.id eq id }) {
+            it[merchantName] = processed.merchantName
+            processed.purchasedAt?.let { at -> it[purchasedAt] = at.toUtc() }
+            it[subtotalMinor] = processed.subtotalMinor
+            it[taxMinor] = processed.taxMinor
+            it[totalMinor] = processed.totalMinor
+            it[status] = ReceiptStatus.DRAFT.dbValue
+            it[failureReason] = null
+        }
+        loadReceipts(listOf(id)).singleOrNull()
+    }
+
+    override suspend fun failProcessing(id: Uuid, reason: String): Receipt? = db.dbQuery {
+        val changed = ReceiptTable.update({
+            (ReceiptTable.id eq id) and (ReceiptTable.status eq ReceiptStatus.PROCESSING.dbValue)
+        }) {
+            it[status] = ReceiptStatus.FAILED.dbValue
+            it[failureReason] = reason.take(MAX_FAILURE_REASON)
+        }
+        if (changed == 0) null else loadReceipts(listOf(id)).singleOrNull()
+    }
+
+    override suspend fun retryProcessing(id: Uuid): Receipt? = db.dbQuery {
+        val changed = ReceiptTable.update({
+            (ReceiptTable.id eq id) and (ReceiptTable.status eq ReceiptStatus.FAILED.dbValue)
+        }) {
+            it[status] = ReceiptStatus.PROCESSING.dbValue
+            it[failureReason] = null
+        }
+        if (changed == 0) null else loadReceipts(listOf(id)).singleOrNull()
+    }
+
+    override suspend fun idsWithStatus(status: ReceiptStatus): List<Uuid> = db.dbQuery {
+        ReceiptTable.select(ReceiptTable.id)
+            .where { ReceiptTable.status eq status.dbValue }
+            .orderBy(ReceiptTable.createdAt)
+            .map { it[ReceiptTable.id] }
     }
 
     override suspend fun findById(id: Uuid): Receipt? = db.dbQuery {
@@ -712,6 +773,7 @@ private fun ResultRow.toReceipt(items: List<ReceiptItem>): Receipt {
         items = items,
         createdAt = this[ReceiptTable.createdAt].toInstant(),
         updatedAt = this[ReceiptTable.updatedAt].toInstant(),
+        failureReason = this[ReceiptTable.failureReason],
     )
 }
 
