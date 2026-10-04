@@ -54,10 +54,28 @@ import kotlinx.coroutines.CancellationException
 /** Thrown by [DivvyApi] for any failed call; repositories turn it into an [ApiResult]. */
 class ApiException(val failure: ApiFailure) : Exception(failure.toString())
 
+data class HouseholdCreationResponse(val household: HouseholdDto, val alreadyExisted: Boolean)
+
 /** Typed wrappers over the raw HTTP calls. */
 class DivvyApi(private val client: HttpClient) {
     suspend fun createHousehold(name: String): HouseholdDto =
-        send { client.post("households") { contentType(ContentType.Application.Json); setBody(CreateHouseholdRequest(name)) } }
+        createHouseholdWithStatus(name).household
+
+    /** Preserves the server's 200 (existing household) versus 201 (new household) result for onboarding. */
+    suspend fun createHouseholdWithStatus(name: String): HouseholdCreationResponse {
+        val response = execute {
+            client.post("households") { contentType(ContentType.Application.Json); setBody(CreateHouseholdRequest(name)) }
+        }
+        if (!response.status.isSuccess()) throw ApiException(response.toFailure())
+        val household = try {
+            response.body<HouseholdDto>()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: ContentConvertException) {
+            throw ApiException(ApiFailure.ServerError(response.status.value))
+        }
+        return HouseholdCreationResponse(household, response.status == HttpStatusCode.OK)
+    }
 
     suspend fun getHousehold(id: String): HouseholdDto = send { client.get("households/${id.seg()}") }
 
@@ -189,14 +207,8 @@ class DivvyApi(private val client: HttpClient) {
     suspend fun autocompleteListItem(householdId: String, query: String): AutocompleteDto =
         send { client.get("households/${householdId.seg()}/list/autocomplete") { parameter("q", query) } }
 
-    private suspend inline fun <reified T> send(request: () -> HttpResponse): T {
-        val response = try {
-            request()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Throwable) {
-            throw ApiException(ApiFailure.Offline)
-        }
+    private suspend inline fun <reified T> send(noinline request: suspend () -> HttpResponse): T {
+        val response = execute(request)
         if (!response.status.isSuccess()) throw ApiException(response.toFailure())
         return try {
             response.body()
@@ -205,6 +217,14 @@ class DivvyApi(private val client: HttpClient) {
         } catch (e: ContentConvertException) {
             throw ApiException(ApiFailure.ServerError(response.status.value))
         }
+    }
+
+    private suspend fun execute(request: suspend () -> HttpResponse): HttpResponse = try {
+        request()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Throwable) {
+        throw ApiException(ApiFailure.Offline)
     }
 }
 
