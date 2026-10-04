@@ -58,6 +58,7 @@ import com.monster0506.divvy.ui.screens.ReceiptHistoryScreen
 import com.monster0506.divvy.ui.screens.ReviewReceiptScreen
 import com.monster0506.divvy.ui.screens.ReviewStatusScreen
 import com.monster0506.divvy.review.ReceiptReviewController
+import com.monster0506.divvy.review.PayerStore
 import com.monster0506.divvy.review.RepositoryReviewApi
 import com.monster0506.divvy.review.ReviewPhase
 import com.monster0506.divvy.data.repository.HouseholdRepository
@@ -155,8 +156,14 @@ fun DivvyApp(
     val client = remember(apiConfig) { createHttpClient(apiConfig) }
     DisposableEffect(client) { onDispose { client.close() } }
     val api = remember(client) { DivvyApi(client) }
+    val payerStore = remember { PayerStore(Settings()) }
+    var reviewHouseholdId by remember { mutableStateOf("") }
     val review = remember(api) {
-        ReceiptReviewController(RepositoryReviewApi(ReceiptRepository(api), HouseholdRepository(api)), scope)
+        ReceiptReviewController(
+            RepositoryReviewApi(ReceiptRepository(api), HouseholdRepository(api)),
+            scope,
+            onPayerChosen = { payerStore.save(reviewHouseholdId, it) },
+        )
     }
     DisposableEffect(review) { onDispose { review.close() } }
     val reviewState by review.state.collectAsState()
@@ -220,7 +227,8 @@ fun DivvyApp(
                     } else throw e
                 }
                 uploadedReceiptId = uploaded.id
-                review.open(householdId, uploaded.id)
+                reviewHouseholdId = householdId
+                review.open(householdId, uploaded.id, payerStore.get(householdId))
                 selectedPhoto = null
                 photoStage = ReceiptPhotoStage.Empty
                 uploadProgress = null
@@ -348,6 +356,7 @@ fun DivvyApp(
                             onConfirmSplit = review::confirm,
                             onTab = onTab,
                             notice = reviewState.message,
+                            onChoosePayer = review::setPayer,
                         )
                     else -> ReviewStatusScreen(
                         title = when (reviewState.phase) {
