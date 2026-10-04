@@ -53,6 +53,8 @@ data class ReceiptDetailResponse(
     val items: List<ReceiptItemResponse>,
     val createdAt: String,
     val updatedAt: String,
+    /** Why reading the photo failed, when [status] is `failed`. */
+    val failureReason: String? = null,
 )
 
 private fun Money.toResponse() = MoneyResponse(amountMinor, currency.code)
@@ -87,6 +89,7 @@ internal fun Receipt.toDetailResponse() = ReceiptDetailResponse(
     items = items.map { it.toResponse() },
     createdAt = createdAt.toString(),
     updatedAt = updatedAt.toString(),
+    failureReason = failureReason,
 )
 
 private val receiptNotFound = ApiError("not_found", "receipt not found")

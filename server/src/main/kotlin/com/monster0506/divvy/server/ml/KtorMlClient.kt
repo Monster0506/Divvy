@@ -5,6 +5,7 @@ import io.ktor.client.HttpClientConfig
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.plugins.timeout
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
@@ -31,6 +32,9 @@ const val DEFAULT_CONNECT_TIMEOUT_MILLIS = 2_000L
 
 /** Prediction can build a household's model the first time it is asked, which takes a few seconds. */
 const val DEFAULT_REQUEST_TIMEOUT_MILLIS = 10_000L
+
+/** Reading a photo calls a vision model, which can take most of a minute. */
+const val EXTRACT_TIMEOUT_MILLIS = 120_000L
 
 private const val MAX_MESSAGE_LENGTH = 200
 
@@ -60,6 +64,14 @@ class KtorMlClient(
     private val http: HttpClient,
 ) : MlClient, AutoCloseable {
     private val baseUrl = baseUrl.trimEnd('/')
+
+    override suspend fun extract(imageBase64: String): MlResult<MlExtractedReceipt> = call {
+        http.post {
+            endpoint("receipts", "extract")
+            json(MlExtractRequest(imageBase64))
+            timeout { requestTimeoutMillis = EXTRACT_TIMEOUT_MILLIS }
+        }
+    }
 
     override suspend fun predict(request: MlPredictRequest): MlResult<MlPredictResponse> =
         call { http.post { endpoint("ownership", "predict"); json(request) } }

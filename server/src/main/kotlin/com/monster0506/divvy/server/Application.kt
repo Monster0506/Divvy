@@ -6,6 +6,7 @@ import com.monster0506.divvy.server.ml.LabelSync
 import com.monster0506.divvy.server.ml.ExposedPredictionRepository
 import com.monster0506.divvy.server.ml.MlIntegration
 import com.monster0506.divvy.server.ml.ConfirmationGuardReceiptRepository
+import com.monster0506.divvy.server.ml.ExtractionService
 import com.monster0506.divvy.server.ml.ExposedMlSettingsRepository
 import com.monster0506.divvy.server.ml.MlStats
 import com.monster0506.divvy.server.ml.PredictionService
@@ -26,9 +27,12 @@ import com.monster0506.divvy.server.routes.receiptAssignmentRoutes
 import com.monster0506.divvy.server.routes.receiptListRoutes
 import com.monster0506.divvy.server.routes.receiptEditRoutes
 import com.monster0506.divvy.server.routes.receiptReadRoutes
+import com.monster0506.divvy.server.routes.receiptRetryRoutes
 import com.monster0506.divvy.server.routes.receiptRoutes
 import com.monster0506.divvy.server.routes.settlementRoutes
 import com.monster0506.divvy.server.routes.balanceRoutes
+import com.monster0506.divvy.server.storage.ImageStorage
+import com.monster0506.divvy.server.storage.LazyImageStorage
 import com.monster0506.divvy.server.storage.LocalFileImageStorage
 import com.monster0506.divvy.server.routes.settlementRoutes
 import io.ktor.http.HttpStatusCode
@@ -56,6 +60,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.slf4j.event.Level
@@ -129,9 +134,6 @@ fun Application.module(connectDatabase: Boolean = true) {
         }
     }
 
-    // Created on first upload so tests and startup without images never touch the directory.
-    val imageStorage by lazy { LocalFileImageStorage(Path.of(config.imageDir)) }
-
     routing {
         get("/health") { call.respond(HealthResponse("ok", config.version)) }
         authenticate(API_KEY_AUTH) {
@@ -145,7 +147,11 @@ fun Application.module(connectDatabase: Boolean = true) {
             receiptAssignmentRoutes({ repositories.receipts }, { repositories.itemOwners }, { repositories.people })
 
             receiptListRoutes({ repositories.households }, { repositories.receipts })
-            receiptRoutes({ repositories.households }, { repositories.receipts }, { imageStorage }, config.maxUploadBytes)
+            receiptRoutes(
+                { repositories.households }, { repositories.receipts }, { imageStorage }, config.maxUploadBytes,
+                onUploaded = { ml.extraction.schedule(it) },
+            )
+            receiptRetryRoutes({ repositories.receipts }, { ml.extraction })
             receiptEditRoutes({ repositories.receipts }, { repositories.people })
             settlementRoutes({ repositories.households }, { repositories.people }, { repositories.settlements })
             receiptReadRoutes({ repositories.receipts }, { imageStorage })
@@ -159,6 +165,10 @@ fun Application.module(connectDatabase: Boolean = true) {
 
 private val RepositoriesKey = AttributeKey<ExposedRepositories>("repositories")
 private val MlKey = AttributeKey<MlIntegration>("ml")
+private val ImageStorageKey = AttributeKey<ImageStorage>("imageStorage")
+
+/** Uploaded receipt images. Available once [configureDatabase] has run; the directory is created on first use. */
+val Application.imageStorage: ImageStorage get() = attributes[ImageStorageKey]
 
 /** The ML client and label sync. Available once [configureDatabase] has run. */
 val Application.ml: MlIntegration get() = attributes[MlKey]
@@ -190,11 +200,17 @@ fun Application.configureDatabase(config: AppConfig): DivyDatabase {
     val predictions = PredictionService(
         mlClient, resync, repos.receipts, repos.people, repos.itemOwners, predictionRepository, settings,
     )
+    val storage = LazyImageStorage { LocalFileImageStorage(Path.of(config.imageDir)) }
+    val extraction = ExtractionService(mlClient, repos.receipts, storage, predictions, syncScope)
     attributes.put(
         MlKey,
-        MlIntegration(mlClient, labelSync, resync, predictions, MlStats(repos.receipts, predictionRepository), settings),
+        MlIntegration(
+            mlClient, labelSync, resync, predictions, MlStats(repos.receipts, predictionRepository), settings, extraction,
+        ),
     )
     attributes.put(RepositoriesKey, repos)
+    attributes.put(ImageStorageKey, storage)
+    syncScope.launch { extraction.resumePending() }
     return database
 }
 
