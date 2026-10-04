@@ -97,7 +97,7 @@ The Python ML service lives in `ml/`. See [ml/README.md](ml/README.md) for setup
 
 ## Deployment
 
-The backend runs as a Docker Compose stack on a single host (target: 4 vCPU / 8 GB / Linux). Only `server` is reachable from the host, and only on `127.0.0.1:8080`. `ml` and `db` live on an internal Docker network with no published ports. HTTPS is handled by a Caddy instance running on the host, outside Compose.
+The backend runs as a Docker Compose stack on a single host (target: 4 vCPU / 8 GB / Linux). Only `server` is reachable from the host, and only on `127.0.0.1:8080`. `ml` and `db` live on an internal Docker network with no published ports.
 
 | Service | Image | Memory limit | CPU limit | Data |
 |---|---|---|---|---|
@@ -107,14 +107,11 @@ The backend runs as a Docker Compose stack on a single host (target: 4 vCPU / 8 
 
 The `receipts` volume is mounted at `/data/receipts` for uploaded receipt images. Receipt upload is not implemented yet, so the volume is currently empty.
 
-The limits total about 6 GB of memory, leaving roughly 2 GB for the OS and Caddy. CPU limits are caps, not reservations.
-
 The `receipts` volume is mounted at `/data/receipts` for uploaded receipt images. Receipt upload is not implemented yet, so the volume is currently empty.
 
 ### Prerequisites
 
 - Docker Engine with the Compose v2 plugin (`docker compose version`)
-- Caddy installed on the host (for public HTTPS)
 - Git
 
 ### First deploy
@@ -132,9 +129,9 @@ docker compose up -d --build
 docker compose ps
 ```
 
-The first build takes several minutes. All three services should reach `healthy`. Verify with `curl http://127.0.0.1:8080/health`.
+The first build takes several minutes. All three services should reach `healthy`. Verify with `curl http://<server-ip>:8080/health`.
+The server speaks plain HTTP. The X-Api-Key header travels unencrypted, so don't use this setup for real user data without TLS.
 
-Add the server to the host's Caddyfile and reload Caddy:
 
 ```
 api.example.com {
