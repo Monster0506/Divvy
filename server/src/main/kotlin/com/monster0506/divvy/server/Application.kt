@@ -15,6 +15,7 @@ import com.monster0506.divvy.server.repository.ExposedRepositories
 import com.monster0506.divvy.server.routes.householdRoutes
 import com.monster0506.divvy.server.routes.mlRoutes
 import com.monster0506.divvy.server.routes.mlStatsRoutes
+import com.monster0506.divvy.server.routes.personArchiveRoutes
 import com.monster0506.divvy.server.routes.predictionRoutes
 import com.monster0506.divvy.server.routes.personRoutes
 import io.ktor.http.HttpStatusCode
@@ -112,6 +113,7 @@ fun Application.module(connectDatabase: Boolean = true) {
         get("/health") { call.respond(HealthResponse("ok", config.version)) }
         authenticate(API_KEY_AUTH) {
             householdRoutes { repositories.households }
+            personArchiveRoutes({ repositories.households }, { repositories.people })
             personRoutes({ repositories.households }, { repositories.people })
             mlRoutes({ repositories.households }, { ml.resync })
             mlStatsRoutes({ repositories.households }, { ml.stats })
