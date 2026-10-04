@@ -21,6 +21,7 @@ import com.monster0506.divvy.server.routes.mlStatsRoutes
 import com.monster0506.divvy.server.routes.personArchiveRoutes
 import com.monster0506.divvy.server.routes.predictionRoutes
 import com.monster0506.divvy.server.routes.personRoutes
+import com.monster0506.divvy.server.routes.receiptListRoutes
 import com.monster0506.divvy.server.routes.receiptEditRoutes
 import com.monster0506.divvy.server.routes.receiptReadRoutes
 import com.monster0506.divvy.server.routes.receiptRoutes
@@ -137,6 +138,7 @@ fun Application.module(connectDatabase: Boolean = true) {
             mlStatsRoutes({ repositories.households }, { ml.stats })
             mlSettingsRoutes({ repositories.households }, { ml.settings })
             predictionRoutes({ repositories.receipts }, { ml.predictions })
+            receiptListRoutes({ repositories.households }, { repositories.receipts })
             receiptRoutes({ repositories.households }, { repositories.receipts }, { imageStorage }, config.maxUploadBytes)
             receiptEditRoutes({ repositories.receipts }, { repositories.people })
             settlementRoutes({ repositories.households }, { repositories.people }, { repositories.settlements })
