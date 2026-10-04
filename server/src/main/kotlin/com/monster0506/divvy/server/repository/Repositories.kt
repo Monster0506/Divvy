@@ -6,7 +6,10 @@ import com.monster0506.divvy.server.domain.ItemOwner
 import com.monster0506.divvy.server.domain.ItemOwnerHistoryEntry
 import com.monster0506.divvy.server.domain.LedgerEntry
 import com.monster0506.divvy.server.domain.LedgerSourceType
+import com.monster0506.divvy.server.domain.ListItem
+import com.monster0506.divvy.server.domain.ListItemPatch
 import com.monster0506.divvy.server.domain.NewLedgerEntry
+import com.monster0506.divvy.server.domain.NewListItem
 import com.monster0506.divvy.server.domain.NewReceipt
 import com.monster0506.divvy.server.domain.NewReceiptItem
 import com.monster0506.divvy.server.domain.NewSettlement
@@ -187,6 +190,26 @@ interface SettlementRepository {
 
     /** Settlements newest first. */
     suspend fun listByHousehold(householdId: Uuid): List<Settlement>
+}
+
+interface ListItemRepository {
+    suspend fun add(item: NewListItem): ListItem
+    suspend fun findById(id: Uuid): ListItem?
+
+    /** Open items first, then purchased ones; each group oldest first, so new items go to the bottom. */
+    suspend fun listByHousehold(householdId: Uuid): List<ListItem>
+
+    /** Returns the updated item, or null if it does not exist. */
+    suspend fun update(id: Uuid, patch: ListItemPatch): ListItem?
+
+    /** Returns false if it did not exist. */
+    suspend fun delete(id: Uuid): Boolean
+
+    /**
+     * Names the household has bought before that contain [query] (ignoring case), from items on
+     * confirmed receipts. Names starting with [query] come first, then the most often bought.
+     */
+    suspend fun autocomplete(householdId: Uuid, query: String, limit: Int = 10): List<String>
 }
 
 /** Insert and query only: ledger rows are never updated or deleted. */

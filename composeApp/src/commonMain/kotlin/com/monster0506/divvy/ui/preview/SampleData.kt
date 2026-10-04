@@ -56,9 +56,9 @@ object SampleData {
     )
 
     val shopping = listOf(
-        ShoppingItem("Eggs", false),
-        ShoppingItem("Dish soap", false),
-        ShoppingItem("Olive oil", true),
+        ShoppingItem("sample-eggs", "Eggs", false, quantity = "1 dozen", addedBy = "Andrew", addedAt = "2026-09-28T15:00:00Z"),
+        ShoppingItem("sample-soap", "Dish soap", false, notes = "The lemon one", addedBy = "TJ", addedAt = "2026-09-29T09:30:00Z"),
+        ShoppingItem("sample-oil", "Olive oil", true, addedBy = "Sumedh", addedAt = "2026-09-25T18:10:00Z"),
     )
 
     val suggestions = listOf(

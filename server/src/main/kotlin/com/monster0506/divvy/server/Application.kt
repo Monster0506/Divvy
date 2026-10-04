@@ -17,6 +17,7 @@ import com.monster0506.divvy.server.repository.ExposedPersonRepository
 import com.monster0506.divvy.server.repository.ExposedRepositories
 import com.monster0506.divvy.server.routes.HouseholdNameAsId
 import com.monster0506.divvy.server.routes.householdRoutes
+import com.monster0506.divvy.server.routes.listItemRoutes
 import com.monster0506.divvy.server.routes.mlRoutes
 import com.monster0506.divvy.server.routes.mlSettingsRoutes
 import com.monster0506.divvy.server.routes.mlStatsRoutes
@@ -161,6 +162,7 @@ fun Application.module(connectDatabase: Boolean = true) {
             receiptReadRoutes({ repositories.receipts }, { imageStorage })
             settlementRoutes({ repositories.households }, { repositories.people }, { repositories.settlements })
             balanceRoutes({ repositories.households }, { repositories.people }, { repositories.ledger })
+            listItemRoutes({ repositories.households }, { repositories.people }, { repositories.listItems })
         }
     }
 

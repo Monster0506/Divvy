@@ -17,7 +17,6 @@ import com.monster0506.divvy.ui.model.ReceiptDraft
 import com.monster0506.divvy.ui.model.ReceiptLine
 import com.monster0506.divvy.ui.model.ReceiptStatus
 import com.monster0506.divvy.ui.model.Settings
-import com.monster0506.divvy.ui.model.ShoppingItem
 import com.monster0506.divvy.ui.model.Transfer
 import com.monster0506.divvy.ui.model.initialsFor
 import com.monster0506.divvy.ui.preview.SampleData
@@ -65,8 +64,7 @@ class DivvyState(private val ownerSaver: DebouncedSaver<Int, Set<String>>? = nul
             return shares.filter { (p, cents) -> p.id != payer.id && cents > 0 }
                 .map { (p, cents) -> Transfer(p, payer, cents, paid = p.id in paidFrom) }
         }
-    var shopping by mutableStateOf(SampleData.shopping)
-        private set
+    /** "You may also need" stand-ins until running-low predictions (#137) reach the app. */
     var suggestions by mutableStateOf(SampleData.suggestions)
         private set
     private var rawHistory by mutableStateOf(SampleData.history)
@@ -168,14 +166,11 @@ class DivvyState(private val ownerSaver: DebouncedSaver<Int, Set<String>>? = nul
         paidFrom = if (id in paidFrom) paidFrom - id else paidFrom + id
     }
 
-    fun toggleShopping(index: Int) {
-        shopping = shopping.mapIndexed { i, s -> if (i == index) s.copy(done = !s.done) else s }
-    }
-
-    fun addSuggestion(index: Int) {
-        val s = suggestions[index]
+    /** Hides suggestion [index] and returns its name to put on the list. */
+    fun addSuggestion(index: Int): String? {
+        val s = suggestions.getOrNull(index) ?: return null
         suggestions = suggestions.mapIndexed { i, x -> if (i == index) x.copy(added = true) else x }
-        shopping = shopping + ShoppingItem(s.name, done = false)
+        return s.name
     }
 
     /** Adds a member and returns their id. */
