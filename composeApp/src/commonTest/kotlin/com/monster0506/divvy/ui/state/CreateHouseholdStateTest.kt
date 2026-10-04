@@ -43,6 +43,15 @@ class CreateHouseholdStateTest {
     }
 
     @Test
+    fun existingHouseholdRoutesToMemberSelection() = runTest {
+        val state = CreateHouseholdState { CreateHouseholdResult.Existing("172") }
+        state.onNameChange("172")
+
+        assertEquals("172", state.submit())
+        assertTrue(state.joiningExisting)
+    }
+
+    @Test
     fun serverRejectionShowsInline() = runTest {
         val state = CreateHouseholdState { CreateHouseholdResult.Invalid("name taken") }
         state.onNameChange("Home")

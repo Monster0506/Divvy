@@ -35,6 +35,14 @@ class HouseholdApiTest {
     }
 
     @Test
+    fun repeatedNameIsReportedAsExistingHousehold() = runTest {
+        val result = api {
+            respond("""{"id":"server-id","name":"172","defaultCurrency":"USD"}""", HttpStatusCode.OK, json)
+        }.create("172")
+        assertEquals(CreateHouseholdResult.Existing("172"), result)
+    }
+
+    @Test
     fun badRequestBecomesInvalid() = runTest {
         val result = api {
             respond("""{"code":"validation_error","message":"name must be 1-80 characters"}""", HttpStatusCode.BadRequest, json)

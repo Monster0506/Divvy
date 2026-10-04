@@ -31,6 +31,8 @@ class AddMembersState(
         private set
     var rows by mutableStateOf<List<MemberRow>>(emptyList())
         private set
+    var meName by mutableStateOf<String?>(null)
+        private set
     var submitting by mutableStateOf(false)
         private set
     /** Network/server problem, shown above the button. */
@@ -39,7 +41,8 @@ class AddMembersState(
 
     /** Counts a name typed but not yet added, so Finish works without tapping Add first. */
     private val pending: Int get() = if (draft.isNotBlank()) 1 else 0
-    val canFinish: Boolean get() = !submitting && rows.size + pending >= MIN_MEMBERS
+    val canFinish: Boolean get() = !submitting && rows.size + pending >= MIN_MEMBERS && meName != null && rows.any { it.name == meName }
+    val meId: String? get() = rows.firstOrNull { it.name == meName }?.id
 
     fun onDraftChange(value: String) {
         draft = value
@@ -63,13 +66,20 @@ class AddMembersState(
     fun canRemove(row: MemberRow) = !submitting && row.id == null
 
     fun remove(row: MemberRow) {
-        if (canRemove(row)) rows = rows - row
+        if (canRemove(row)) {
+            rows = rows - row
+            if (meName == row.name) meName = null
+        }
+    }
+
+    fun setMe(name: String) {
+        if (rows.any { it.name == name }) meName = name
     }
 
     /** Creates everyone not yet on the server. Returns true when all are created. */
     suspend fun finish(): Boolean {
         if (draft.isNotBlank() && !add()) return false
-        if (rows.size < MIN_MEMBERS || submitting) return false
+        if (rows.size < MIN_MEMBERS || meName == null || rows.none { it.name == meName } || submitting) return false
         submitting = true
         error = null
         rows = rows.map { it.copy(error = null) }
