@@ -11,6 +11,7 @@ import com.monster0506.divvy.data.repository.BalanceRepository
 import com.monster0506.divvy.data.repository.HouseholdRepository
 import com.monster0506.divvy.data.dto.ItemOwnerDto
 import com.monster0506.divvy.data.dto.ItemOwnersDto
+import com.monster0506.divvy.data.dto.UpdateReceiptRequest
 import com.monster0506.divvy.data.repository.ReceiptRepository
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandleScope
@@ -259,5 +260,24 @@ class DivvyApiTest {
         assertEquals("/receipts/r1/items/i1/owners", path)
         assertTrue(""""personId":"p2"""" in body)
         assertEquals(listOf("p1", "p2"), saved.owners.map { it.personId })
+    }
+
+    @Test
+    fun updating_receipt_details_patches_only_the_changed_fields() = runTest {
+        var method: HttpMethod? = null
+        var path = ""
+        var body = ""
+        val repo = ReceiptRepository(api { request ->
+            method = request.method
+            path = request.url.encodedPath
+            body = request.body.toByteArray().decodeToString()
+            respond("""{"id":"r1","householdId":"h1","status":"draft","merchantName":"Target","purchasedAt":"2026-10-01T12:00:00Z","totalMinor":900,"taxMinor":50,"items":[],"reconciliation":{"reconciled":true}}""", headers = json)
+        })
+
+        assertIs<ApiResult.Success<*>>(repo.updateReceipt("r1", UpdateReceiptRequest(merchantName = "Target", taxMinor = 50)))
+
+        assertEquals(HttpMethod.Patch, method)
+        assertEquals("/receipts/r1", path)
+        assertEquals("""{"merchantName":"Target","taxMinor":50}""", body)
     }
 }

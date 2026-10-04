@@ -73,6 +73,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.window.Dialog
 import com.monster0506.divvy.review.ReceiptReviewController
+import com.monster0506.divvy.review.ReceiptDetailsEdit
 import com.monster0506.divvy.review.PayerStore
 import com.monster0506.divvy.review.RepositoryReviewApi
 import com.monster0506.divvy.review.ReviewPhase
@@ -445,7 +446,10 @@ fun DivvyApp(
                             onUndo = review::undoDelete,
                             notice = reviewState.message ?: reviewState.warning,
                             onChoosePayer = review::setPayer,
-                        )
+                            onEditDetails = { store, date, tax, total ->
+                                review.editDetails(ReceiptDetailsEdit(store, date, tax, total))
+                            },
+                          )
                     else -> ReviewStatusScreen(
                         title = when (reviewState.phase) {
                             ReviewPhase.Reading -> "Reading your receipt"

@@ -27,6 +27,7 @@ const val API_KEY_HEADER = "X-Api-Key"
 internal val ApiJson = Json {
     ignoreUnknownKeys = true
     encodeDefaults = true
+    explicitNulls = false
 }
 
 /** Builds the shared client; the engine defaults to the one bundled for the current platform. */
