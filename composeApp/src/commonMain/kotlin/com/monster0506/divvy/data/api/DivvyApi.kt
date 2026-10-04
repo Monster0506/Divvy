@@ -102,14 +102,21 @@ class DivvyApi(private val client: HttpClient) {
         status: String? = null,
         cursor: String? = null,
         limit: Int = 50,
+        merchant: String? = null,
+        from: String? = null,
+        to: String? = null,
+        paidBy: String? = null,
     ): ReceiptPageDto = send {
         client.get("households/${householdId.seg()}/receipts") {
             parameter("limit", limit)
             status?.let { parameter("status", it) }
             cursor?.let { parameter("cursor", it) }
+            merchant?.let { parameter("merchant", it) }
+            from?.let { parameter("from", it) }
+            to?.let { parameter("to", it) }
+            paidBy?.let { parameter("paidBy", it) }
         }
     }
-
     suspend fun addItem(receiptId: String, item: ItemEditRequest): EditedReceiptDto =
         send { client.post("receipts/$receiptId/items") { setBody(item) } }
 
