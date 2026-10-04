@@ -1,5 +1,6 @@
 package com.monster0506.divvy.server.repository
 
+import com.monster0506.divvy.server.ledger.ledgerEntriesFor
 import com.monster0506.divvy.server.db.HouseholdTable
 import com.monster0506.divvy.server.db.ItemOwnerHistoryTable
 import com.monster0506.divvy.server.db.ItemOwnerTable
@@ -197,15 +198,37 @@ class ExposedReceiptRepository(private val db: Database) : ReceiptRepository {
         loadReceipts(ids)
     }
 
-    /** No effect unless the receipt is a draft. */
+    /**
+     * No effect unless the receipt is a draft. The ledger entries are written in the same
+     * transaction as the status change, so both happen or neither does.
+     */
     override suspend fun confirm(id: Uuid): Receipt? = db.dbQuery {
-        ReceiptTable.updateReturning(
+        val confirmed = ReceiptTable.updateReturning(
             returning = listOf(ReceiptTable.id),
             where = { (ReceiptTable.id eq id) and (ReceiptTable.status eq ReceiptStatus.DRAFT.dbValue) },
         ) {
             it[status] = ReceiptStatus.CONFIRMED.dbValue
             it[confirmedAt] = CurrentTimestampWithTimeZone
-        }.toList().also { if (it.isNotEmpty()) recordLabelSources(id) }
+        }.toList().isNotEmpty()
+        if (confirmed) recordLabelSources(id)
+        val receipt = loadReceipts(listOf(id)).singleOrNull()
+        if (confirmed && receipt != null) writeReceiptLedger(receipt)
+        receipt
+    }
+
+    /**
+     * Moves a confirmed receipt back to draft so it can be corrected, and cancels its ledger
+     * entries. No effect unless the receipt is confirmed.
+     */
+    override suspend fun reopen(id: Uuid): Receipt? = db.dbQuery {
+        val reopened = ReceiptTable.updateReturning(
+            returning = listOf(ReceiptTable.id),
+            where = { (ReceiptTable.id eq id) and (ReceiptTable.status eq ReceiptStatus.CONFIRMED.dbValue) },
+        ) {
+            it[status] = ReceiptStatus.DRAFT.dbValue
+            it[confirmedAt] = null
+        }.toList().isNotEmpty()
+        if (reopened) reverseReceiptLedger(id)
         loadReceipts(listOf(id)).singleOrNull()
     }
 
@@ -349,10 +372,12 @@ class ExposedReceiptRepository(private val db: Database) : ReceiptRepository {
         }
     }
 
+    /** Voids the receipt and cancels any ledger entries it had, in one transaction. */
     override suspend fun void(id: Uuid): Receipt? = db.dbQuery {
         ReceiptTable.updateReturning(returning = listOf(ReceiptTable.id), where = { ReceiptTable.id eq id }) {
             it[status] = ReceiptStatus.VOID.dbValue
         }.toList()
+        reverseReceiptLedger(id)
         loadReceipts(listOf(id)).singleOrNull()
     }
 
@@ -464,12 +489,12 @@ class ExposedSettlementRepository(private val db: Database) : SettlementReposito
 }
 
 class ExposedLedgerRepository(private val db: Database) : LedgerRepository {
-    override suspend fun append(entry: NewLedgerEntry): LedgerEntry = db.dbQuery { insertEntry(entry, null) }
+    override suspend fun append(entry: NewLedgerEntry): LedgerEntry = db.dbQuery { insertLedgerEntry(entry, null) }
 
     override suspend fun reverse(entryId: Uuid): LedgerEntry? = db.dbQuery {
         val original = LedgerEntryTable.selectAll().where { LedgerEntryTable.id eq entryId }
             .singleOrNull()?.toLedgerEntry() ?: return@dbQuery null
-        insertEntry(
+        insertLedgerEntry(
             NewLedgerEntry(
                 householdId = original.householdId,
                 debtorPersonId = original.creditorPersonId,
@@ -499,21 +524,50 @@ class ExposedLedgerRepository(private val db: Database) : LedgerRepository {
             .orderBy(LedgerEntryTable.createdAt to SortOrder.ASC, LedgerEntryTable.id to SortOrder.ASC)
             .map { it.toLedgerEntry() }
     }
-
-    private fun insertEntry(entry: NewLedgerEntry, reverses: Uuid?): LedgerEntry =
-        LedgerEntryTable.insertReturning {
-            it[householdId] = entry.householdId
-            it[debtorPersonId] = entry.debtorPersonId
-            it[creditorPersonId] = entry.creditorPersonId
-            it[amountMinor] = entry.amount.amountMinor
-            it[currency] = entry.amount.currency.code
-            it[sourceType] = entry.sourceType.dbValue
-            it[sourceId] = entry.sourceId
-            it[reversesEntryId] = reverses
-        }.single().toLedgerEntry()
 }
 
 // --- shared queries (must run inside a transaction) ------------------------------------------
+
+private fun insertLedgerEntry(entry: NewLedgerEntry, reverses: Uuid?): LedgerEntry =
+    LedgerEntryTable.insertReturning {
+        it[householdId] = entry.householdId
+        it[debtorPersonId] = entry.debtorPersonId
+        it[creditorPersonId] = entry.creditorPersonId
+        it[amountMinor] = entry.amount.amountMinor
+        it[currency] = entry.amount.currency.code
+        it[sourceType] = entry.sourceType.dbValue
+        it[sourceId] = entry.sourceId
+        it[reversesEntryId] = reverses
+    }.single().toLedgerEntry()
+
+/** One entry per non-payer share of a just-confirmed receipt. */
+private fun writeReceiptLedger(receipt: Receipt) {
+    ledgerEntriesFor(receipt).forEach { insertLedgerEntry(it, reverses = null) }
+}
+
+/** Cancels every entry of the receipt that is not already cancelled. Safe to call twice. */
+private fun reverseReceiptLedger(receiptId: Uuid) {
+    val entries = LedgerEntryTable.selectAll()
+        .where {
+            (LedgerEntryTable.sourceType eq LedgerSourceType.RECEIPT.dbValue) and
+                    (LedgerEntryTable.sourceId eq receiptId)
+        }
+        .map { it.toLedgerEntry() }
+    val alreadyReversed = entries.mapNotNull { it.reversesEntryId }.toSet()
+    entries.filter { it.reversesEntryId == null && it.id !in alreadyReversed }.forEach { original ->
+        insertLedgerEntry(
+            NewLedgerEntry(
+                householdId = original.householdId,
+                debtorPersonId = original.creditorPersonId,
+                creditorPersonId = original.debtorPersonId,
+                amount = original.amount,
+                sourceType = original.sourceType,
+                sourceId = original.sourceId,
+            ),
+            reverses = original.id,
+        )
+    }
+}
 
 /** Rejects archived people, except those in [alreadyOwners] who keep their existing ownership. */
 private fun rejectArchivedPeople(personIds: Collection<Uuid>, alreadyOwners: Set<Uuid> = emptySet()) {
