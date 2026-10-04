@@ -31,6 +31,7 @@ services:
       QWEN_API_KEY: ${QWEN_API_KEY:-}
       QWEN_BASE_URL: ${QWEN_BASE_URL:-https://maas.qwencloudapi.com/compatible-mode/v1}
       QWEN_LLM_NORMALIZE: ${QWEN_LLM_NORMALIZE:-true}
+      DIVVY_DEMO_MODEL: ${DIVVY_DEMO_MODEL:-}
       DIVVY_IMAGE_DIR: /receipts
     volumes:
       - mldata:/data
