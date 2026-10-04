@@ -7,19 +7,8 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.post
-import kotlinx.serialization.Serializable
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
-
-@Serializable
-private data class ArchivedPersonResponse(
-    val id: String,
-    val householdId: String,
-    val name: String,
-    val archivedAt: String? = null,
-    val createdAt: String,
-    val updatedAt: String,
-)
 
 @OptIn(ExperimentalUuidApi::class)
 private fun parseId(raw: String?): Uuid? = raw?.let { runCatching { Uuid.parse(it) }.getOrNull() }
@@ -39,15 +28,6 @@ fun Route.personArchiveRoutes(households: () -> HouseholdRepository, people: () 
         }
         val archived = people().archive(person.id)
             ?: return@post call.respond(HttpStatusCode.NotFound, personNotFound)
-        call.respond(
-            ArchivedPersonResponse(
-                id = archived.id.toString(),
-                householdId = archived.householdId.toString(),
-                name = archived.displayName,
-                archivedAt = archived.archivedAt?.toString(),
-                createdAt = archived.createdAt.toString(),
-                updatedAt = archived.updatedAt.toString(),
-            ),
-        )
+        call.respond(archived.toResponse())
     }
 }
