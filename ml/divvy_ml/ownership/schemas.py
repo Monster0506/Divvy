@@ -121,7 +121,9 @@ class ObservationIn(BaseModel):
 class UpsertObservationsRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    observations: list[ObservationIn] = Field(min_length=1, max_length=MAX_UPSERT)
+    observations: list[ObservationIn] = Field(
+        max_length=MAX_UPSERT, description="May be empty only together with replace=true"
+    )
 
     @model_validator(mode="after")
     def ids_are_unique(self) -> Self:
@@ -144,6 +146,10 @@ class HistoryStatus(BaseModel):
     ready: bool
     model_version: str | None = Field(
         default=None, description="Version of the model currently serving, if one is built"
+    )
+    digest: str = Field(
+        description="SHA-256 of the stored history in the form the backend also computes, "
+        "so both sides can tell whether they hold the same labels"
     )
 
 

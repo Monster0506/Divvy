@@ -1,0 +1,28 @@
+{
+  "store": "Sample Grocer",
+  "purchased_on": "2026-02-20",
+  "synthetic": true,
+  "items": [
+    {
+      "name": "COFFEE BEANS",
+      "quantity": 1,
+      "unit_price_cents": 1299,
+      "total_cents": 1299
+    },
+    {
+      "name": "OAT MILK",
+      "quantity": 1,
+      "unit_price_cents": 449,
+      "total_cents": 449
+    }
+  ],
+  "discounts": [
+    {
+      "description": "COUPON",
+      "amount_cents": 200
+    }
+  ],
+  "subtotal_cents": 1548,
+  "tax_cents": 95,
+  "total_cents": 1643
+}

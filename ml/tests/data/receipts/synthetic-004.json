@@ -1,0 +1,29 @@
+{
+  "store": "Corner Market",
+  "purchased_on": "2026-03-01",
+  "synthetic": true,
+  "items": [
+    {
+      "name": "RICE 5LB",
+      "quantity": 1,
+      "unit_price_cents": 849,
+      "total_cents": 849
+    },
+    {
+      "name": "TOMATOES",
+      "quantity": 1,
+      "unit_price_cents": 276,
+      "total_cents": 276
+    },
+    {
+      "name": "YOGURT",
+      "quantity": 1,
+      "unit_price_cents": 125,
+      "total_cents": 125
+    }
+  ],
+  "discounts": [],
+  "subtotal_cents": 1250,
+  "tax_cents": 38,
+  "total_cents": 1288
+}
