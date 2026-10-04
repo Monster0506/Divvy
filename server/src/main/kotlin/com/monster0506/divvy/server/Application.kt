@@ -21,6 +21,8 @@ import com.monster0506.divvy.server.routes.mlStatsRoutes
 import com.monster0506.divvy.server.routes.personArchiveRoutes
 import com.monster0506.divvy.server.routes.predictionRoutes
 import com.monster0506.divvy.server.routes.personRoutes
+import com.monster0506.divvy.server.routes.receiptRoutes
+import com.monster0506.divvy.server.storage.LocalFileImageStorage
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.auth.HttpAuthHeader
 import io.ktor.serialization.kotlinx.json.json
@@ -49,6 +51,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.slf4j.event.Level
+import java.nio.file.Path
 import java.security.MessageDigest
 import io.ktor.server.application.application
 
@@ -118,6 +121,9 @@ fun Application.module(connectDatabase: Boolean = true) {
         }
     }
 
+    // Created on first upload so tests and startup without images never touch the directory.
+    val imageStorage by lazy { LocalFileImageStorage(Path.of(config.imageDir)) }
+
     routing {
         get("/health") { call.respond(HealthResponse("ok", config.version)) }
         authenticate(API_KEY_AUTH) {
@@ -128,6 +134,7 @@ fun Application.module(connectDatabase: Boolean = true) {
             mlStatsRoutes({ repositories.households }, { ml.stats })
             mlSettingsRoutes({ repositories.households }, { ml.settings })
             predictionRoutes({ repositories.receipts }, { ml.predictions })
+            receiptRoutes({ repositories.households }, { repositories.receipts }, { imageStorage }, config.maxUploadBytes)
         }
     }
 

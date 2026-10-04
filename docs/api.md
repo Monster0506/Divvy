@@ -9,3 +9,12 @@ Errors use the standard ApiError body. All routes require the X-Api-Key header.
   Marks the person as having left. Archived people are hidden from GET /households/{id}/people unless
   ?includeArchived=true, cannot be newly assigned to receipt items (ArchivedPersonException in the
   repository), and still appear as owners on existing receipts. Archiving twice is harmless.
+
+## Receipts
+- POST /households/{id}/receipts  multipart/form-data with a file part named `image` -> 201 {"id": "...", "status": "processing"}
+  - 400 if the body is not multipart or has no `image` part
+  - 404 for an unknown or malformed household id
+  - 413 if the image is larger than `MAX_UPLOAD_BYTES` (default 10 MiB)
+  - 415 if the file is not a JPEG, PNG or HEIC (checked by magic bytes, not the declared content type)
+
+The image is stored under `IMAGE_DIR` (default `data/images`). The receipt starts in `processing` status with no payer or amounts.
