@@ -34,6 +34,14 @@ class VenmoTest {
     }
 
     @Test
+    fun pay_page_has_recipient_amount_and_note() {
+        assertEquals(
+            "https://account.venmo.com/pay?txn=pay&recipients=Savar-Shrestha&amount=12.50&note=Divvy%20settle-up",
+            venmoPayUrl("@Savar-Shrestha", 1250, "Divvy settle-up"),
+        )
+    }
+
+    @Test
     fun usernames_follow_venmo_rules() {
         listOf("Savar-Shrestha", "savar-shrestha", "sam-r", "Sam_Roddy-7", " @sam_r ", "a".repeat(30), "", "  ").forEach {
             assertNull(venmoUsernameProblem(it), it)
