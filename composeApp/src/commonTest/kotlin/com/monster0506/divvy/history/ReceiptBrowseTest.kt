@@ -35,7 +35,6 @@ private fun summary(
     ReceiptSummaryDto(id, "2026-09-18T12:00:00Z", "USD", total, status, 3, merchant, payer)
 
 private fun item(id: String, cents: Long, vararg owners: Pair<String, Int>) = ReceiptItemDto(
-    id = id,
     description = id,
     total = MoneyDto(cents),
     owners = owners.map { (person, weight) -> ItemOwnerReadDto(person, weight) },

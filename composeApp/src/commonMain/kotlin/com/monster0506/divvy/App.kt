@@ -615,24 +615,20 @@ fun DivvyApp(
                             if (historyState.filter.active) "No receipts match these filters." else "No receipts yet. Scan one to get started."
                         } else null,
                         scrollState = historyScroll,
-                        filters = HistoryFilters(
+                                                filters = HistoryFilters(
                             store = historyState.filter.store,
                             status = historyState.filter.status,
-                            fromText = historyFrom,
-                            toText = historyTo,
+                            fromIso = historyState.filter.fromIso,
+                            toIso = historyState.filter.toIso,
                             active = historyState.filter.active,
                             hasMore = historyState.hasMore,
                             loadingMore = historyState.loadingMore,
                             loadFailed = historyState.message != null,
                             onStore = history::setStore,
                             onStatus = history::setStatus,
-                            onFromText = { historyFrom = it; pushHistoryDates(it, historyTo) },
-                            onToText = { historyTo = it; pushHistoryDates(historyFrom, it) },
-                            onClear = {
-                                historyFrom = ""
-                                historyTo = ""
-                                history.clearFilters()
-                            },
+                            onFrom = { history.setDates(it, historyState.filter.toIso) },
+                            onTo = { history.setDates(historyState.filter.fromIso, it) },
+                            onClear = history::clearFilters,
                             onLoadMore = history::loadMore,
                         ),
                     )
