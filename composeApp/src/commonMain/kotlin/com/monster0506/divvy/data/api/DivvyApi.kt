@@ -6,6 +6,8 @@ import com.monster0506.divvy.data.dto.AcceptPredictionsRequest
 import com.monster0506.divvy.data.dto.AcceptedPredictionsDto
 import com.monster0506.divvy.data.dto.ConfirmedReceiptDto
 import com.monster0506.divvy.data.dto.CreateHouseholdRequest
+import com.monster0506.divvy.data.dto.CreateSettlementRequest
+import com.monster0506.divvy.data.dto.SettlementDto
 import com.monster0506.divvy.data.dto.EditedReceiptDto
 import com.monster0506.divvy.data.dto.ItemEditRequest
 import com.monster0506.divvy.data.dto.MergeItemsRequest
@@ -152,6 +154,10 @@ class DivvyApi(private val client: HttpClient) {
 
     suspend fun setItemOwners(receiptId: String, itemId: String, owners: List<ItemOwnerDto>): ItemOwnersDto =
         send { client.put("receipts/$receiptId/items/$itemId/owners") { setBody(SetItemOwnersRequest(owners)) } }
+
+    /** Records that [request].fromPersonId paid toPersonId, which lowers what the first owes the second. */
+    suspend fun recordSettlement(householdId: String, request: CreateSettlementRequest): SettlementDto =
+        send { client.post("households/$householdId/settlements") { setBody(request) } }
 
     suspend fun balances(householdId: String): BalancesDto =
         send { client.get("households/$householdId/balances") }

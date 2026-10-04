@@ -22,13 +22,25 @@ data class CurrencyBalancesDto(val currency: String, val people: List<PersonBala
 @Serializable
 data class BalancesDto(val balances: List<CurrencyBalancesDto>)
 
+/** A payment between two people, as the server records it. */
 @Serializable
 data class SettlementDto(
     val id: String,
     val householdId: String,
     val fromPersonId: String,
     val toPersonId: String,
-    val amountCents: Long,
+    val amountMinor: Long,
     val currency: String = DEFAULT_CURRENCY,
+    val settledAt: String? = null,
+    val note: String? = null,
     val createdAt: String? = null,
+)
+
+/** `POST /households/{id}/settlements`: [fromPersonId] paid [toPersonId] [amountMinor]. */
+@Serializable
+data class CreateSettlementRequest(
+    val fromPersonId: String,
+    val toPersonId: String,
+    val amountMinor: Long,
+    val note: String? = null,
 )
