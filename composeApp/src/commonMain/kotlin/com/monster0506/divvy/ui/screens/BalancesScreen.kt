@@ -153,8 +153,8 @@ fun LiveBalancesScreen(
 }
 
 /**
- * "A pays B $X" with Venmo and Mark paid buttons. Venmo opens a payment to B, or asks for B's Venmo username first if
- * nobody has added it yet. Payments involving this device's person stand out.
+ * "A pays B $X" with a Mark paid button and, when this device's person is A, a Venmo button. Venmo opens a payment to
+ * B, or asks for B's Venmo username first if nobody has added it yet. Payments involving this device's person stand out.
  */
 @Composable
 private fun SettleRow(transfer: SettleTransfer, enabled: Boolean, onPay: () -> Unit, onVenmo: () -> Unit) {
@@ -166,8 +166,16 @@ private fun SettleRow(transfer: SettleTransfer, enabled: Boolean, onPay: () -> U
     ) {
         Text("${transfer.from.name} pays ${transfer.to.name}", Modifier.weight(1f), fontSize = 14.sp, fontWeight = weight, color = tint)
         Text(transfer.amountCents.toMoney(), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = tint)
-        SettleButton("Venmo", enabled = true, tint = tint, onClick = onVenmo, modifier = Modifier.padding(start = 10.dp))
-        SettleButton("Mark paid", enabled = enabled, tint = tint, onClick = onPay, modifier = Modifier.padding(start = 6.dp))
+        if (transfer.iPay) {
+            SettleButton("Venmo", enabled = true, tint = tint, onClick = onVenmo, modifier = Modifier.padding(start = 10.dp))
+        }
+        SettleButton(
+            "Mark paid",
+            enabled = enabled,
+            tint = tint,
+            onClick = onPay,
+            modifier = Modifier.padding(start = if (transfer.iPay) 6.dp else 10.dp),
+        )
     }
     RowDivider()
 }
