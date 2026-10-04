@@ -48,4 +48,11 @@ data class ItemOwnerDto(
     val weight: Int = 1,
 )
 
+/** Response of setting an item's owners. */
+@Serializable
+data class ItemOwnersDto(
+    val itemId: String,
+    val owners: List<ItemOwnerDto> = emptyList(),
+)
+
 const val DEFAULT_CURRENCY = "USD"
