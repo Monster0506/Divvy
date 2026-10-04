@@ -33,17 +33,18 @@ private fun splitByWeight(total: Long, owners: List<ItemOwner>): Map<Uuid, Long>
     return owners.indices.associate { owners[it].personId to shares[it] }
 }
 
-/** One entry per non-payer with a positive share: debtor owes the payer. */
-fun ledgerEntriesFor(receipt: Receipt): List<NewLedgerEntry> =
-    receiptShares(receipt)
-        .filter { (person, cents) -> person != receipt.paidByPersonId && cents > 0 }
+fun ledgerEntriesFor(receipt: Receipt): List<NewLedgerEntry> {
+    val payerId = receipt.paidByPersonId ?: return emptyList()
+    return receiptShares(receipt)
+        .filter { (person, cents) -> person != payerId && cents > 0 }
         .map { (person, cents) ->
             NewLedgerEntry(
                 householdId = receipt.householdId,
                 debtorPersonId = person,
-                creditorPersonId = receipt.paidByPersonId,
+                creditorPersonId = payerId,
                 amount = Money(cents, receipt.currency),
                 sourceType = LedgerSourceType.RECEIPT,
                 sourceId = receipt.id,
             )
         }
+}

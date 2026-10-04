@@ -51,10 +51,11 @@ class ReceiptLedgerTest {
         updatedAt = now,
     )
 
-    private fun receipt(vararg items: ReceiptItem, paidBy: Uuid = payer) = Receipt(
+    private fun receipt(vararg items: ReceiptItem, paidBy: Uuid? = payer) = Receipt(
         id = Uuid.random(),
         householdId = householdId,
         paidByPersonId = paidBy,
+        imageKey = null, // or "test-image" if the grep shows a non-null String
         merchantName = null,
         purchasedAt = now,
         subtotal = null,
@@ -164,6 +165,12 @@ class ReceiptLedgerTest {
     fun `net-negative share writes no entry`() {
         // Current behavior: only positive shares become entries.
         val r = receipt(item(-300, owner(a)), paidBy = payer)
+        assertTrue(ledgerEntriesFor(r).isEmpty())
+    }
+
+    @Test
+    fun `receipt with no payer writes no entries`() {
+        val r = receipt(item(1000, owner(a), owner(b)), paidBy = null)
         assertTrue(ledgerEntriesFor(r).isEmpty())
     }
 }
