@@ -24,6 +24,9 @@ class FakeReceipts(var all: List<Receipt>) : ReceiptRepository {
     override suspend fun correctionRate(householdId: Uuid): Double? = null
 
     override suspend fun void(id: Uuid): Receipt? = error("not used")
+
+
+    override suspend fun reopen(id: Uuid): Receipt? = error("not used")
 }
 
 class FakeHouseholds(private val known: List<Household>) : HouseholdRepository {
