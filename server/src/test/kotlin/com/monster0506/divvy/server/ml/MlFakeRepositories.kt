@@ -20,7 +20,7 @@ import com.monster0506.divvy.server.repository.ReceiptRepository
 import kotlin.uuid.Uuid
 
 /** Serves a fixed list of receipts; only listing is used by the resync. */
-class FakeReceipts(var all: List<Receipt>) : ReceiptRepository {
+class FakeReceipts(@Volatile var all: List<Receipt>) : ReceiptRepository {
     override suspend fun create(receipt: NewReceipt): Receipt = error("not used")
 
     override suspend fun createProcessing(householdId: Uuid, imageKey: String): Receipt = error("not used")
@@ -44,9 +44,10 @@ class FakeReceipts(var all: List<Receipt>) : ReceiptRepository {
 
     override suspend fun idsWithStatus(status: ReceiptStatus): List<Uuid> = all.filter { it.status == status }.map { it.id }
 
-    private fun change(id: Uuid, from: ReceiptStatus, apply: (Receipt) -> Receipt): Receipt? {
+    // Receipts are read in parallel, so the read-modify-write must not interleave.
+    private fun change(id: Uuid, from: ReceiptStatus, apply: (Receipt) -> Receipt): Receipt? = synchronized(this) {
         val current = all.firstOrNull { it.id == id && it.status == from } ?: return null
-        return apply(current).also { updated -> all = all.map { if (it.id == id) updated else it } }
+        apply(current).also { updated -> all = all.map { if (it.id == id) updated else it } }
     }
 
     override suspend fun findById(id: Uuid): Receipt? = all.firstOrNull { it.id == id }
