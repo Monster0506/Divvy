@@ -10,7 +10,12 @@ WORKDIR /app
 COPY pyproject.toml ./
 COPY divvy_ml ./divvy_ml
 RUN pip install . \
-    && useradd --create-home --uid 10001 divvy
+    && useradd --create-home --uid 10001 divvy \
+    && mkdir /data \
+    && chown divvy /data
+
+ENV DIVVY_ML_DATA_DIR=/data
+VOLUME /data
 
 USER divvy
 
