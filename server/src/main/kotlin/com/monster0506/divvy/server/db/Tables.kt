@@ -39,7 +39,7 @@ object PersonTable : TimestampedTable("person") {
 object ReceiptTable : TimestampedTable("receipt") {
     val id = uuid("id").databaseGenerated()
     val householdId = uuid("household_id")
-    val paidByPersonId = uuid("paid_by_person_id")
+    val paidByPersonId = uuid("paid_by_person_id").nullable()
     val merchantName = text("merchant_name").nullable()
     val purchasedAt = timestampWithTimeZone("purchased_at")
     val currency = char("currency", 3)
@@ -48,6 +48,7 @@ object ReceiptTable : TimestampedTable("receipt") {
     val totalMinor = long("total_minor")
     val status = text("status").databaseGenerated()
     val confirmedAt = timestampWithTimeZone("confirmed_at").nullable()
+    val imageKey = text("image_key").nullable()
 
     override val primaryKey = PrimaryKey(id)
 }
