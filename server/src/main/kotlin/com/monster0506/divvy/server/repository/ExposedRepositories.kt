@@ -173,6 +173,19 @@ class ExposedReceiptRepository(private val db: Database) : ReceiptRepository {
         loadReceipts(listOf(receiptId)).single()
     }
 
+    override suspend fun createProcessing(householdId: Uuid, imageKey: String): Receipt = db.dbQuery {
+        val currency = HouseholdTable.select(HouseholdTable.defaultCurrency)
+            .where { HouseholdTable.id eq householdId }
+            .single()[HouseholdTable.defaultCurrency]
+        val receiptId = ReceiptTable.insertReturning(listOf(ReceiptTable.id)) {
+            it[ReceiptTable.householdId] = householdId
+            it[ReceiptTable.currency] = currency
+            it[ReceiptTable.imageKey] = imageKey
+            it[status] = ReceiptStatus.PROCESSING.dbValue
+        }.single()[ReceiptTable.id]
+        loadReceipts(listOf(receiptId)).single()
+    }
+
     override suspend fun findById(id: Uuid): Receipt? = db.dbQuery {
         loadReceipts(listOf(id)).singleOrNull()
     }
@@ -498,6 +511,7 @@ private fun ResultRow.toReceipt(items: List<ReceiptItem>): Receipt {
         total = Money(this[ReceiptTable.totalMinor], currency),
         status = ReceiptStatus.fromDb(this[ReceiptTable.status]),
         confirmedAt = this[ReceiptTable.confirmedAt]?.toInstant(),
+        imageKey = this[ReceiptTable.imageKey],
         items = items,
         createdAt = this[ReceiptTable.createdAt].toInstant(),
         updatedAt = this[ReceiptTable.updatedAt].toInstant(),
