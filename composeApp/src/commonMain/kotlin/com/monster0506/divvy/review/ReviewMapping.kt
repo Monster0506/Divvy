@@ -48,9 +48,13 @@ fun buildReviewLines(
         people = people,
         lines = lines,
         taxCents = receipt.tax?.amountMinor?.toInt() ?: 0,
+        dateIso = receipt.purchasedAt?.take(DATE_LENGTH),
+        printedTotalCents = receipt.total?.amountMinor?.toInt(),
     )
     return ReviewLines(draft, ids)
 }
+
+internal const val DATE_LENGTH = 10
 
 /** How the lines compare with the printed amounts, worked out the way the server does after an edit. */
 fun reconcile(receipt: ReceiptDto): ReconciliationDto {
