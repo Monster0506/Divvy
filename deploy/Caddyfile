@@ -1,0 +1,10 @@
+# Caddy gets and renews the HTTPS certificate for this name by itself.
+{$DIVVY_DOMAIN} {
+	encode zstd gzip
+
+	request_body {
+		max_size 20MB
+	}
+
+	reverse_proxy server:8080
+}
