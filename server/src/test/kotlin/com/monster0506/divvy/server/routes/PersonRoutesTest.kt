@@ -144,6 +144,17 @@ class PersonRoutesTest {
     }
 
     @Test
+    fun `real venmo usernames with capitals and hyphens are accepted`() = withApp {
+        val home = newHousehold()
+        val id = post("/households/$home/people", """{"displayName":"Savar"}""").field("id")
+        listOf("Savar-Shrestha", "savar-shrestha", "@Savar-Shrestha").forEach {
+            val res = patch("/households/$home/people/$id", """{"venmoUsername":"$it"}""")
+            assertEquals(HttpStatusCode.OK, res.status, it)
+            assertEquals(it.removePrefix("@"), res.field("venmoUsername"))
+        }
+    }
+
+    @Test
     fun `invalid venmo usernames return 400 and change nothing`() = withApp {
         val home = newHousehold()
         val id = post("/households/$home/people", """{"displayName":"Andrew"}""").field("id")
