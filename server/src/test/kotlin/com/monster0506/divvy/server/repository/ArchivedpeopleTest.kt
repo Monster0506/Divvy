@@ -4,8 +4,6 @@ import com.monster0506.divvy.server.domain.OwnerShare
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertTrue
 
 class ArchivedPeopleTest : RepositoryTestBase() {
     @Test
@@ -21,15 +19,13 @@ class ArchivedPeopleTest : RepositoryTestBase() {
     }
 
     @Test
-    fun `archived people cannot be assigned new items`() = runBlocking<Unit> {
+    fun `archived people can be assigned new items`() = runBlocking<Unit> {
         val (home, people) = household("Sumedh", "Savar")
         val item = receipt(home, people[0], "CILANTRO" to 129).items.single()
         repos.people.archive(people[1].id)
 
-        assertFailsWith<ArchivedPersonException> {
-            repos.itemOwners.setOwners(item.id, listOf(OwnerShare(people[0].id), OwnerShare(people[1].id)))
-        }
-        assertTrue(repos.itemOwners.ownersOf(item.id).isEmpty())
+        val owners = repos.itemOwners.setOwners(item.id, listOf(OwnerShare(people[0].id), OwnerShare(people[1].id)))
+        assertEquals(setOf(people[0].id, people[1].id), owners.map { it.personId }.toSet())
     }
 
     @Test
