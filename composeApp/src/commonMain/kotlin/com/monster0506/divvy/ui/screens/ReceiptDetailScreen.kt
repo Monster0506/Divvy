@@ -40,6 +40,7 @@ fun ReceiptDetailScreen(
     onViewPhoto: () -> Unit,
     onReopen: () -> Unit,
     onTab: (Tab) -> Unit = {},
+    notice: String? = null,
 ) {
     AppScaffold(selected = Tab.Receipts, onSelect = onTab) {
         ScreenHeader(
@@ -50,6 +51,7 @@ fun ReceiptDetailScreen(
                 withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = DivvyColors.Ink)) { append(receipt.payer.name) }
             },
         )
+        if (notice != null) SectionHeader(notice, warn = true)
         SectionHeader("Items", receipt.totalCents.toMoney())
         receipt.lines.forEach { line ->
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
