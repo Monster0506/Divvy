@@ -2,6 +2,7 @@ package com.monster0506.divvy.review
 
 import com.monster0506.divvy.data.dto.PersonDto
 import com.monster0506.divvy.data.dto.PredictionsDto
+import com.monster0506.divvy.data.dto.ReconciliationDto
 import com.monster0506.divvy.data.dto.ReceiptDto
 import com.monster0506.divvy.data.dto.ReceiptItemDto
 import com.monster0506.divvy.ui.model.AvatarColor
@@ -9,6 +10,7 @@ import com.monster0506.divvy.ui.model.Person
 import com.monster0506.divvy.ui.model.ReceiptDraft
 import com.monster0506.divvy.ui.model.ReceiptLine
 import com.monster0506.divvy.ui.model.initialsFor
+import com.monster0506.divvy.ui.model.toMoney
 
 fun PersonDto.toUiPerson(index: Int) =
     Person(id, displayName, initialsFor(displayName), AvatarColor.entries[index % AvatarColor.entries.size])
@@ -48,6 +50,30 @@ fun buildReviewLines(
         taxCents = receipt.tax?.amountMinor?.toInt() ?: 0,
     )
     return ReviewLines(draft, ids)
+}
+
+/** How the lines compare with the printed amounts, worked out the way the server does after an edit. */
+fun reconcile(receipt: ReceiptDto): ReconciliationDto {
+    val items = receipt.items.sumOf { it.total.amountMinor }
+    val tax = receipt.tax?.amountMinor ?: 0L
+    val total = receipt.total?.amountMinor
+    return ReconciliationDto(
+        itemsTotalMinor = items,
+        totalDifferenceMinor = if (total == null) 0 else total - (items + tax),
+        subtotalDifferenceMinor = receipt.subtotal?.let { it.amountMinor - items },
+        reconciled = (total == null || total - (items + tax) == 0L) && (receipt.subtotal?.let { it.amountMinor - items } ?: 0L) == 0L,
+    )
+}
+
+/** A sentence for a person when the lines do not add up to what the receipt says, or null when they do. */
+fun reconciliationWarning(reconciliation: ReconciliationDto): String? {
+    if (reconciliation.reconciled) return null
+    val items = reconciliation.itemsTotalMinor
+    val subtotalGap = reconciliation.subtotalDifferenceMinor?.takeIf { it != 0L }
+    val gap = subtotalGap ?: reconciliation.totalDifferenceMinor
+    val label = if (subtotalGap != null) "subtotal" else "total"
+    val direction = if (gap > 0) "less" else "more"
+    return "The lines add up to ${items.toInt().toMoney()}, which is ${kotlin.math.abs(gap).toInt().toMoney()} $direction than the receipt $label."
 }
 
 private fun lineId(item: ReceiptItemDto, index: Int) = if (item.lineNumber > 0) item.lineNumber else index + 1
