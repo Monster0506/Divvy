@@ -9,6 +9,7 @@ import com.monster0506.divvy.data.api.SettingsResult
 import com.monster0506.divvy.data.api.CreateHouseholdResult
 import com.monster0506.divvy.data.api.CreatePersonResult
 import com.monster0506.divvy.data.api.HouseholdApi
+import com.monster0506.divvy.data.api.HouseholdMember
 import com.monster0506.divvy.data.api.HouseholdSettingsApi
 import com.monster0506.divvy.data.api.PeopleApi
 import com.monster0506.divvy.data.api.createHttpClient
@@ -63,6 +64,7 @@ import com.monster0506.divvy.history.ReceiptHistoryController
 import com.monster0506.divvy.history.RepositoryBrowseApi
 import com.monster0506.divvy.settings.AutoAssignController
 import com.monster0506.divvy.settings.HouseholdNameController
+import com.monster0506.divvy.settings.MemberSyncController
 import com.monster0506.divvy.settings.RepositorySettingsApi
 import com.monster0506.divvy.data.repository.SettingsRepository
 import com.monster0506.divvy.data.dto.ReceiptStatusDto
@@ -194,6 +196,18 @@ fun DivvyApp(
             setLocal = { state.householdName = it },
         )
     }
+    val members = remember(api) {
+        MemberSyncController(
+            scope = scope,
+            listMembers = { id -> api.listPeople(id).filter { !it.isArchived }.map { HouseholdMember(it.id, it.displayName) } },
+            renameMember = { id, personId, name ->
+                api.renamePerson(id, personId, name).let { HouseholdMember(it.id, it.displayName, it.isArchived) }
+            },
+            archiveMember = { id, personId -> api.archivePerson(id, personId) },
+            applyMembers = state::loadMembers,
+            applyName = state::renamePerson,
+        )
+    }
     val historyState by history.state.collectAsState()
     val detailState by detail.state.collectAsState()
     val autoState by autoAssign.state.collectAsState()
@@ -205,10 +219,12 @@ fun DivvyApp(
             Route.History -> {
                 history.load(household)
                 nameSync.open(household)
+                members.load(household)
             }
             Route.Account -> {
                 autoAssign.load(household)
                 nameSync.open(household)
+                members.load(household)
             }
             else -> Unit
         }
@@ -565,8 +581,12 @@ fun DivvyApp(
                     route = Route.EditPerson
                 },
                 onAddMember = {
-                    editingId = state.addPerson("New member")
-                    route = Route.EditPerson
+                    if (activeHousehold() != null) {
+                        route = Route.HouseholdSettings
+                    } else {
+                        editingId = state.addPerson("New member")
+                        route = Route.EditPerson
+                    }
                 },
                 onSettingsChange = { updated ->
                     val before = state.settings
@@ -609,17 +629,26 @@ fun DivvyApp(
             }
 
             Route.EditPerson -> state.person(editingId)?.let { person ->
+                val household = activeHousehold()
                 EditPersonScreen(
                     person = person,
                     isMe = person.id == state.meId,
-                    canRemove = state.canRemove(person.id),
-                    onChange = state::updatePerson,
+                    canRemove = state.canRemove(person.id) && !members.busy,
+                    onChange = { updated ->
+                        state.updatePerson(updated)
+                        if (household != null && updated.name != person.name) members.rename(updated.id, updated.name)
+                    },
                     onRemove = {
-                        route = Route.Account
-                        state.removePerson(person.id)
+                        if (household == null) {
+                            route = Route.Account
+                            state.removePerson(person.id)
+                        } else {
+                            members.archive(person.id) { route = Route.Account }
+                        }
                     },
                     onDone = { route = Route.Account },
                     onTab = onTab,
+                    nameMessage = members.message,
                 )
             }
         }
