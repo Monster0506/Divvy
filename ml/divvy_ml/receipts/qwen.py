@@ -12,6 +12,7 @@ from typing import Any
 import httpx
 from pydantic import ValidationError
 
+from divvy_ml.normalize import normalize_product_name
 from divvy_ml.receipts.config import QwenConfig
 from divvy_ml.receipts.dates import normalise_date
 from divvy_ml.receipts.images import ReceiptImage
@@ -92,6 +93,7 @@ def to_receipt(data: dict[str, Any]) -> ExtractedReceipt:
         items.append(
             ExtractedItem(
                 name=name,
+                normalized_name=normalize_product_name(name) or None,
                 quantity=quantity if isinstance(quantity, int | float) and quantity > 0 else 1,
                 unit_price_cents=unit if unit is not None and unit >= 0 else None,
                 total_cents=cents(line.get("total_price")) or 0,

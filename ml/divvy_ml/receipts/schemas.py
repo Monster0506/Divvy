@@ -34,6 +34,9 @@ class ExtractRequest(BaseModel):
 
 class ExtractedItem(BaseModel):
     name: str = Field(min_length=1, description="Item name as printed on the receipt")
+    normalized_name: str | None = Field(
+        default=None, description="Readable lowercase name with codes and sizes removed"
+    )
     quantity: float = Field(default=1, gt=0, description="Count or weight; may be fractional")
     unit_price_cents: NonNegativeCents | None = None
     total_cents: Cents = Field(description="Line total; negative for refunds or voids")

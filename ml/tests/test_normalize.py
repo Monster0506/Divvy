@@ -44,17 +44,40 @@ EXAMPLES = [
 ]
 
 
-@pytest.mark.parametrize(("raw", "expected"), EXAMPLES)
+# Lines as printed on real Walmart receipts (the demo receipt and the receipt-bot fixtures)
+REAL_EXAMPLES = [
+    ("4CT BAN CHOC", "banana chocolate"),
+    ("4CT CCHIP", "chocolate chip"),
+    ("GV PL WRAP", "great value plastic wrap"),
+    ("TOTES UMB", "totes umbrella"),
+    ("GV WHOLE GAL", "great value whole"),
+    ("BNLS CK BRST", "boneless chicken breast"),
+    ("GV 40PK", "great value"),
+    ("IC TRAY W/LD", "ice tray with lid"),
+    ("MS ICE BIN", "mainstays ice bin"),
+    ("GV 2% MILK GAL", "great value 2% milk"),
+    ("WHT BREAD", "white bread"),
+    ("GV WATER 24PK", "great value water"),
+    ("BED IN A BAG", "bed in a bag"),
+    ("PAPER TOWEL", "paper towel"),
+    ("BANANAS", "bananas"),
+    ("DONUTS", "donuts"),
+    ("SCRUB DADDY", "scrub daddy"),
+]
+
+
+@pytest.mark.parametrize(("raw", "expected"), EXAMPLES + REAL_EXAMPLES)
 def test_normalizes_receipt_descriptions(raw: str, expected: str) -> None:
     assert normalize_product_name(raw) == expected
 
 
 def test_covers_at_least_thirty_examples() -> None:
     assert len(EXAMPLES) >= 30
+    assert len(REAL_EXAMPLES) >= 15
 
 
 def test_is_idempotent() -> None:
-    for raw, _ in EXAMPLES:
+    for raw, _ in EXAMPLES + REAL_EXAMPLES:
         once = normalize_product_name(raw)
         assert normalize_product_name(once) == once
 

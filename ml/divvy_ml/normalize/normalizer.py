@@ -17,6 +17,8 @@ _PRICE = re.compile(r"\$?\d+\.\d{2}")
 # Product and PLU codes
 _CODE = re.compile(r"^\d{3,}$")
 _SPLIT = re.compile(r"[^a-z0-9%]+")
+# A unit left on its own at the end ("GV WHOLE GAL") is a size with its number lost
+_TRAILING_UNITS = frozenset({"gal", "lb", "lbs", "oz", "ct", "pk", "ea", "doz"})
 
 
 def normalize_product_name(raw: str) -> str:
@@ -34,4 +36,6 @@ def normalize_product_name(raw: str) -> str:
         for word in ABBREVIATIONS.get(token, token).split():
             if not out or out[-1] != word:
                 out.append(word)
+    while out and out[-1] in _TRAILING_UNITS:
+        out.pop()
     return " ".join(out)

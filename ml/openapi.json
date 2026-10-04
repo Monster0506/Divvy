@@ -152,6 +152,18 @@
             "title": "Name",
             "type": "string"
           },
+          "normalized_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Readable lowercase name with codes and sizes removed",
+            "title": "Normalized Name"
+          },
           "quantity": {
             "default": 1,
             "description": "Count or weight; may be fractional",

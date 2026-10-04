@@ -1,7 +1,7 @@
 """Calls the real vision service. Skipped unless a key and an image are provided.
 
-    QWEN_API_KEY_FILE=../secrets.txt DIVVY_LIVE_RECEIPT=receipt.jpg
-    pytest tests/test_receipts_live.py -s
+QWEN_API_KEY_FILE=../secrets.txt DIVVY_LIVE_RECEIPT=receipt.jpg
+pytest tests/test_receipts_live.py -s
 """
 
 import os

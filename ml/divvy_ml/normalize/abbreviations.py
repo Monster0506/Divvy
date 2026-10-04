@@ -130,4 +130,15 @@ ABBREVIATIONS: dict[str, str] = {
     "papr": "paper",
     "btl": "bottle",
     "pkg": "package",
+    # store brands and words seen on real Walmart receipts
+    "ban": "banana",
+    "gv": "great value",
+    "ms": "mainstays",
+    "cchip": "chocolate chip",
+    "ck": "chicken",
+    "pl": "plastic",
+    "umb": "umbrella",
+    "ic": "ice",
+    "ld": "lid",
+    "w": "with",
 }
