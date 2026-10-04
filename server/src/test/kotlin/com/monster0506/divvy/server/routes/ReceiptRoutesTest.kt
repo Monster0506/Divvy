@@ -48,10 +48,14 @@ class ReceiptRoutesTest {
     @BeforeTest
     fun reset() = TestDatabase.reset()
 
+    private val uploaded = java.util.concurrent.CopyOnWriteArrayList<Uuid>()
+
     private fun withApp(block: suspend ApplicationTestBuilder.() -> Unit) = testApplication {
         application {
             install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true; explicitNulls = false }) }
-            routing { receiptRoutes({ repos.households }, { repos.receipts }, { storage }, maxBytes) }
+            routing {
+                receiptRoutes({ repos.households }, { repos.receipts }, { storage }, maxBytes, onUploaded = { uploaded += it })
+            }
         }
         block()
     }
@@ -75,6 +79,16 @@ class ReceiptRoutesTest {
 
     private suspend fun HttpResponse.field(name: String) =
         Json.parseToJsonElement(bodyAsText()).jsonObject.getValue(name).jsonPrimitive.content
+
+    @Test
+    fun `a good upload tells the extraction hook, a rejected one does not`() = withApp {
+        val household = createHousehold()
+
+        val ok = upload(household.toString(), jpeg)
+        upload(household.toString(), "nope".toByteArray())
+
+        assertEquals(listOf(Uuid.parse(ok.field("id"))), uploaded.toList())
+    }
 
     @Test
     fun `valid uploads return 201 with a processing receipt`() = withApp {

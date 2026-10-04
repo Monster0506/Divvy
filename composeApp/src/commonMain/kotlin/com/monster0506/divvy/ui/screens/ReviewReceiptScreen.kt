@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
@@ -35,6 +37,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
@@ -186,6 +190,8 @@ private fun LineDialog(
     var name by remember { mutableStateOf(initialName) }
     var price by remember { mutableStateOf(initialPrice) }
     val cents = parsePriceCents(price)
+    val canSave = cents != null && name.isNotBlank()
+    val save = { onSave(name.trim(), cents!!) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -198,11 +204,13 @@ private fun LineDialog(
                     label = { Text("Price") },
                     singleLine = true,
                     isError = price.isNotEmpty() && cents == null,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { if (canSave) save() }),
                 )
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(name.trim(), cents!!) }, enabled = cents != null && name.isNotBlank()) { Text("Save") }
+            TextButton(onClick = save, enabled = canSave) { Text("Save") }
         },
         dismissButton = {
             Row {
