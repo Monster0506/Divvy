@@ -8,4 +8,5 @@ class MlIntegration(
     val predictions: PredictionService,
     val stats: MlStats,
     val settings: MlSettingsRepository,
+    val extraction: ExtractionService,
 )

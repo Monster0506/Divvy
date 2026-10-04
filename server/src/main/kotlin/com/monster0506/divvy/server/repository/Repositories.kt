@@ -13,6 +13,7 @@ import com.monster0506.divvy.server.domain.NewSettlement
 import com.monster0506.divvy.server.domain.OwnerShare
 import com.monster0506.divvy.server.domain.OwnershipSource
 import com.monster0506.divvy.server.domain.Person
+import com.monster0506.divvy.server.domain.ProcessedReceipt
 import com.monster0506.divvy.server.domain.Receipt
 import com.monster0506.divvy.server.domain.ReceiptStatus
 
@@ -69,6 +70,21 @@ interface ReceiptRepository {
      * amounts yet. The household must exist.
      */
     suspend fun createProcessing(householdId: Uuid, imageKey: String): Receipt
+
+    /**
+     * Fills a `processing` receipt with what extraction read and moves it to `draft`. Returns null
+     * if the receipt does not exist or is not processing (e.g. it was already filled).
+     */
+    suspend fun completeProcessing(id: Uuid, processed: ProcessedReceipt): Receipt?
+
+    /** Marks a `processing` receipt `failed` with [reason]. Returns null if it is not processing. */
+    suspend fun failProcessing(id: Uuid, reason: String): Receipt?
+
+    /** Moves a `failed` receipt back to `processing` for another attempt. Null if it is not failed. */
+    suspend fun retryProcessing(id: Uuid): Receipt?
+
+    /** Ids of receipts in [status], oldest first. */
+    suspend fun idsWithStatus(status: ReceiptStatus): List<Uuid>
 
     /** The receipt with its items and their current owners. */
     suspend fun findById(id: Uuid): Receipt?

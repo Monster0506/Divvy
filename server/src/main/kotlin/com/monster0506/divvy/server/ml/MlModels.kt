@@ -9,6 +9,36 @@ import kotlinx.serialization.Serializable
  */
 
 @Serializable
+data class MlExtractRequest(@SerialName("image_base64") val imageBase64: String)
+
+@Serializable
+data class MlExtractedItem(
+    val name: String,
+    @SerialName("normalized_name") val normalizedName: String? = null,
+    val quantity: Double = 1.0,
+    @SerialName("unit_price_cents") val unitPriceCents: Long? = null,
+    @SerialName("total_cents") val totalCents: Long,
+)
+
+@Serializable
+data class MlDiscount(
+    val description: String,
+    @SerialName("amount_cents") val amountCents: Long,
+)
+
+@Serializable
+data class MlExtractedReceipt(
+    val store: String? = null,
+    @SerialName("purchased_on") val purchasedOn: String? = null,
+    val items: List<MlExtractedItem> = emptyList(),
+    val discounts: List<MlDiscount> = emptyList(),
+    @SerialName("subtotal_cents") val subtotalCents: Long? = null,
+    @SerialName("tax_cents") val taxCents: Long? = null,
+    @SerialName("total_cents") val totalCents: Long? = null,
+    val warnings: List<String> = emptyList(),
+)
+
+@Serializable
 data class MlPerson(val id: String, val name: String)
 
 @Serializable
