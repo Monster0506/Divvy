@@ -13,6 +13,8 @@ import kotlin.uuid.Uuid
 class FakeReceipts(var all: List<Receipt>) : ReceiptRepository {
     override suspend fun create(receipt: NewReceipt): Receipt = error("not used")
 
+    override suspend fun createProcessing(householdId: Uuid, imageKey: String): Receipt = error("not used")
+
     override suspend fun findById(id: Uuid): Receipt? = all.firstOrNull { it.id == id }
 
     override suspend fun listByHousehold(householdId: Uuid, limit: Int): List<Receipt> =
