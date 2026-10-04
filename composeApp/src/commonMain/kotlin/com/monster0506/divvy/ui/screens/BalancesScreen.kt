@@ -20,7 +20,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.background
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -29,6 +35,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.monster0506.divvy.balances.BalancesPhase
 import com.monster0506.divvy.balances.BalancesState
+import com.monster0506.divvy.balances.Payment
+import com.monster0506.divvy.balances.SettleTransfer
+import com.monster0506.divvy.domain.centsToInput
+import com.monster0506.divvy.domain.parsePriceCents
 import com.monster0506.divvy.ui.components.AppScaffold
 import com.monster0506.divvy.ui.components.Avatar
 import com.monster0506.divvy.ui.components.RowDivider
@@ -65,10 +75,24 @@ fun LiveBalancesScreen(
     hasHousehold: Boolean,
     onRefresh: () -> Unit,
     onTab: (Tab) -> Unit = {},
+    onSettle: (SettleTransfer, amountCents: Int) -> Unit = { _, _ -> },
+    onUndo: () -> Unit = {},
 ) {
+    var paying by remember { mutableStateOf<SettleTransfer?>(null) }
+    paying?.let { transfer ->
+        PaymentDialog(
+            transfer = transfer,
+            onConfirm = { cents ->
+                paying = null
+                onSettle(transfer, cents)
+            },
+            onDismiss = { paying = null },
+        )
+    }
     PullToRefreshBox(isRefreshing = state.refreshing, onRefresh = onRefresh) {
         AppScaffold(selected = Tab.Balances, onSelect = onTab) {
             ScreenHeader("Balances")
+            state.payment?.let { PaymentBanner(it, enabled = !state.recording, onUndo = onUndo) }
             when {
                 !hasHousehold -> BalancesNote("Set up a household to see who owes what.")
                 state.phase == BalancesPhase.Idle || state.phase == BalancesPhase.Loading ->
@@ -84,6 +108,10 @@ fun LiveBalancesScreen(
                     if (state.settled) SectionHeader("All settled up")
                     state.balances.forEach { BalanceRow(it) }
                     if (state.balances.isEmpty()) BalancesNote("Nobody in this household yet.")
+                    if (state.transfers.isNotEmpty()) {
+                        SectionHeader("Settle up", if (state.transfers.size == 1) "1 payment" else "${state.transfers.size} payments")
+                        state.transfers.forEach { SettleRow(it, enabled = !state.recording) { paying = it } }
+                    }
                     if (state.otherCurrencies) {
                         Spacer(Modifier.height(8.dp))
                         BalancesNote("Other currencies are not shown yet.")
@@ -91,6 +119,77 @@ fun LiveBalancesScreen(
                 }
             }
         }
+    }
+}
+
+/** "A pays B $X" with a button to record the payment. Payments involving this device's person stand out. */
+@Composable
+private fun SettleRow(transfer: SettleTransfer, enabled: Boolean, onPay: () -> Unit) {
+    val weight = if (transfer.involvesMe) FontWeight.SemiBold else FontWeight.Normal
+    val tint = if (transfer.involvesMe) DivvyColors.Accent else DivvyColors.Ink
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("${transfer.from.name} pays ${transfer.to.name}", Modifier.weight(1f), fontSize = 14.sp, fontWeight = weight, color = tint)
+        Text(transfer.amountCents.toMoney(), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = tint)
+        OutlinedButton(
+            onClick = onPay,
+            enabled = enabled,
+            modifier = Modifier.padding(start = 10.dp),
+            shape = RoundedCornerShape(6.dp),
+            border = BorderStroke(1.dp, if (enabled) tint else DivvyColors.Line),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+        ) {
+            Text("Mark paid", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = tint)
+        }
+    }
+    RowDivider()
+}
+
+/** Confirms a payment. The amount can be lowered to record a part payment. */
+@Composable
+private fun PaymentDialog(transfer: SettleTransfer, onConfirm: (Int) -> Unit, onDismiss: () -> Unit) {
+    var text by remember(transfer) { mutableStateOf(centsToInput(transfer.amountCents)) }
+    val cents = parsePriceCents(text)
+    val valid = cents != null && cents in 1..transfer.amountCents
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("${transfer.from.name} paid ${transfer.to.name}") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    label = { Text("Amount") },
+                    prefix = { Text("$") },
+                    singleLine = true,
+                    isError = !valid,
+                    supportingText = {
+                        Text(if (valid) "Part of ${transfer.amountCents.toMoney()} is fine." else "Enter up to ${transfer.amountCents.toMoney()}.")
+                    },
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = { onConfirm(cents!!) }, enabled = valid) { Text("Record payment") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/** Shown for a few seconds after a payment is recorded, with a way to take it back. */
+@Composable
+private fun PaymentBanner(payment: Payment, enabled: Boolean, onUndo: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().background(DivvyColors.Page).padding(horizontal = 20.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "Recorded: ${payment.from.name} paid ${payment.to.name} ${payment.amountCents.toMoney()}",
+            Modifier.weight(1f),
+            fontSize = 13.sp,
+            color = DivvyColors.Ink,
+        )
+        TextButton(onClick = onUndo, enabled = enabled) { Text("Undo") }
     }
 }
 

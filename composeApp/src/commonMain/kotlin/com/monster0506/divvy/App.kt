@@ -223,7 +223,15 @@ fun DivvyApp(
             Image(photo, contentDescription = "Receipt photo", modifier = Modifier.fillMaxWidth(), contentScale = ContentScale.Fit)
         }
     }
-    val balancesController = remember(api) { BalancesController(BalanceRepository(api)::balances, scope) }
+    val balancesController = remember(api) {
+        val balanceRepository = BalanceRepository(api)
+        BalancesController(
+            load = balanceRepository::balances,
+            scope = scope,
+            record = balanceRepository::settle,
+            currentPerson = payerStore::get,
+        )
+    }
     val balancesState by balancesController.state.collectAsState()
     LaunchedEffect(reviewState.phase) {
     if (reviewState.phase == ReviewPhase.Confirmed) {
@@ -528,7 +536,14 @@ fun DivvyApp(
                 val id = householdId ?: router?.currentHouseholdId()
                 val real = id != null && id != LOCAL_HOUSEHOLD_ID
                 LaunchedEffect(id) { if (real) balancesController.open(id!!) }
-                LiveBalancesScreen(balancesState, hasHousehold = real, onRefresh = balancesController::refresh, onTab = onTab)
+                LiveBalancesScreen(
+                    balancesState,
+                    hasHousehold = real,
+                    onRefresh = balancesController::refresh,
+                    onTab = onTab,
+                    onSettle = balancesController::settle,
+                    onUndo = balancesController::undo,
+                )
             }
             Route.Shopping -> ShoppingListScreen(
                 items = state.shopping,
