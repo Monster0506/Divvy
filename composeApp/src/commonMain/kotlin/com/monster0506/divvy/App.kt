@@ -5,9 +5,11 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
+import com.monster0506.divvy.data.api.SettingsResult
 import com.monster0506.divvy.data.api.CreateHouseholdResult
 import com.monster0506.divvy.data.api.CreatePersonResult
 import com.monster0506.divvy.data.api.HouseholdApi
+import com.monster0506.divvy.data.api.HouseholdSettingsApi
 import com.monster0506.divvy.data.api.PeopleApi
 import com.monster0506.divvy.data.api.createHttpClient
 import com.monster0506.divvy.launch.HouseholdStore
@@ -36,7 +38,6 @@ import com.monster0506.divvy.data.api.ApiFailure
 import com.monster0506.divvy.data.api.ApiConfig
 import com.monster0506.divvy.data.api.ApiConfigStore
 import com.monster0506.divvy.data.api.DivvyApi
-import com.monster0506.divvy.data.api.createHttpClient
 import com.monster0506.divvy.image.prepareReceiptImage
 import com.monster0506.divvy.launch.LOCAL_HOUSEHOLD_ID
 import com.monster0506.divvy.platform.rememberCameraCapture
@@ -50,6 +51,7 @@ import com.monster0506.divvy.ui.screens.CameraScreen
 import com.monster0506.divvy.ui.screens.ReceiptPhotoStage
 import com.monster0506.divvy.ui.screens.CreateHouseholdScreen
 import com.monster0506.divvy.ui.screens.EditPersonScreen
+import com.monster0506.divvy.ui.screens.HouseholdSettingsScreen
 import com.monster0506.divvy.ui.screens.HouseholdSetupScreen
 import com.monster0506.divvy.ui.screens.ReceiptDetailScreen
 import com.monster0506.divvy.ui.screens.ReceiptHistoryScreen
@@ -77,12 +79,13 @@ import com.monster0506.divvy.ui.screens.ShoppingListScreen
 import com.monster0506.divvy.ui.state.AddMembersState
 import com.monster0506.divvy.ui.state.CreateHouseholdState
 import com.monster0506.divvy.ui.state.DivvyState
+import com.monster0506.divvy.ui.state.HouseholdSettingsState
 import com.monster0506.divvy.ui.theme.DivvyTheme
 import androidx.compose.ui.tooling.preview.Preview
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
-enum class Route { Launch, CreateHousehold, AddMembers, Setup, Camera, Review, History, Detail, Balances, Shopping, Account, EditPerson }
+enum class Route { Launch, CreateHousehold, AddMembers, Setup, Camera, Review, History, Detail, Balances, Shopping, Account, EditPerson, HouseholdSettings }
 
 private data class SelectedReceiptPhoto(val jpeg: ByteArray, val preview: ImageBitmap)
 
@@ -110,6 +113,7 @@ fun App(apiConfig: ApiConfig = ApiConfig()) {
     DisposableEffect(client) { onDispose { client.close() } }
     val householdApi = remember(client) { HouseholdApi(client) }
     val peopleApi = remember(client) { PeopleApi(client) }
+    val settingsApi = remember(client) { HouseholdSettingsApi(client) }
     DivvyTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
             DivvyApp(
@@ -122,6 +126,7 @@ fun App(apiConfig: ApiConfig = ApiConfig()) {
                 },
                 createHousehold = householdApi::create,
                 createPerson = peopleApi::create,
+                settingsApi = settingsApi,
             )
         }
     }
@@ -140,6 +145,7 @@ fun DivvyApp(
     createPerson: suspend (householdId: String, name: String) -> CreatePersonResult = { _, _ ->
         CreatePersonResult.Failure("Not connected")
     },
+    settingsApi: HouseholdSettingsApi? = null,
 ) {
     var route by remember { mutableStateOf(start) }
     var householdId by remember { mutableStateOf<String?>(null) }
@@ -524,7 +530,34 @@ fun DivvyApp(
                 apiConfig = apiConfig,
                 onApiConfigChange = onApiConfigChange,
                 onTab = onTab,
+                onOpenHouseholdSettings = { route = Route.HouseholdSettings },
             )
+
+            Route.HouseholdSettings -> {
+                val id = householdId ?: router?.currentHouseholdId()
+                val form = remember {
+                    HouseholdSettingsState(
+                        load = {
+                            if (id == null || settingsApi == null) SettingsResult.Failure("Not connected")
+                            else settingsApi.load(id)
+                        },
+                        rename = { name ->
+                            if (id == null || settingsApi == null) SettingsResult.Failure("Not connected")
+                            else settingsApi.rename(id, name)
+                        },
+                        create = { name -> createPerson(id.orEmpty(), name) },
+                        archive = { personId ->
+                            if (id == null || settingsApi == null) SettingsResult.Failure("Not connected")
+                            else settingsApi.archive(id, personId)
+                        },
+                    )
+                }
+                HouseholdSettingsScreen(
+                    state = form,
+                    onBack = { route = Route.Account },
+                    onTab = onTab,
+                )
+            }
 
             Route.EditPerson -> state.person(editingId)?.let { person ->
                 EditPersonScreen(
