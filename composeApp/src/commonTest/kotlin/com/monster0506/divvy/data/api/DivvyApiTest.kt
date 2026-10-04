@@ -1,6 +1,6 @@
 package com.monster0506.divvy.data.api
 
-import com.monster0506.divvy.data.dto.BalanceDto
+import com.monster0506.divvy.data.dto.BalancesDto
 import com.monster0506.divvy.data.dto.HouseholdDto
 import com.monster0506.divvy.data.dto.AcceptedPredictionsDto
 import com.monster0506.divvy.data.dto.ConfirmedReceiptDto
@@ -123,10 +123,15 @@ class DivvyApiTest {
 
     @Test
     fun balances_are_decoded() = runTest {
-        val repo = BalanceRepository(api { respond("""[{"personId":"p1","netCents":250}]""", headers = json) })
+        val repo = BalanceRepository(api { respond(
+            """{"balances":[{"currency":"USD","people":[{"personId":"p1","displayName":"TJ","netMinor":250,"owes":[],"owedBy":[{"personId":"p2","amountMinor":250}]}]}]}""",
+            headers = json,
+        ) })
 
-        val balances = assertIs<ApiResult.Success<List<BalanceDto>>>(repo.balances("h1"))
-        assertEquals(250L, balances.value.single().netCents)
+        val balances = assertIs<ApiResult.Success<BalancesDto>>(repo.balances("h1"))
+        val person = balances.value.balances.single().people.single()
+        assertEquals(250L, person.netMinor)
+        assertEquals("p2", person.owedBy.single().personId)
     }
 
     @Test
