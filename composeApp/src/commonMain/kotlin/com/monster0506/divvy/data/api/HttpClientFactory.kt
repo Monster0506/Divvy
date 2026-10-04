@@ -9,8 +9,6 @@ import io.ktor.client.plugins.defaultRequest
 import io.ktor.client.plugins.logging.LogLevel
 import io.ktor.client.plugins.logging.Logging
 import io.ktor.client.request.header
-import io.ktor.http.ContentType
-import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
 
@@ -42,7 +40,6 @@ fun createHttpClient(
         defaultRequest {
             url(config.baseUrl.trimEnd('/') + "/")
             header(API_KEY_HEADER, config.apiKey)
-            contentType(ContentType.Application.Json)
         }
     }
     return if (engine != null) HttpClient(engine, configure) else HttpClient(configure)

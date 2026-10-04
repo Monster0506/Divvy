@@ -21,3 +21,13 @@ expect suspend fun compressImage(
     maxLongEdge: Int = DEFAULT_MAX_LONG_EDGE,
     quality: Int = DEFAULT_JPEG_QUALITY,
 ): ByteArray
+
+/** Prepares a legible JPEG for upload, reducing size further if a dense photo is still large. */
+suspend fun prepareReceiptImage(bytes: ByteArray): ByteArray {
+    require(bytes.isNotEmpty()) { "Image is empty" }
+    val first = compressImage(bytes)
+    if (first.size <= 2_000_000) return first
+    val second = compressImage(bytes, maxLongEdge = 1800, quality = 70)
+    if (second.size <= 2_000_000) return second
+    return compressImage(bytes, maxLongEdge = 1600, quality = 65)
+}
