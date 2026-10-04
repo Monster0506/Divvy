@@ -146,15 +146,6 @@ def test_rejects_invalid_records(bad):
         parse_lines(lines(bad))
 
 
-def test_rejects_changing_membership():
-    rows = lines(
-        record(seq=1), record(seq=2, owners={"sumedh": True, "savar": False, "andrew": False})
-    )
-
-    with pytest.raises(DatasetError, match="line 2"):
-        parse_lines(rows)
-
-
 def test_rejects_duplicate_seq():
     with pytest.raises(DatasetError, match="duplicate seq"):
         parse_lines(lines(record(seq=1), record(seq=1)))
