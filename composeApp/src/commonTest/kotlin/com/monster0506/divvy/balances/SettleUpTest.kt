@@ -131,6 +131,19 @@ class SettleUpTest {
     }
 
     @Test
+    fun venmo_is_offered_only_on_payments_this_devices_person_makes() = runTest {
+        // Ana pays TJ: Ana sees Venmo on her own payment only.
+        val asAna = open(controller(me = "ana")).state.value.transfers
+        assertEquals(listOf("Ana" to true, "Sam" to false), asAna.map { it.from.name to it.iPay })
+
+        // TJ is being paid, so has nothing to pay with Venmo.
+        assertTrue(open(controller(me = "tj")).state.value.transfers.none { it.iPay })
+
+        // Unknown person: no Venmo at all.
+        assertTrue(open(controller()).state.value.transfers.none { it.iPay })
+    }
+
+    @Test
     fun a_venmo_username_typed_on_settle_up_is_saved_and_used_for_their_payments() = runTest {
         val c = open(controller())
         val tj = c.state.value.transfers.first().to
