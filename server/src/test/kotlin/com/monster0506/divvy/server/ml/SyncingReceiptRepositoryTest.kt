@@ -27,6 +27,8 @@ private class StubReceipts(
 
     override suspend fun create(receipt: NewReceipt): Receipt = error("not used")
 
+    override suspend fun createProcessing(householdId: Uuid, imageKey: String): Receipt = error("not used")
+
     override suspend fun findById(id: Uuid): Receipt? {
         calls += "findById"
         return null
