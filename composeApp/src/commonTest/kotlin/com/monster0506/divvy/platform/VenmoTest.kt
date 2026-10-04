@@ -7,45 +7,60 @@ import kotlin.test.assertNull
 
 class VenmoTest {
     @Test
-    fun deep_link_has_recipient_amount_and_note() {
+    fun deep_link_pays_the_at_username_with_amount_and_note() {
         assertEquals(
-            "venmo://paycharge?txn=pay&recipients=sam&amount=12.50&note=Groceries",
-            venmoDeepLink("sam", 1250, "Groceries"),
+            "venmo://paycharge?txn=pay&recipients=%40Savar-Shrestha&amount=12.50&note=Divvy%20settle-up",
+            venmoDeepLink("Savar-Shrestha", 1250, "Divvy settle-up"),
+        )
+    }
+
+    @Test
+    fun deep_link_request_charges_the_payer() {
+        assertEquals(
+            "venmo://paycharge?txn=charge&recipients=%40Savar-Shrestha&amount=12.50&note=Divvy%20settle-up",
+            venmoDeepLink("Savar-Shrestha", 1250, "Divvy settle-up", txn = "charge"),
         )
     }
 
     @Test
     fun note_is_percent_encoded() {
-        val link = venmoDeepLink("sam", 5, "Milk & eggs #1")
-        assertEquals("venmo://paycharge?txn=pay&recipients=sam&amount=0.05&note=Milk%20%26%20eggs%20%231", link)
+        val link = venmoDeepLink("sam-r", 5, "Milk & eggs #1")
+        assertEquals("venmo://paycharge?txn=pay&recipients=%40sam-r&amount=0.05&note=Milk%20%26%20eggs%20%231", link)
     }
 
     @Test
-    fun leading_at_sign_and_spaces_are_removed() {
-        assertEquals(venmoDeepLink("sam", 100, "x"), venmoDeepLink(" @sam ", 100, "x"))
+    fun a_typed_at_sign_and_spaces_are_not_doubled() {
+        assertEquals(venmoDeepLink("sam-r", 100, "x"), venmoDeepLink(" @sam-r ", 100, "x"))
     }
 
     @Test
-    fun web_url_puts_username_in_the_path() {
-        assertEquals(
-            "https://venmo.com/sam?txn=pay&amount=3.00&note=Dinner",
-            venmoWebUrl("sam", 300, "Dinner"),
-        )
-    }
-
-    @Test
-    fun pay_page_has_recipient_amount_and_note() {
+    fun pay_page_fallback_has_recipient_amount_and_note() {
         assertEquals(
             "https://account.venmo.com/pay?txn=pay&recipients=Savar-Shrestha&amount=12.50&note=Divvy%20settle-up",
             venmoPayUrl("@Savar-Shrestha", 1250, "Divvy settle-up"),
         )
+        assertEquals(
+            "https://account.venmo.com/pay?txn=charge&recipients=Savar-Shrestha&amount=12.50&note=Divvy%20settle-up",
+            venmoPayUrl("Savar-Shrestha", 1250, "Divvy settle-up", txn = "charge"),
+        )
     }
 
     @Test
-    fun request_page_charges_the_payer() {
+    fun the_app_link_is_tried_first_then_the_pay_page() {
+        val opened = mutableListOf<String>()
+        val opener = UrlOpener { url, onFailure -> opened += url; if (url.startsWith("venmo://")) onFailure() }
+
+        opener.payWithVenmo("Savar-Shrestha", 1250, "n")
+        opener.requestWithVenmo("Savar-Shrestha", 1250, "n")
+
         assertEquals(
-            "https://account.venmo.com/pay?txn=charge&recipients=Savar-Shrestha&amount=12.50&note=Divvy%20settle-up",
-            venmoRequestUrl("@Savar-Shrestha", 1250, "Divvy settle-up"),
+            listOf(
+                "venmo://paycharge?txn=pay&recipients=%40Savar-Shrestha&amount=12.50&note=n",
+                "https://account.venmo.com/pay?txn=pay&recipients=Savar-Shrestha&amount=12.50&note=n",
+                "venmo://paycharge?txn=charge&recipients=%40Savar-Shrestha&amount=12.50&note=n",
+                "https://account.venmo.com/pay?txn=charge&recipients=Savar-Shrestha&amount=12.50&note=n",
+            ),
+            opened,
         )
     }
 
@@ -65,6 +80,6 @@ class VenmoTest {
     @Test
     fun rejects_non_positive_amount_and_blank_username() {
         assertFailsWith<IllegalArgumentException> { venmoDeepLink("sam", 0, "x") }
-        assertFailsWith<IllegalArgumentException> { venmoWebUrl("@", 100, "x") }
+        assertFailsWith<IllegalArgumentException> { venmoPayUrl("@", 100, "x") }
     }
 }
