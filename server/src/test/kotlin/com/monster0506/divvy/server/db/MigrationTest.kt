@@ -5,7 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class MigrationTest {
-    private val coreTables = listOf("household", "person", "receipt", "receipt_item", "item_owner", "settlement")
+    private val coreTables = listOf("household", "person", "receipt", "receipt_item", "item_owner", "settlement", "ledger_entry")
 
     @Test
     fun `migrations apply cleanly to an empty database`() {
