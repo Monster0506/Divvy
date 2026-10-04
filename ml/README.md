@@ -81,3 +81,7 @@ database export should produce. A file holds one source and one fixed set of peo
 - `chrono_split(dates)` and `walk_forward(dates, start, stop, step)`: time-ordered boundaries that never put one purchase date on both sides,
   because items bought on one trip belong together.
 - `check_no_leakage(dates, split)` raises unless every later period is strictly after every earlier one.
+
+## Choosing items to label
+
+`divvy_ml.active.select_batch(embeddings, scores, size=10)` picks items to ask the household about: it clusters by embedding, takes the most uncertain item from each cluster in turn, and skips anything with cosine similarity of 0.9 or more to an item already chosen. `uncertainty(confidences)` turns model confidences into scores (no prediction counts as 1.0).
