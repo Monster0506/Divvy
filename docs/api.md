@@ -30,3 +30,16 @@ The image is stored under `IMAGE_DIR` (default `data/images`). The receipt start
   - 400 for a non-positive amount, the same person on both sides, a person outside the household, a missing field or malformed JSON
   - 404 for an unknown or malformed household id
 - GET /households/{id}/settlements -> 200, newest first | 404
+
+## Balances
+- GET /households/{id}/balances -> 200 | 404
+  {"balances": [{"currency": "USD", "people": [{"personId", "displayName", "netMinor", "owes": [{"personId", "amountMinor"}], "owedBy": [...]}]}]}
+  One block per currency in the ledger (the household's default currency is always present). `netMinor` is positive when
+  the person is owed money and negative when they owe it; nets in a currency always sum to zero. `owes`/`owedBy` are
+  pairwise debts after netting opposite directions, not simplified across people. People who have left are listed only
+  while they have a balance.
+- GET /households/{id}/ledger?personId=  -> 200 | 400 | 404
+  The ledger entries behind the balances, oldest first. Each has `sourceType` (`receipt` or `settlement`) and `sourceId`,
+  and `reversesEntryId` when it cancels an earlier entry. With `personId`, only entries involving that person are listed,
+  each with `personEffectMinor` (+ when they are the creditor, - when the debtor); these add up to their net balance.
+  400 for a malformed `personId` or one outside the household.
