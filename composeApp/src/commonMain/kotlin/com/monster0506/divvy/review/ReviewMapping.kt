@@ -1,0 +1,73 @@
+package com.monster0506.divvy.review
+
+import com.monster0506.divvy.data.dto.PersonDto
+import com.monster0506.divvy.data.dto.PredictionsDto
+import com.monster0506.divvy.data.dto.ReceiptDto
+import com.monster0506.divvy.data.dto.ReceiptItemDto
+import com.monster0506.divvy.ui.model.AvatarColor
+import com.monster0506.divvy.ui.model.Person
+import com.monster0506.divvy.ui.model.ReceiptDraft
+import com.monster0506.divvy.ui.model.ReceiptLine
+import com.monster0506.divvy.ui.model.initialsFor
+
+fun PersonDto.toUiPerson(index: Int) =
+    Person(id, displayName, initialsFor(displayName), AvatarColor.entries[index % AvatarColor.entries.size])
+
+/**
+ * The review screen's view of a server receipt. A line's id is its line number, and [ReviewLines.itemIds] maps it
+ * back to the server item. A line is confirmed when someone owns it and the server does not ask for confirmation.
+ */
+data class ReviewLines(val draft: ReceiptDraft, val itemIds: Map<Int, String>)
+
+fun buildReviewLines(
+    receipt: ReceiptDto,
+    people: List<Person>,
+    payer: Person,
+    predictions: PredictionsDto?,
+): ReviewLines {
+    val needsConfirmation = predictions?.items.orEmpty().filter { it.needsConfirmation }.map { it.itemId }.toSet()
+    val ordered = receipt.items.sortedBy { it.lineNumber }
+    val ids = ordered.mapIndexed { index, item -> lineId(item, index) to item.id }.toMap()
+    val lines = ordered.mapIndexed { index, item ->
+        val owners = item.owners.map { it.personId }.toSet()
+        ReceiptLine(
+            id = lineId(item, index),
+            name = item.description,
+            priceCents = item.total.amountMinor.toInt(),
+            owners = owners,
+            confidence = confidenceOf(item),
+            confirmed = owners.isNotEmpty() && item.id !in needsConfirmation,
+        )
+    }
+    val draft = ReceiptDraft(
+        store = receipt.merchantName ?: "Receipt",
+        date = receipt.purchasedAt?.let(::formatDate) ?: "",
+        payer = payer,
+        people = people,
+        lines = lines,
+        taxCents = receipt.tax?.amountMinor?.toInt() ?: 0,
+    )
+    return ReviewLines(draft, ids)
+}
+
+private fun lineId(item: ReceiptItemDto, index: Int) = if (item.lineNumber > 0) item.lineNumber else index + 1
+
+/** The model's confidence for a guessed line; 1 for a line a person chose; 0 when nobody owns it. */
+private fun confidenceOf(item: ReceiptItemDto): Float {
+    if (item.owners.isEmpty()) return 0f
+    val guesses = item.owners.filter { it.source == "model" }
+    if (guesses.size < item.owners.size) return 1f
+    return (guesses.mapNotNull { it.confidence }.minOrNull() ?: 0.0).toFloat()
+}
+
+private val months = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+/** "2026-09-18T12:00:00Z" becomes "Sep 18, 2026"; anything else is shown as it came. */
+fun formatDate(iso: String): String {
+    val parts = iso.take(10).split("-")
+    val year = parts.getOrNull(0)?.toIntOrNull()
+    val month = parts.getOrNull(1)?.toIntOrNull()
+    val day = parts.getOrNull(2)?.toIntOrNull()
+    if (parts.size != 3 || year == null || month == null || day == null || month !in 1..12) return iso
+    return "${months[month - 1]} $day, $year"
+}

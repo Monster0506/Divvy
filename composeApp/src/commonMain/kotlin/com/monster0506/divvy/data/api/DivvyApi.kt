@@ -2,7 +2,12 @@ package com.monster0506.divvy.data.api
 
 import com.monster0506.divvy.data.dto.ApiError
 import com.monster0506.divvy.data.dto.BalanceDto
+import com.monster0506.divvy.data.dto.AcceptPredictionsRequest
+import com.monster0506.divvy.data.dto.AcceptedPredictionsDto
+import com.monster0506.divvy.data.dto.ConfirmedReceiptDto
 import com.monster0506.divvy.data.dto.CreateHouseholdRequest
+import com.monster0506.divvy.data.dto.PredictionsDto
+import com.monster0506.divvy.data.dto.SetReceiptPayerRequest
 import com.monster0506.divvy.data.dto.HouseholdDto
 import com.monster0506.divvy.data.dto.ItemOwnerDto
 import com.monster0506.divvy.data.dto.ItemOwnersDto
@@ -75,7 +80,29 @@ class DivvyApi(private val client: HttpClient) {
         }
     }
 
-    suspend fun confirmReceipt(id: String): ReceiptDto = send { client.post("receipts/$id/confirm") }
+    suspend fun confirmReceipt(id: String): ConfirmedReceiptDto = send { client.post("receipts/$id/confirm") }
+
+    /** Records who paid. The response is not needed, only that the change was accepted. */
+    suspend fun setReceiptPayer(receiptId: String, personId: String) {
+        send<kotlinx.serialization.json.JsonElement> {
+            client.patch("receipts/$receiptId") { setBody(SetReceiptPayerRequest(personId)) }
+        }
+    }
+
+    /** Reads a receipt photo again after it failed. */
+    suspend fun retryReceipt(householdId: String, receiptId: String): ReceiptUploadDto =
+        send { client.post("households/$householdId/receipts/$receiptId/retry") }
+
+    suspend fun getPredictions(householdId: String, receiptId: String): PredictionsDto =
+        send { client.get("households/$householdId/receipts/$receiptId/predictions") }
+
+    /** Keeps the model's owners as the person's choice, for [itemIds] or every item that needs it when null. */
+    suspend fun acceptPredictions(householdId: String, receiptId: String, itemIds: List<String>? = null): AcceptedPredictionsDto =
+        send {
+            client.post("households/$householdId/receipts/$receiptId/predictions/accept") {
+                setBody(AcceptPredictionsRequest(itemIds))
+            }
+        }
 
     suspend fun setItemOwners(receiptId: String, itemId: String, owners: List<ItemOwnerDto>): ItemOwnersDto =
         send { client.put("receipts/$receiptId/items/$itemId/owners") { setBody(SetItemOwnersRequest(owners)) } }
