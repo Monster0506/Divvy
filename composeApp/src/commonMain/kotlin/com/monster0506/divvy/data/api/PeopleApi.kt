@@ -11,10 +11,10 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 
 @Serializable
-private data class CreatePersonBody(val name: String)
+private data class CreatePersonBody(val displayName: String)
 
 @Serializable
-private data class PersonDto(val id: String, val name: String = "")
+private data class PersonDto(val id: String)
 
 @Serializable
 private data class PersonErrorDto(val code: String = "", val message: String = "")
