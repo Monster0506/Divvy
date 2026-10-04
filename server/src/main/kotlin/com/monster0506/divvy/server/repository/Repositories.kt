@@ -10,6 +10,7 @@ import com.monster0506.divvy.server.domain.OwnerShare
 import com.monster0506.divvy.server.domain.OwnershipSource
 import com.monster0506.divvy.server.domain.Person
 import com.monster0506.divvy.server.domain.Receipt
+import com.monster0506.divvy.server.domain.ReceiptStatus
 import com.monster0506.divvy.server.domain.Settlement
 import kotlin.uuid.Uuid
 
@@ -59,8 +60,23 @@ interface ReceiptRepository {
 
     suspend fun confirm(id: Uuid): Receipt?
 
+    /**
+     * Confirms a draft receipt in one transaction if every item has at least one active owner.
+     * Model-suggested owners become user-confirmed, which is recorded in the ownership history.
+     */
+    suspend fun confirmAssigned(id: Uuid): ConfirmResult
+
     /** Marks a receipt void. Receipts are never deleted, so their history stays available. */
     suspend fun void(id: Uuid): Receipt?
+}
+
+sealed interface ConfirmResult {
+    data object NotFound : ConfirmResult
+    data class NotDraft(val status: ReceiptStatus) : ConfirmResult
+
+    /** [itemIds] have no active owner. */
+    data class Unassigned(val itemIds: List<Uuid>) : ConfirmResult
+    data class Confirmed(val receipt: Receipt) : ConfirmResult
 }
 
 interface ItemOwnerRepository {
