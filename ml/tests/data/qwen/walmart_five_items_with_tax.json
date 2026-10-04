@@ -1,0 +1,14 @@
+{
+  "merchant": "Walmart",
+  "date": "08/20/26",
+  "items": [
+    {"name": "GV LG EGGS 18CT", "quantity": 1, "unit_price": 4.27, "total_price": 4.27},
+    {"name": "BNLS CHKN BRST", "quantity": 1, "unit_price": 13.94, "total_price": 13.94},
+    {"name": "GV SHRD CHDR", "quantity": 1, "unit_price": 6.97, "total_price": 6.97},
+    {"name": "GV SPAGHETTI", "quantity": 2, "unit_price": 1.24, "total_price": 2.48},
+    {"name": "TIDE PODS 42CT", "quantity": 1, "unit_price": 26.52, "total_price": 26.52}
+  ],
+  "subtotal": 54.18,
+  "tax": 3.79,
+  "total": 57.97
+}
