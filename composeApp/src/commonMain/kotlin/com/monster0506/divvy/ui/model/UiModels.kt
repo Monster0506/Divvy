@@ -90,7 +90,20 @@ data class HistoryEntry(
     val status: ReceiptStatus,
 )
 
-data class ShoppingItem(val name: String, val done: Boolean)
+/** One entry on the grocery list. [done] means it has been bought. */
+data class ShoppingItem(
+    val id: String,
+    val name: String,
+    val done: Boolean,
+    /** Free text such as "2" or "1 dozen". */
+    val quantity: String? = null,
+    val notes: String? = null,
+    /** Name of whoever put it on the list. */
+    val addedBy: String? = null,
+    val addedById: String? = null,
+    /** When it was put on the list, as an ISO-8601 instant. */
+    val addedAt: String? = null,
+)
 
 data class Suggestion(val name: String, val reason: String, val added: Boolean = false)
 

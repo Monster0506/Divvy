@@ -140,6 +140,10 @@ split it evenly. `source` records whether a person or the model made the assignm
 
 **`settlement`**: a payment from one member to another that reduces what they owe.
 
+**`list_item`**: one entry on the household's shared grocery list. `quantity` is free text and
+`added_by_person_id` is optional until sign-in exists. `status` is `open` or `purchased`, and a
+purchased item has `purchased_at`. Removing an item deletes the row; the list is a to-do, not history.
+
 **`item_owner_history`**: a trigger on `item_owner` appends a row on every assignment, change
 and removal. `item_owner` holds only the current answer; this log keeps the model predictions
 people corrected, which is the training signal for ownership learning (M2). It has no foreign
@@ -180,12 +184,14 @@ Besides primary keys and the unique keys above:
 | `settlement (household_id, settled_at DESC)` | A household's settlements, newest first. |
 | `settlement (household_id, from_person_id)`, `(household_id, to_person_id)` | Balances per person; FKs. |
 | `item_owner_history (receipt_item_id, changed_at)`, `(household_id, changed_at)` | Training data export. |
+| `list_item (household_id, created_at)` | A household's grocery list in the order items were added. |
+| `list_item (household_id, added_by_person_id)` | Adder FK. |
 
 ## Data access
 
 The Ktor module reads and writes through repository interfaces in
 `com.monster0506.divvy.server.repository` (`HouseholdRepository`, `PersonRepository`,
-`ReceiptRepository`, `ItemOwnerRepository`, `SettlementRepository`, `LedgerRepository`), implemented with Exposed DSL
+`ReceiptRepository`, `ItemOwnerRepository`, `SettlementRepository`, `LedgerRepository`, `ListItemRepository`), implemented with Exposed DSL
 in `ExposedRepositories`. `configureDatabase` builds them once at startup and routes reach them
 through `application.repositories`. `ReceiptRepository.create` writes a receipt, its items and
 their owners in one transaction. The Exposed table objects in `com.monster0506.divvy.server.db`

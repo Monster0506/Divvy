@@ -6,7 +6,10 @@ import com.monster0506.divvy.data.api.DivvyApi
 import com.monster0506.divvy.data.dto.AcceptedPredictionsDto
 import com.monster0506.divvy.data.dto.BalancesDto
 import com.monster0506.divvy.data.dto.ConfirmedReceiptDto
+import com.monster0506.divvy.data.dto.CreateListItemRequest
 import com.monster0506.divvy.data.dto.CreateSettlementRequest
+import com.monster0506.divvy.data.dto.ListItemDto
+import com.monster0506.divvy.data.dto.UpdateListItemRequest
 import com.monster0506.divvy.data.dto.SettlementDto
 import com.monster0506.divvy.data.dto.EditedReceiptDto
 import com.monster0506.divvy.data.dto.ItemEditRequest
@@ -109,6 +112,22 @@ class ReceiptRepository(private val api: DivvyApi) {
         receiptId: String,
         itemIds: List<String>? = null,
     ): ApiResult<AcceptedPredictionsDto> = apiCall { api.acceptPredictions(householdId, receiptId, itemIds) }
+}
+
+class ShoppingListRepository(private val api: DivvyApi) {
+    suspend fun items(householdId: String): ApiResult<List<ListItemDto>> = apiCall { api.listItems(householdId) }
+
+    suspend fun add(householdId: String, request: CreateListItemRequest): ApiResult<ListItemDto> =
+        apiCall { api.addListItem(householdId, request) }
+
+    suspend fun update(householdId: String, itemId: String, change: UpdateListItemRequest): ApiResult<ListItemDto> =
+        apiCall { api.updateListItem(householdId, itemId, change) }
+
+    suspend fun remove(householdId: String, itemId: String): ApiResult<Unit> =
+        apiCall { api.deleteListItem(householdId, itemId) }
+
+    suspend fun autocomplete(householdId: String, query: String): ApiResult<List<String>> =
+        apiCall { api.autocompleteListItem(householdId, query).suggestions }
 }
 
 class BalanceRepository(private val api: DivvyApi) {
