@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -8,10 +9,22 @@ plugins {
     alias(libs.plugins.kotlinSerialization)
 }
 
-// Base URL and API key come from -Pdivvy.apiBaseUrl / -Pdivvy.apiKey or gradle.properties.
+// Base URL and API key, first found of: the git-ignored local.properties, -Pdivvy.* or a gradle.properties, a dev default.
+// local.properties wins so a phone build can point at a deployed server without touching tracked files.
+val localProperties = providers.fileContents(rootProject.layout.projectDirectory.file("local.properties"))
+    .asText
+    .map { text -> Properties().apply { load(text.reader()) } }
+    .orElse(Properties())
+
+fun apiSetting(name: String, default: String): Provider<String> =
+    localProperties.map { it.getProperty(name).orEmpty().trim() }
+        .filter { it.isNotEmpty() }
+        .orElse(providers.gradleProperty(name))
+        .orElse(default)
+
 val generateApiConfig = tasks.register("generateApiConfig") {
-    val baseUrl = providers.gradleProperty("divvy.apiBaseUrl").orElse("http://localhost:8080")
-    val apiKey = providers.gradleProperty("divvy.apiKey").orElse("dev-key")
+    val baseUrl = apiSetting("divvy.apiBaseUrl", "http://localhost:8080")
+    val apiKey = apiSetting("divvy.apiKey", "dev-key")
     val outDir = layout.buildDirectory.dir("generated/apiConfig")
     inputs.property("baseUrl", baseUrl)
     inputs.property("apiKey", apiKey)
@@ -24,8 +37,8 @@ val generateApiConfig = tasks.register("generateApiConfig") {
             |package com.monster0506.divvy.data.api
             |
             |internal object BuildApiConfig {
-            |    const val BASE_URL = "${baseUrl.get()}"
-            |    const val API_KEY = "${apiKey.get()}"
+            |    const val BASE_URL = "${baseUrl.get().replace("\\", "\\\\").replace("\"", "\\\"").replace("$", "\\$")}"
+            |    const val API_KEY = "${apiKey.get().replace("\\", "\\\\").replace("\"", "\\\"").replace("$", "\\$")}"
             |}
             |
             """.trimMargin(),
