@@ -10,6 +10,9 @@ import com.monster0506.divvy.server.domain.OwnerShare
 import com.monster0506.divvy.server.domain.OwnershipSource
 import com.monster0506.divvy.server.domain.Person
 import com.monster0506.divvy.server.domain.Receipt
+import com.monster0506.divvy.server.domain.ReceiptCursor
+import com.monster0506.divvy.server.domain.ReceiptFilter
+import com.monster0506.divvy.server.domain.ReceiptPage
 import com.monster0506.divvy.server.domain.Settlement
 import kotlin.uuid.Uuid
 
@@ -56,6 +59,14 @@ interface ReceiptRepository {
 
     /** Receipts newest first, with items and owners. */
     suspend fun listByHousehold(householdId: Uuid, limit: Int = 50): List<Receipt>
+
+    /** One page of receipts newest first, ordered by purchase time then id so pages never overlap. */
+    suspend fun page(
+        householdId: Uuid,
+        filter: ReceiptFilter = ReceiptFilter(),
+        after: ReceiptCursor? = null,
+        limit: Int = 50,
+    ): ReceiptPage
 
     suspend fun confirm(id: Uuid): Receipt?
 
