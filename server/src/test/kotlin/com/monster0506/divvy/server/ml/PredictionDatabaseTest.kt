@@ -1,5 +1,6 @@
 package com.monster0506.divvy.server.ml
 
+import com.monster0506.divvy.server.UnconfirmedItemsException
 import com.monster0506.divvy.server.db.TestDatabase
 import com.monster0506.divvy.server.domain.CurrencyCode
 import com.monster0506.divvy.server.domain.Household
@@ -10,6 +11,7 @@ import com.monster0506.divvy.server.domain.OwnerShare
 import com.monster0506.divvy.server.domain.OwnershipSource
 import com.monster0506.divvy.server.domain.Person
 import com.monster0506.divvy.server.domain.Receipt
+import com.monster0506.divvy.server.domain.ReceiptStatus
 import com.monster0506.divvy.server.repository.ExposedPersonRepository
 import com.monster0506.divvy.server.repository.ExposedRepositories
 import kotlinx.coroutines.CoroutineScope
@@ -23,6 +25,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
@@ -32,10 +35,11 @@ class PredictionDatabaseTest {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val ml = FakeMl()
     private val sync = LabelSync(ml, ExposedPersonRepository(db), scope)
-    private val repos = ExposedRepositories(db) { SyncingReceiptRepository(it, sync) }
+    private val settings = ExposedMlSettingsRepository(db)
+    private val repos = ExposedRepositories(db) { ConfirmationGuardReceiptRepository(SyncingReceiptRepository(it, sync), settings) }
     private val predictionRepository = ExposedPredictionRepository(db)
     private val resync = MlResync(ml, repos.receipts, repos.people, sync)
-    private val service = PredictionService(ml, resync, repos.receipts, repos.people, repos.itemOwners, predictionRepository)
+    private val service = PredictionService(ml, resync, repos.receipts, repos.people, repos.itemOwners, predictionRepository, settings)
     private val stats = MlStats(repos.receipts, predictionRepository)
 
     @BeforeTest
@@ -187,5 +191,69 @@ class PredictionDatabaseTest {
 
         assertEquals(listOf(people[1].id), repos.itemOwners.ownersOf(receipt.items[0].id).map { it.personId })
         assertEquals(listOf(people[1].id.toString()), ml.predictRequests.single().people.map { it.id })
+    }
+
+    @Test
+    fun `a receipt with an unsure guess cannot be confirmed until the guess is accepted`() = runBlocking<Unit> {
+        val (home, people) = household("Sumedh", "TJ")
+        val receipt = draft(home, people[1], "Coke Zero 12-pack", "Paneer block")
+        answerWith(Triple(receipt, 0, listOf(people[1]) to 0.95), Triple(receipt, 1, listOf(people[0]) to 0.60))
+        service.predictFor(receipt.id)
+
+        val refused = assertFailsWith<UnconfirmedItemsException> { repos.receipts.confirm(receipt.id) }
+        sync.awaitIdle()
+
+        assertEquals(listOf(receipt.items[1].id), refused.itemIds)
+        assertEquals(ReceiptStatus.DRAFT, repos.receipts.findById(receipt.id)!!.status)
+        assertTrue(ml.upserts.isEmpty())
+
+        val accepted = service.accept(receipt.id, null)
+        assertEquals(AcceptResult.Done(listOf(receipt.items[1].id)), accepted)
+        repos.receipts.confirm(receipt.id)
+        sync.awaitIdle()
+
+        val sources = repos.receipts.findById(receipt.id)!!.items.associate { it.description to it.labelSource }
+        assertEquals(LabelSource.PREDICTED_ACCEPTED, sources["Paneer block"])
+        assertEquals(LabelSource.PREDICTED_ACCEPTED, sources["Coke Zero 12-pack"])
+        assertEquals(1, ml.upserts.size)
+    }
+
+    @Test
+    fun `lowering the threshold lets the same guesses through`() = runBlocking<Unit> {
+        val (home, people) = household("TJ")
+        val receipt = draft(home, people[0], "Eggs")
+        answerWith(Triple(receipt, 0, listOf(people[0]) to 0.60))
+        service.predictFor(receipt.id)
+        assertFailsWith<UnconfirmedItemsException> { repos.receipts.confirm(receipt.id) }
+
+        settings.save(home.id, MlSettings(true, 0.5))
+
+        assertEquals(ReceiptStatus.CONFIRMED, repos.receipts.confirm(receipt.id)!!.status)
+    }
+
+    @Test
+    fun `with auto-assign off every guess has to be accepted`() = runBlocking<Unit> {
+        val (home, people) = household("TJ")
+        val receipt = draft(home, people[0], "Eggs")
+        settings.save(home.id, MlSettings(false, 0.85))
+        answerWith(Triple(receipt, 0, listOf(people[0]) to 0.99))
+
+        val view = assertIs<PredictionResult.Done>(service.predictFor(receipt.id)).predictions.items.single()
+
+        assertTrue(view.needsConfirmation)
+        assertFailsWith<UnconfirmedItemsException> { repos.receipts.confirm(receipt.id) }
+    }
+
+    @Test
+    fun `accepting only some items leaves the rest pending`() = runBlocking<Unit> {
+        val (home, people) = household("TJ")
+        val receipt = draft(home, people[0], "Eggs", "Rice")
+        answerWith(Triple(receipt, 0, listOf(people[0]) to 0.5), Triple(receipt, 1, listOf(people[0]) to 0.5))
+        service.predictFor(receipt.id)
+
+        service.accept(receipt.id, setOf(receipt.items[0].id))
+
+        val refused = assertFailsWith<UnconfirmedItemsException> { repos.receipts.confirm(receipt.id) }
+        assertEquals(listOf(receipt.items[1].id), refused.itemIds)
     }
 }
