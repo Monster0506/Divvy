@@ -81,3 +81,7 @@ database export should produce. A file holds one source and one fixed set of peo
 - `chrono_split(dates)` and `walk_forward(dates, start, stop, step)`: time-ordered boundaries that never put one purchase date on both sides,
   because items bought on one trip belong together.
 - `check_no_leakage(dates, split)` raises unless every later period is strictly after every earlier one.
+
+## Product name normalisation
+
+`divvy_ml.normalize.normalize_product_name` turns a raw receipt line (`ORG WHL MLK 1GAL`) into a readable lowercase name (`organic whole milk`). It is rule based: it drops sizes, weights, prices and numeric codes, then expands abbreviations from the dictionary in `divvy_ml/normalize/abbreviations.py`. Unknown tokens are kept as they are, with no LLM or lookup fallback.
