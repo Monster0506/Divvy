@@ -4,14 +4,22 @@ Independent of the receipts module: items arrive as plain descriptions so this
 module never depends on how receipts are extracted.
 """
 
+from datetime import date
 from enum import StrEnum
-from typing import Annotated, Self
+from typing import Annotated, Any, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 Confidence = Annotated[
     float, Field(ge=0, le=1, description="Probability the owner set is correct, 0 to 1")
 ]
+
+
+HOUSEHOLD_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+HouseholdId = Annotated[
+    str, Field(pattern=HOUSEHOLD_ID_PATTERN, description="Letters, digits, - and _")
+]
+PersonId = Annotated[str, StringConstraints(min_length=1, max_length=128)]
 
 
 class Person(BaseModel):
@@ -27,7 +35,7 @@ class PredictItem(BaseModel):
 class PredictRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    household_id: str = Field(min_length=1)
+    household_id: HouseholdId
     people: list[Person] = Field(min_length=1)
     items: list[PredictItem]
 
@@ -71,3 +79,88 @@ class ItemPrediction(BaseModel):
 class PredictResponse(BaseModel):
     model_version: str
     predictions: list[ItemPrediction]
+
+
+MAX_UPSERT = 5000
+MAX_DESCRIPTION = 512
+
+
+class AssignmentSource(StrEnum):
+    MANUAL = "manual"
+    PREDICTED_ACCEPTED = "predicted_accepted"
+    PREDICTED_CORRECTED = "predicted_corrected"
+
+
+class ObservationIn(BaseModel):
+    """One confirmed item and who owns it. Resending an observation_id updates it in place."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    observation_id: str = Field(min_length=1, max_length=128)
+    purchased_on: date = Field(description="Original purchase date; a correction keeps it")
+    description: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=MAX_DESCRIPTION)
+    ]
+    member_ids: list[PersonId] = Field(
+        min_length=1, description="Person ids in the household on that date"
+    )
+    owner_ids: list[PersonId] = Field(min_length=1, description="Person ids who own the item")
+    source: AssignmentSource = AssignmentSource.MANUAL
+
+    @model_validator(mode="after")
+    def owners_are_members(self) -> Self:
+        if len(set(self.member_ids)) != len(self.member_ids):
+            raise ValueError("member ids must be unique")
+        if len(set(self.owner_ids)) != len(self.owner_ids):
+            raise ValueError("owner ids must be unique")
+        if not set(self.owner_ids) <= set(self.member_ids):
+            raise ValueError("every owner must be a member")
+        return self
+
+
+class UpsertObservationsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    observations: list[ObservationIn] = Field(
+        max_length=MAX_UPSERT, description="May be empty only together with replace=true"
+    )
+
+    @model_validator(mode="after")
+    def ids_are_unique(self) -> Self:
+        ids = [o.observation_id for o in self.observations]
+        if len(set(ids)) != len(ids):
+            raise ValueError("observation ids must be unique within a request")
+        return self
+
+
+class UpsertObservationsResponse(BaseModel):
+    household_id: str
+    received: int
+    history_size: int
+
+
+class HistoryStatus(BaseModel):
+    household_id: str
+    history_size: int
+    min_history: int = Field(description="Labelled items needed before predictions are made")
+    ready: bool
+    model_version: str | None = Field(
+        default=None, description="Version of the model currently serving, if one is built"
+    )
+    digest: str = Field(
+        description="SHA-256 of the stored history in the form the backend also computes, "
+        "so both sides can tell whether they hold the same labels"
+    )
+
+
+class RetrainRunOut(BaseModel):
+    household_id: str
+    started_at: str
+    finished_at: str
+    seconds: float
+    history_size: int
+    new_observations: int
+    reason: str = Field(description="first, new-observations or interval")
+    version: str | None = Field(description="Model version built; null if history was too small")
+    metrics: dict[str, Any] | None = None
+    error: str | None = None

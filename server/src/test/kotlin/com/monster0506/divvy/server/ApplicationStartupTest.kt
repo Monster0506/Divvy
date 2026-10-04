@@ -11,7 +11,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 
 class ApplicationStartupTest {
-
     @Test
     fun `server starts, migrates and can query the database`() = testApplication {
         var database: DivyDatabase? = null
@@ -26,7 +25,7 @@ class ApplicationStartupTest {
 
         assertNotNull(households)
         val db = assertNotNull(database)
-        assertEquals("5", db.schemaVersion)
+        assertEquals(TestDatabase.migrationVersions().max().toString(), db.schemaVersion)
         assertEquals(1, transaction(db.database) { exec("SELECT 1") { rs -> rs.next(); rs.getInt(1) } })
     }
 }
