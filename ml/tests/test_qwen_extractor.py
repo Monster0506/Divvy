@@ -5,7 +5,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from divvy_ml.receipts.config import NotConfiguredError, QwenConfig
+from divvy_ml.qwen_config import NotConfiguredError, QwenConfig
 from divvy_ml.receipts.dates import normalise_date
 from divvy_ml.receipts.images import ReceiptImage
 from divvy_ml.receipts.qwen import ExtractionError, QwenExtractor, cents, to_receipt
@@ -101,6 +101,7 @@ def test_a_receipt_with_no_tax_converts_to_cents_and_reconciles():
     receipt = qwen.extract(IMAGE)
 
     assert receipt.store == "Walmart"
+    assert [i.normalized_name for i in receipt.items] == ["great value 2% milk", "white bread"]
     assert receipt.purchased_on == date(2026, 8, 12)
     assert [(i.name, i.total_cents, i.unit_price_cents) for i in receipt.items] == [
         ("GV 2% MILK GAL", 398, 398),

@@ -5,6 +5,8 @@ import com.monster0506.divvy.data.api.ApiResult
 import com.monster0506.divvy.data.api.DivvyApi
 import com.monster0506.divvy.data.dto.BalanceDto
 import com.monster0506.divvy.data.dto.HouseholdDto
+import com.monster0506.divvy.data.dto.ItemOwnerDto
+import com.monster0506.divvy.data.dto.ItemOwnersDto
 import com.monster0506.divvy.data.dto.PersonDto
 import com.monster0506.divvy.data.dto.ReceiptDto
 import com.monster0506.divvy.data.dto.ReceiptUploadDto
@@ -40,6 +42,10 @@ class HouseholdRepository(private val api: DivvyApi) {
 }
 
 class ReceiptRepository(private val api: DivvyApi) {
+
+    suspend fun setItemOwners(receiptId: String, itemId: String, owners: List<ItemOwnerDto>): ApiResult<ItemOwnersDto> =
+        apiCall { api.setItemOwners(receiptId, itemId, owners) }
+
     suspend fun get(id: String): ApiResult<ReceiptDto> = apiCall { api.getReceipt(id) }
 
     suspend fun upload(

@@ -12,7 +12,8 @@ from typing import Any
 import httpx
 from pydantic import ValidationError
 
-from divvy_ml.receipts.config import QwenConfig
+from divvy_ml.normalize import NameNormalizer, RulesNormalizer, normalize_product_name
+from divvy_ml.qwen_config import QwenConfig
 from divvy_ml.receipts.dates import normalise_date
 from divvy_ml.receipts.images import ReceiptImage
 from divvy_ml.receipts.schemas import ExtractedItem, ExtractedReceipt
@@ -92,6 +93,7 @@ def to_receipt(data: dict[str, Any]) -> ExtractedReceipt:
         items.append(
             ExtractedItem(
                 name=name,
+                normalized_name=normalize_product_name(name) or None,
                 quantity=quantity if isinstance(quantity, int | float) and quantity > 0 else 1,
                 unit_price_cents=unit if unit is not None and unit >= 0 else None,
                 total_cents=cents(line.get("total_price")) or 0,
@@ -118,16 +120,28 @@ def to_receipt(data: dict[str, Any]) -> ExtractedReceipt:
 
 
 class QwenExtractor:
-    def __init__(self, config: QwenConfig, client: httpx.Client | None = None) -> None:
+    def __init__(
+        self,
+        config: QwenConfig,
+        client: httpx.Client | None = None,
+        normalizer: NameNormalizer | None = None,
+    ) -> None:
         self._config = config
+        self._normalizer = normalizer or RulesNormalizer()
         self._client = client or httpx.Client(timeout=config.timeout_seconds)
 
     def extract(self, image: ReceiptImage) -> ExtractedReceipt:
         data = self._ask(image)
         try:
-            return to_receipt(data)
+            receipt = to_receipt(data)
         except (AttributeError, TypeError, ValueError, ArithmeticError, ValidationError):
             raise ExtractionError("the vision service did not return a receipt") from None
+        names = self._normalizer.normalize_many([item.name for item in receipt.items])
+        receipt.items = [
+            item.model_copy(update={"normalized_name": name or None})
+            for item, name in zip(receipt.items, names, strict=True)
+        ]
+        return receipt
 
     def _ask(self, image: ReceiptImage) -> dict[str, Any]:
         config = self._config

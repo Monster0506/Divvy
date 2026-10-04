@@ -5,6 +5,11 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
+import com.monster0506.divvy.data.api.CreateHouseholdResult
+import com.monster0506.divvy.data.api.CreatePersonResult
+import com.monster0506.divvy.data.api.HouseholdApi
+import com.monster0506.divvy.data.api.PeopleApi
+import com.monster0506.divvy.data.api.createHttpClient
 import com.monster0506.divvy.launch.HouseholdStore
 import com.monster0506.divvy.launch.LaunchDestination
 import com.monster0506.divvy.launch.LaunchRouter
@@ -39,22 +44,26 @@ import com.monster0506.divvy.platform.rememberGalleryPicker
 import com.monster0506.divvy.ui.components.Tab
 import com.monster0506.divvy.ui.model.ReceiptStatus
 import com.monster0506.divvy.ui.screens.AccountScreen
+import com.monster0506.divvy.ui.screens.AddMembersScreen
 import com.monster0506.divvy.ui.screens.BalancesScreen
 import com.monster0506.divvy.ui.screens.CameraScreen
 import com.monster0506.divvy.ui.screens.ReceiptPhotoStage
+import com.monster0506.divvy.ui.screens.CreateHouseholdScreen
 import com.monster0506.divvy.ui.screens.EditPersonScreen
 import com.monster0506.divvy.ui.screens.HouseholdSetupScreen
 import com.monster0506.divvy.ui.screens.ReceiptDetailScreen
 import com.monster0506.divvy.ui.screens.ReceiptHistoryScreen
 import com.monster0506.divvy.ui.screens.ReviewReceiptScreen
 import com.monster0506.divvy.ui.screens.ShoppingListScreen
+import com.monster0506.divvy.ui.state.AddMembersState
+import com.monster0506.divvy.ui.state.CreateHouseholdState
 import com.monster0506.divvy.ui.state.DivvyState
 import com.monster0506.divvy.ui.theme.DivvyTheme
 import androidx.compose.ui.tooling.preview.Preview
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
-enum class Route { Launch, Setup, Camera, Review, History, Detail, Balances, Shopping, Account, EditPerson }
+enum class Route { Launch, CreateHousehold, AddMembers, Setup, Camera, Review, History, Detail, Balances, Shopping, Account, EditPerson }
 
 private data class SelectedReceiptPhoto(val jpeg: ByteArray, val preview: ImageBitmap)
 
@@ -78,12 +87,23 @@ fun App(apiConfig: ApiConfig = ApiConfig()) {
     val router = remember(settings) { LaunchRouter(HouseholdStore(settings), LocalHouseholdLookup()) }
     val configStore = remember(settings) { ApiConfigStore(settings) }
     var activeConfig by remember(configStore) { mutableStateOf(configStore.load(apiConfig)) }
+    val client = remember(activeConfig) { createHttpClient(activeConfig) }
+    DisposableEffect(client) { onDispose { client.close() } }
+    val householdApi = remember(client) { HouseholdApi(client) }
+    val peopleApi = remember(client) { PeopleApi(client) }
     DivvyTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
-            DivvyApp(start = Route.Launch, router = router, apiConfig = activeConfig, onApiConfigChange = {
-                configStore.save(it)
-                activeConfig = it
-            })
+            DivvyApp(
+                start = Route.Launch,
+                router = router,
+                apiConfig = activeConfig,
+                onApiConfigChange = {
+                    configStore.save(it)
+                    activeConfig = it
+                },
+                createHousehold = householdApi::create,
+                createPerson = peopleApi::create,
+            )
         }
     }
 }
@@ -95,13 +115,20 @@ fun DivvyApp(
     router: LaunchRouter? = null,
     apiConfig: ApiConfig = ApiConfig(),
     onApiConfigChange: (ApiConfig) -> Unit = {},
+    createHousehold: suspend (String) -> CreateHouseholdResult = {
+        CreateHouseholdResult.Failure("Not connected")
+    },
+    createPerson: suspend (householdId: String, name: String) -> CreatePersonResult = { _, _ ->
+        CreatePersonResult.Failure("Not connected")
+    },
 ) {
     var route by remember { mutableStateOf(start) }
+    var householdId by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(router) {
         if (start == Route.Launch && router != null) {
             route = when (router.decide()) {
                 LaunchDestination.Home -> Route.History
-                LaunchDestination.Onboarding -> Route.Setup
+                LaunchDestination.Onboarding -> Route.CreateHousehold
             }
         }
     }
@@ -194,11 +221,39 @@ fun DivvyApp(
                 CircularProgressIndicator(Modifier.align(Alignment.Center))
             }
 
+            Route.CreateHousehold -> {
+                val scope = rememberCoroutineScope()
+                val form = remember { CreateHouseholdState(createHousehold) }
+                CreateHouseholdScreen(
+                    state = form,
+                    onContinue = {
+                        scope.launch {
+                            val id = form.submit() ?: return@launch
+                            householdId = id
+                            state.householdName = form.name.trim()
+                            route = Route.AddMembers
+                        }
+                    },
+                )
+            }
+
+            Route.AddMembers -> {
+                val scope = rememberCoroutineScope()
+                val form = remember { AddMembersState { name -> createPerson(householdId.orEmpty(), name) } }
+                AddMembersScreen(
+                    state = form,
+                    onFinish = {
+                        scope.launch {
+                            if (!form.finish()) return@launch
+                            router?.onboardingCompleted(householdId.orEmpty())
+                            route = Route.History
+                        }
+                    },
+                )
+            }
+
             Route.Setup -> HouseholdSetupScreen(
-                onStart = {
-                    router?.onboardingCompleted()
-                    route = Route.History
-                },
+                onStart = { route = Route.History },
                 householdName = state.householdName,
                 members = state.people,
                 newMember = state.newMember,
