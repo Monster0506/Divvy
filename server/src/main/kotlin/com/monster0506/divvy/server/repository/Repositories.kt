@@ -36,6 +36,9 @@ import kotlin.uuid.Uuid
 interface HouseholdRepository {
     suspend fun create(name: String, defaultCurrency: CurrencyCode): Household
     suspend fun findById(id: Uuid): Household?
+
+    /** The household with this name, ignoring case. Names are kept unique so a name can stand in for an id. */
+    suspend fun findByName(name: String): Household?
     suspend fun rename(id: Uuid, name: String): Household?
 
     /**
