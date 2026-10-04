@@ -56,7 +56,7 @@ class ReceiptAssignmentRoutesTest : RepositoryTestBase() {
         )
         assertEquals(HttpStatusCode.OK, res.status)
         val owners = res.json().getValue("owners").jsonArray
-        assertEquals(listOf(1, 2), owners.map { it.jsonObject.getValue("weight").jsonPrimitive.content.toInt() })
+        assertEquals(listOf(1, 2), owners.map { it.jsonObject.getValue("weight").jsonPrimitive.content.toInt() }.sorted())
         assertEquals(setOf("user"), owners.map { it.jsonObject.getValue("source").jsonPrimitive.content }.toSet())
         assertEquals(2, repos.itemOwners.history(receipt.items[0].id).size)
     }

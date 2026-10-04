@@ -1,15 +1,17 @@
 """Multi-label ownership metrics: decisions, confidence, calibration (ECE) and reliability bins.
 
-Arrays have one row per item and one column per person, in the order of `people`.
+Arrays have one row per item and one column per person, in the order of `people`. An optional
+`known` mask marks cells where the person was in the household; other cells are never scored.
 """
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
 import numpy as np
 
+ItemConfidence = Callable[[np.ndarray, np.ndarray, np.ndarray], np.ndarray]
 DECISION_THRESHOLD = 0.5
 EPSILON = 1e-9
 CALIBRATION_BINS = 10
@@ -29,26 +31,47 @@ class ReliabilityBin:
     observed_rate: float
 
 
-def decide(probs: np.ndarray, threshold: float = DECISION_THRESHOLD) -> np.ndarray:
-    """Threshold each person; an empty set becomes the most likely person."""
-    pred = (probs >= threshold).astype(int)
+def all_known(probs: np.ndarray) -> np.ndarray:
+    return np.ones(probs.shape, dtype=bool)
+
+
+def decide(
+    probs: np.ndarray, threshold: float = DECISION_THRESHOLD, known: np.ndarray | None = None
+) -> np.ndarray:
+    """Threshold each person; an empty set becomes the most likely person.
+
+    People outside the household (known is False) are never predicted.
+    """
+    known = all_known(probs) if known is None else known.astype(bool)
+    allowed = np.where(known, probs, 0.0)
+    pred = (allowed >= threshold).astype(int)
     empty = pred.sum(axis=1) == 0
-    pred[empty, probs[empty].argmax(axis=1)] = 1
+    best = np.where(known, probs, -1.0)[empty].argmax(axis=1)
+    pred[empty, best] = 1
     return pred
 
 
-def confidence(probs: np.ndarray, pred: np.ndarray, rule: Confidence) -> np.ndarray:
-    certainty = np.where(pred == 1, probs, 1 - probs)
+def confidence(
+    probs: np.ndarray, pred: np.ndarray, rule: Confidence, known: np.ndarray | None = None
+) -> np.ndarray:
+    known = all_known(probs) if known is None else known.astype(bool)
+    certainty = np.where(known, np.where(pred == 1, probs, 1 - probs), 1.0)
     if rule is Confidence.WEAKEST:
         return certainty.min(axis=1)
 
-    nonempty = 1 - (1 - probs).prod(axis=1)
+    nonempty = 1 - np.where(known, 1 - probs, 1.0).prod(axis=1)
     return certainty.prod(axis=1) / np.maximum(nonempty, EPSILON)
 
 
-def exact_correct(truth: np.ndarray, pred: np.ndarray) -> np.ndarray:
-    """1 where the predicted owner set matches the true set exactly."""
-    return (pred == truth.astype(int)).all(axis=1).astype(int)
+def exact_correct(
+    truth: np.ndarray, pred: np.ndarray, known: np.ndarray | None = None
+) -> np.ndarray:
+    """1 where the predicted owner set matches the true set on every known person."""
+    match = pred == truth.astype(int)
+    if known is not None:
+        match = match | ~known.astype(bool)
+
+    return match.all(axis=1).astype(int)
 
 
 def reliability_bins(
@@ -93,16 +116,29 @@ def expected_calibration_error(
     return sum(b.count / total * abs(b.observed_rate - b.mean_confidence) for b in bins)
 
 
-def report(truth: np.ndarray, probs: np.ndarray, people: Sequence[str]) -> dict[str, Any]:
-    """Exact match, per-person precision and recall, F1, losses and calibration."""
+def report(
+    truth: np.ndarray,
+    probs: np.ndarray,
+    people: Sequence[str],
+    known: np.ndarray | None = None,
+    item_confidence: ItemConfidence | None = None,
+) -> dict[str, Any]:
+    """Exact match, per-person precision and recall, F1, losses and calibration.
+
+    `item_confidence(probs, pred, known)` replaces the raw joint confidence, e.g. a calibrated one.
+    """
     truth = truth.astype(int)
     if truth.shape != probs.shape or truth.shape[1] != len(people):
         raise ValueError("truth and probs must be (items, len(people)) arrays")
 
-    pred = decide(probs)
-    tp = ((pred == 1) & (truth == 1)).sum(axis=0)
-    fp = ((pred == 1) & (truth == 0)).sum(axis=0)
-    fn = ((pred == 0) & (truth == 1)).sum(axis=0)
+    known = all_known(probs) if known is None else known.astype(bool)
+    if known.shape != truth.shape:
+        raise ValueError("known must have the same shape as truth")
+
+    pred = decide(probs, known=known)
+    tp = ((pred == 1) & (truth == 1) & known).sum(axis=0)
+    fp = ((pred == 1) & (truth == 0) & known).sum(axis=0)
+    fn = ((pred == 0) & (truth == 1) & known).sum(axis=0)
 
     per_person = {}
     for i, name in enumerate(people):
@@ -112,32 +148,38 @@ def report(truth: np.ndarray, probs: np.ndarray, people: Sequence[str]) -> dict[
             "precision": precision,
             "recall": recall,
             "f1": _f1(precision, recall),
-            "support": int(truth[:, i].sum()),
+            "support": int((truth[:, i] * known[:, i]).sum()),
         }
 
     n = len(truth)
+    cells = int(known.sum())
     micro_p = _ratio(tp.sum(), tp.sum() + fp.sum())
     micro_r = _ratio(tp.sum(), tp.sum() + fn.sum())
     clipped = np.clip(probs, EPSILON, 1 - EPSILON)
-    correct = exact_correct(truth, pred)
-    joint = confidence(probs, pred, Confidence.JOINT)
+    correct = exact_correct(truth, pred, known)
+    joint = (
+        item_confidence(probs, pred, known)
+        if item_confidence
+        else confidence(probs, pred, Confidence.JOINT, known)
+    )
 
     return {
         "n": n,
         "exact_match": float(correct.mean()) if n else 0.0,
-        "hamming_loss": float((pred != truth).mean()) if n else 0.0,
+        "hamming_loss": _ratio(((pred != truth) & known).sum(), cells),
         "micro_f1": _f1(micro_p, micro_r),
         "macro_f1": float(np.mean([m["f1"] for m in per_person.values()])) if people else 0.0,
-        "brier": float(((probs - truth) ** 2).mean()) if n else 0.0,
-        "log_loss": _log_loss(truth, clipped) if n else 0.0,
-        "ece": expected_calibration_error(probs.ravel(), truth.ravel()),
+        "brier": _ratio((((probs - truth) ** 2) * known).sum(), cells),
+        "log_loss": _log_loss(truth, clipped, known),
+        "ece": expected_calibration_error(probs[known], truth[known]),
         "item_ece": expected_calibration_error(joint, correct),
         "per_person": per_person,
     }
 
 
-def _log_loss(truth: np.ndarray, clipped: np.ndarray) -> float:
-    return float(-(truth * np.log(clipped) + (1 - truth) * np.log(1 - clipped)).mean())
+def _log_loss(truth: np.ndarray, clipped: np.ndarray, known: np.ndarray) -> float:
+    loss = -(truth * np.log(clipped) + (1 - truth) * np.log(1 - clipped))
+    return _ratio((loss * known).sum(), known.sum())
 
 
 def _ratio(num: float, den: float) -> float:
