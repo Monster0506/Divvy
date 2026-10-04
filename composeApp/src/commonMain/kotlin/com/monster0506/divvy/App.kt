@@ -6,7 +6,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import com.monster0506.divvy.data.api.CreateHouseholdResult
+import com.monster0506.divvy.data.api.CreatePersonResult
 import com.monster0506.divvy.data.api.HouseholdApi
+import com.monster0506.divvy.data.api.PeopleApi
 import com.monster0506.divvy.data.api.createHttpClient
 import com.monster0506.divvy.launch.HouseholdStore
 import com.monster0506.divvy.launch.LaunchDestination
@@ -30,6 +32,7 @@ import com.monster0506.divvy.platform.rememberGalleryPicker
 import com.monster0506.divvy.ui.components.Tab
 import com.monster0506.divvy.ui.model.ReceiptStatus
 import com.monster0506.divvy.ui.screens.AccountScreen
+import com.monster0506.divvy.ui.screens.AddMembersScreen
 import com.monster0506.divvy.ui.screens.BalancesScreen
 import com.monster0506.divvy.ui.screens.CameraScreen
 import com.monster0506.divvy.ui.screens.CreateHouseholdScreen
@@ -39,21 +42,29 @@ import com.monster0506.divvy.ui.screens.ReceiptDetailScreen
 import com.monster0506.divvy.ui.screens.ReceiptHistoryScreen
 import com.monster0506.divvy.ui.screens.ReviewReceiptScreen
 import com.monster0506.divvy.ui.screens.ShoppingListScreen
+import com.monster0506.divvy.ui.state.AddMembersState
 import com.monster0506.divvy.ui.state.CreateHouseholdState
 import com.monster0506.divvy.ui.state.DivvyState
 import com.monster0506.divvy.ui.theme.DivvyTheme
 import androidx.compose.ui.tooling.preview.Preview
 import kotlinx.coroutines.launch
 
-enum class Route { Launch, CreateHousehold, Setup, Camera, Review, History, Detail, Balances, Shopping, Account, EditPerson }
+enum class Route { Launch, CreateHousehold, AddMembers, Setup, Camera, Review, History, Detail, Balances, Shopping, Account, EditPerson }
 
 @Composable
 fun App() {
     val router = remember { LaunchRouter(HouseholdStore(Settings()), LocalHouseholdLookup()) }
-    val householdApi = remember { HouseholdApi(createHttpClient()) }
+    val client = remember { createHttpClient() }
+    val householdApi = remember { HouseholdApi(client) }
+    val peopleApi = remember { PeopleApi(client) }
     DivvyTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
-            DivvyApp(start = Route.Launch, router = router, createHousehold = householdApi::create)
+            DivvyApp(
+                start = Route.Launch,
+                router = router,
+                createHousehold = householdApi::create,
+                createPerson = peopleApi::create,
+            )
         }
     }
 }
@@ -66,8 +77,12 @@ fun DivvyApp(
     createHousehold: suspend (String) -> CreateHouseholdResult = {
         CreateHouseholdResult.Failure("Not connected")
     },
+    createPerson: suspend (householdId: String, name: String) -> CreatePersonResult = { _, _ ->
+        CreatePersonResult.Failure("Not connected")
+    },
 ) {
     var route by remember { mutableStateOf(start) }
+    var householdId by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(router) {
         if (start == Route.Launch && router != null) {
             route = when (router.decide()) {
@@ -103,9 +118,24 @@ fun DivvyApp(
                     onContinue = {
                         scope.launch {
                             val id = form.submit() ?: return@launch
-                            router?.onboardingCompleted(id)
+                            householdId = id
                             state.householdName = form.name.trim()
-                            route = Route.Setup
+                            route = Route.AddMembers
+                        }
+                    },
+                )
+            }
+
+            Route.AddMembers -> {
+                val scope = rememberCoroutineScope()
+                val form = remember { AddMembersState { name -> createPerson(householdId.orEmpty(), name) } }
+                AddMembersScreen(
+                    state = form,
+                    onFinish = {
+                        scope.launch {
+                            if (!form.finish()) return@launch
+                            router?.onboardingCompleted(householdId.orEmpty())
+                            route = Route.History
                         }
                     },
                 )
