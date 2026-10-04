@@ -1010,14 +1010,13 @@
             "description": "Successful Response"
           },
           "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
+            "description": "The image is missing, unreadable or not a supported type"
+          },
+          "502": {
+            "description": "The vision service failed or returned something unusable"
+          },
+          "503": {
+            "description": "Extraction is not configured (no API key)"
           }
         },
         "summary": "Extract",
