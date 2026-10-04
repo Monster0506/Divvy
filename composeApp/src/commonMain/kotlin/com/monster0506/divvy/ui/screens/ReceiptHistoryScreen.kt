@@ -10,17 +10,26 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -28,11 +37,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.monster0506.divvy.data.dto.ReceiptStatusDto
-import com.monster0506.divvy.domain.parseDateInput
+import com.monster0506.divvy.domain.isoDateFromUtcMillis
+import com.monster0506.divvy.domain.utcMillisFromIso
+import com.monster0506.divvy.review.formatDate
 import com.monster0506.divvy.ui.components.AppScaffold
 import com.monster0506.divvy.ui.components.RowDivider
 import com.monster0506.divvy.ui.components.ScreenHeader
@@ -50,9 +62,9 @@ import kotlinx.coroutines.flow.first
 class HistoryFilters(
     val store: String,
     val status: ReceiptStatusDto?,
-    /** The date boxes as typed, `M/D/YYYY`. */
-    val fromText: String,
-    val toText: String,
+    /** The date limits as `YYYY-MM-DD`, or null for no limit. */
+    val fromIso: String?,
+    val toIso: String?,
     val active: Boolean,
     val hasMore: Boolean,
     val loadingMore: Boolean,
@@ -60,8 +72,8 @@ class HistoryFilters(
     val loadFailed: Boolean,
     val onStore: (String) -> Unit,
     val onStatus: (ReceiptStatusDto?) -> Unit,
-    val onFromText: (String) -> Unit,
-    val onToText: (String) -> Unit,
+    val onFrom: (String?) -> Unit,
+    val onTo: (String?) -> Unit,
     val onClear: () -> Unit,
     val onLoadMore: () -> Unit,
 )
@@ -134,8 +146,11 @@ fun ReceiptHistoryScreen(
     }
 }
 
+private enum class DateField { From, To }
+
 @Composable
 private fun FilterBar(f: HistoryFilters) {
+    var picking by remember { mutableStateOf<DateField?>(null) }
     Column(
         Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -154,28 +169,62 @@ private fun FilterBar(f: HistoryFilters) {
             }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(
-                value = f.fromText,
-                onValueChange = f.onFromText,
-                modifier = Modifier.weight(1f),
-                label = { Text("From (M/D/YYYY)") },
-                singleLine = true,
-                isError = f.fromText.isNotBlank() && parseDateInput(f.fromText) == null,
-            )
-            OutlinedTextField(
-                value = f.toText,
-                onValueChange = f.onToText,
-                modifier = Modifier.weight(1f),
-                label = { Text("To (M/D/YYYY)") },
-                singleLine = true,
-                isError = f.toText.isNotBlank() && parseDateInput(f.toText) == null,
-            )
+            DateButton("From", f.fromIso, Modifier.weight(1f)) { picking = DateField.From }
+            DateButton("To", f.toIso, Modifier.weight(1f)) { picking = DateField.To }
         }
-        if (f.active || f.fromText.isNotBlank() || f.toText.isNotBlank()) {
+        if (f.active) {
             TextButton(onClick = f.onClear) {
                 Text("Clear filters", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = DivvyColors.Accent)
             }
         }
+    }
+    picking?.let { field ->
+        DateChoiceDialog(
+            initialIso = if (field == DateField.From) f.fromIso else f.toIso,
+            onPick = { iso ->
+                if (field == DateField.From) f.onFrom(iso) else f.onTo(iso)
+                picking = null
+            },
+            onDismiss = { picking = null },
+        )
+    }
+}
+
+@Composable
+private fun DateButton(label: String, iso: String?, modifier: Modifier, onClick: () -> Unit) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = modifier,
+        shape = RoundedCornerShape(8.dp),
+        contentPadding = PaddingValues(horizontal = 10.dp),
+    ) {
+        Text(
+            if (iso == null) label else "$label ${formatDate(iso)}",
+            fontSize = 13.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            color = DivvyColors.Ink,
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DateChoiceDialog(initialIso: String?, onPick: (String?) -> Unit, onDismiss: () -> Unit) {
+    val pickerState = rememberDatePickerState(initialSelectedDateMillis = initialIso?.let(::utcMillisFromIso))
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = { onPick(pickerState.selectedDateMillis?.let(::isoDateFromUtcMillis)) }) { Text("OK") }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = { onPick(null) }) { Text("Clear") }
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        },
+    ) {
+        DatePicker(state = pickerState)
     }
 }
 
