@@ -1,5 +1,6 @@
 package com.monster0506.divvy.ui.state
 
+import com.monster0506.divvy.data.api.HouseholdMember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -22,13 +23,15 @@ import com.monster0506.divvy.ui.model.initialsFor
 import com.monster0506.divvy.ui.preview.SampleData
 
 /** In-memory stand-in for the repository layer (#6) so the screens can be driven live. */
-class DivvyState (private val ownerSaver: DebouncedSaver<Int, Set<String>>? = null,) {
+class DivvyState(private val ownerSaver: DebouncedSaver<Int, Set<String>>? = null, ) {
     /** The household's members. Every other person shown in the UI is resolved against this list by id. */
     var people by mutableStateOf(SampleData.people)
         private set
+
     /** Stand-in for the signed-in user until account sign-in (#143) lands. */
-    val meId = SampleData.andrew.id
-    val me: Person get() = resolve(SampleData.andrew)
+    var meId by mutableStateOf(SampleData.andrew.id)
+        private set
+    val me: Person get() = people.find { it.id == meId } ?: people.firstOrNull() ?: SampleData.andrew
 
     var settings by mutableStateOf(Settings())
 
@@ -44,6 +47,7 @@ class DivvyState (private val ownerSaver: DebouncedSaver<Int, Set<String>>? = nu
                 line.copy(confirmed = line.id in reviewed || auto)
             },
         )
+
     /** The draft as edited so far with every line locked in, which is what the split is computed from. */
     val resolvedDraft: ReceiptDraft
         get() = draft.copy(lines = draft.lines.map { it.copy(confirmed = true) })
@@ -53,6 +57,7 @@ class DivvyState (private val ownerSaver: DebouncedSaver<Int, Set<String>>? = nu
     var autoExpanded by mutableStateOf(false)
         private set
     private var paidFrom by mutableStateOf(emptySet<String>())
+
     /** Everyone but the payer owes the payer their share of the edited receipt. */
     val transfers: List<Transfer>
         get() {
@@ -127,7 +132,8 @@ class DivvyState (private val ownerSaver: DebouncedSaver<Int, Set<String>>? = nu
     }
 
     fun addLine(name: String, priceCents: Int) {
-        val line = ReceiptLine(rawDraft.lines.nextLineId(), name, priceCents, emptySet(), confidence = 0f, confirmed = false)
+        val line =
+            ReceiptLine(rawDraft.lines.nextLineId(), name, priceCents, emptySet(), confidence = 0f, confirmed = false)
         rawDraft = rawDraft.copy(lines = rawDraft.lines + line)
     }
 
@@ -190,7 +196,36 @@ class DivvyState (private val ownerSaver: DebouncedSaver<Int, Set<String>>? = nu
         people = people.map { if (it.id == updated.id) updated else it }
     }
 
+    /** Replaces the sample people with the household's real members, keeping local photo/emoji/color by id. */
+    fun loadMembers(members: List<HouseholdMember>) {
+        if (members.isEmpty()) return
+        val before = people.associateBy { it.id }
+        people = members.map { m ->
+            val old = before[m.id]
+            val customInitials = old != null && old.initials != initialsFor(old.name)
+            Person(
+                id = m.id,
+                name = m.name,
+                initials = if (customInitials) old!!.initials else initialsFor(m.name),
+                color = old?.color
+                    ?: AvatarColor.entries[(m.id.hashCode() and Int.MAX_VALUE) % AvatarColor.entries.size],
+                emoji = old?.emoji,
+                photo = old?.photo,
+            )
+        }
+        // Until sign-in exists (#143), the first member stands in for "me".
+        if (members.none { it.id == meId }) meId = members.first().id
+    }
+
+    /** Renames a person, keeping their short name in step until it has been customised. */
+    fun renamePerson(id: String, name: String) {
+        val person = person(id) ?: return
+        val auto = person.initials == initialsFor(person.name)
+        updatePerson(person.copy(name = name, initials = if (auto) initialsFor(name) else person.initials))
+    }
+
     fun removePerson(id: String) {
         if (canRemove(id)) people = people.filterNot { it.id == id }
     }
 }
+

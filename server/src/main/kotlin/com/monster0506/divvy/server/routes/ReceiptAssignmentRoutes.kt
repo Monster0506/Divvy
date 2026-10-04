@@ -118,6 +118,7 @@ fun Route.receiptAssignmentRoutes(
                     "every item needs at least one active owner",
                     result.itemIds.map { it.toString() },
                 )
+                ConfirmResult.NoPayer -> call.invalid("choose who paid before confirming")
                 is ConfirmResult.Confirmed -> call.respond(result.receipt.toConfirmedResponse())
             }
         }

@@ -32,11 +32,11 @@ import com.monster0506.divvy.server.routes.receiptReopenRoutes
 import com.monster0506.divvy.server.routes.receiptRetryRoutes
 import com.monster0506.divvy.server.routes.receiptRoutes
 import com.monster0506.divvy.server.routes.settlementRoutes
+import com.monster0506.divvy.server.routes.settlementRoutes
 import com.monster0506.divvy.server.routes.balanceRoutes
 import com.monster0506.divvy.server.storage.ImageStorage
 import com.monster0506.divvy.server.storage.LazyImageStorage
 import com.monster0506.divvy.server.storage.LocalFileImageStorage
-import com.monster0506.divvy.server.routes.settlementRoutes
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.auth.HttpAuthHeader
 import io.ktor.serialization.kotlinx.json.json
@@ -215,6 +215,10 @@ fun Application.configureDatabase(config: AppConfig): DivyDatabase {
     attributes.put(RepositoriesKey, repos)
     attributes.put(ImageStorageKey, storage)
     syncScope.launch { extraction.resumePending() }
+    syncScope.launch {
+        val repaired = repos.repairConfirmedReceipts()
+        if (repaired > 0) environment.log.info("Gave {} confirmed receipts the balances and labels they were missing", repaired)
+    }
     return database
 }
 
