@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -34,6 +35,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.monster0506.divvy.ui.components.AppScaffold
+import com.monster0506.divvy.ui.components.DivvyIcons
 import com.monster0506.divvy.ui.components.OwnerPicker
 import com.monster0506.divvy.ui.components.PrimaryButton
 import com.monster0506.divvy.ui.components.RowDivider
@@ -109,7 +111,7 @@ private fun AutoHeader(count: Int, expanded: Boolean, onClick: () -> Unit) {
                     (slideInVertically { it } + fadeIn()) togetherWith (slideOutVertically { -it } + fadeOut())
                 },
             ) { n -> Text("$n", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = DivvyColors.Dim) }
-            Text("▼", Modifier.rotate(angle), fontSize = 10.sp, color = DivvyColors.Dim)
+            Icon(DivvyIcons.ChevronDown, contentDescription = null, modifier = Modifier.rotate(angle), tint = DivvyColors.Dim)
         }
     }
 }

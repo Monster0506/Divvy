@@ -11,6 +11,7 @@ from divvy_ml.eval.dataset import (
     parse_lines,
     save,
 )
+from divvy_ml.eval.evaluate import Config, evaluate, walk_predictions
 from divvy_ml.eval.metrics import (
     Confidence,
     ReliabilityBin,
@@ -25,6 +26,7 @@ from divvy_ml.eval.reliability import reliability_svg
 from divvy_ml.eval.split import LeakageError, Split, check_no_leakage, chrono_split, walk_forward
 
 __all__ = [
+    "Config",
     "Confidence",
     "Dataset",
     "DatasetError",
@@ -38,6 +40,7 @@ __all__ = [
     "confidence",
     "coverage_curve",
     "decide",
+    "evaluate",
     "exact_correct",
     "expected_calibration_error",
     "from_observations",
@@ -52,4 +55,5 @@ __all__ = [
     "report",
     "save",
     "walk_forward",
+    "walk_predictions",
 ]
