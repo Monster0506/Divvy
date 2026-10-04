@@ -13,6 +13,7 @@ import com.monster0506.divvy.data.dto.ItemEditRequest
 import com.monster0506.divvy.data.dto.MergeItemsRequest
 import com.monster0506.divvy.data.dto.MlSettingsDto
 import com.monster0506.divvy.data.dto.ReceiptPageDto
+import com.monster0506.divvy.data.dto.UpdateReceiptRequest
 import com.monster0506.divvy.data.dto.PredictionsDto
 import com.monster0506.divvy.data.dto.SetReceiptPayerRequest
 import com.monster0506.divvy.data.dto.HouseholdDto
@@ -129,6 +130,10 @@ class DivvyApi(private val client: HttpClient) {
 
     /** The receipt's photo exactly as it was uploaded. */
     suspend fun getReceiptImage(id: String): ByteArray = send { client.get("receipts/$id/image") }
+
+    /** Changes the receipt's store, date, tax or total and returns it with how its lines now compare. */
+    suspend fun updateReceipt(receiptId: String, change: UpdateReceiptRequest): EditedReceiptDto =
+        send { client.patch("receipts/$receiptId") { setBody(change) } }
 
     /** Records who paid. The response is not needed, only that the change was accepted. */
     suspend fun setReceiptPayer(receiptId: String, personId: String) {

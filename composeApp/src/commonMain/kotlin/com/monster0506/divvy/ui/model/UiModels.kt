@@ -61,6 +61,10 @@ data class ReceiptDraft(
     val taxCents: Int,
     /** False while nobody has been picked as the payer; [payer] is then only a placeholder. */
     val payerChosen: Boolean = true,
+    /** The purchase date as `YYYY-MM-DD`, for editing; [date] is how it is shown. */
+    val dateIso: String? = null,
+    /** The total printed on the receipt, which the lines plus tax should add up to. */
+    val printedTotalCents: Int? = null,
 ) {
     val subtotalCents get() = lines.sumOf { it.priceCents }
     val totalCents get() = subtotalCents + taxCents

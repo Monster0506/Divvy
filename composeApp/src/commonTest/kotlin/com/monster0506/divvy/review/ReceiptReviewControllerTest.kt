@@ -21,6 +21,7 @@ import com.monster0506.divvy.data.dto.ReceiptDto
 import com.monster0506.divvy.data.dto.ReceiptItemDto
 import com.monster0506.divvy.data.dto.ReceiptStatusDto
 import com.monster0506.divvy.data.dto.ReceiptUploadDto
+import com.monster0506.divvy.data.dto.UpdateReceiptRequest
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -118,7 +119,13 @@ private class FakeApi : ReviewApi {
         return retryResult
     }
 
+    override suspend fun updateDetails(receiptId: String, change: UpdateReceiptRequest): ApiResult<EditedReceiptDto> {
+        calls += "details:${change.merchantName}:${change.purchasedAt}:${change.taxMinor}:${change.totalMinor}"
+        return detailsResult
+    }
+
     var editResult: ApiResult<EditedReceiptDto> = ApiResult.Success(edited())
+    var detailsResult: ApiResult<EditedReceiptDto> = ApiResult.Success(edited())
 
     override suspend fun addItem(receiptId: String, item: ItemEditRequest): ApiResult<EditedReceiptDto> {
         calls += "add:${item.description}:${item.totalMinor}"
@@ -145,12 +152,19 @@ private fun edited(
     vararg items: EditedItemDto,
     reconciled: Boolean = true,
     subtotalGap: Long? = null,
+    merchantName: String? = "Walmart",
+    purchasedAt: String? = "2026-09-18T12:00:00Z",
+    taxMinor: Long? = 41,
+    totalMinor: Long = 877,
 ) = EditedReceiptDto(
     id = "r1",
     householdId = "h1",
+    merchantName = merchantName,
+    purchasedAt = purchasedAt,
+    taxMinor = taxMinor,
+    totalMinor = totalMinor,
     status = ReceiptStatusDto.Draft,
     items = items.toList(),
-    taxMinor = 41,
     reconciliation = ReconciliationDto(items.sumOf { it.totalMinor }, 0, subtotalGap, reconciled),
 )
 
@@ -655,6 +669,49 @@ class ReceiptReviewControllerTest {
     }
 
     @Test
+    fun details_edit_sends_only_changed_fields_and_updates_the_draft_and_warning() = runTest {
+        val api = FakeApi()
+        val c = ready(api)
+        api.detailsResult = ApiResult.Success(edited(
+            line("i1", 1, "bananas", 188, "p1"), line("i2", 2, "great value milk", 398, "p2"), line("i3", 3, "mystery thing", 250),
+            merchantName = "Target", purchasedAt = "2026-10-01T12:00:00Z", taxMinor = 50, totalMinor = 886,
+            reconciled = false, subtotalGap = -20,
+        ))
+
+        c.editDetails(ReceiptDetailsEdit("Target", "2026-10-01", 50, 886))
+        advanceUntilIdle()
+
+        assertEquals("details:Target:2026-10-01T12:00:00Z:50:886", api.calls.last())
+        assertEquals("Target", c.state.value.draft!!.store)
+        assertEquals("Oct 1, 2026", c.state.value.draft!!.date)
+        assertEquals("2026-10-01", c.state.value.draft!!.dateIso)
+        assertEquals(50, c.state.value.draft!!.taxCents)
+        assertEquals(886, c.state.value.draft!!.printedTotalCents)
+        assertNotNull(c.state.value.warning)
+
+        api.detailsResult = ApiResult.Success(edited(
+            line("i1", 1, "bananas", 188, "p1"), line("i2", 2, "great value milk", 398, "p2"), line("i3", 3, "mystery thing", 250),
+            merchantName = "Target", purchasedAt = "2026-10-01T12:00:00Z", taxMinor = 51, totalMinor = 887,
+        ))
+        c.editDetails(ReceiptDetailsEdit("Target", "2026-10-01", 51, 887))
+        advanceUntilIdle()
+        assertNull(c.state.value.warning)
+    }
+
+    @Test
+    fun a_refused_details_edit_keeps_the_draft_and_shows_the_server_message() = runTest {
+        val api = FakeApi().apply { detailsResult = failure(ApiFailure.Validation(ApiError("conflict", "receipt is confirmed and can no longer be edited"))) }
+        val c = ready(api)
+        val before = c.state.value.draft
+
+        c.editDetails(ReceiptDetailsEdit("Target", "2026-10-01", 50, 900))
+        advanceUntilIdle()
+
+        assertEquals(before, c.state.value.draft)
+        assertTrue(c.state.value.message!!.contains("receipt is confirmed"))
+    }
+
+    @Test
     fun a_new_line_starts_with_no_owner_and_needs_confirming() = runTest {
         val api = FakeApi()
         val c = ready(api)
@@ -841,6 +898,13 @@ class ReceiptReviewControllerTest {
         assertEquals("Jan 1, 2027", formatDate("2027-01-01"))
         assertEquals("sometime", formatDate("sometime"))
         assertEquals("2026-13-01", formatDate("2026-13-01"))
+    }
+
+    @Test
+    fun draft_mapping_keeps_the_raw_purchase_date_and_printed_total() {
+        val mapped = buildReviewLines(receipt(), listOf(person("p1", "TJ").toUiPerson(0)), person("p1", "TJ").toUiPerson(0), null).draft
+        assertEquals("2026-09-18", mapped.dateIso)
+        assertEquals(877, mapped.printedTotalCents)
     }
 
     @Test

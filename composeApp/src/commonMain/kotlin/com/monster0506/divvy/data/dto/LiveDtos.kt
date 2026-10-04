@@ -75,6 +75,15 @@ data class ItemEditRequest(
     val discountMinor: Long? = null,
 )
 
+/** `PATCH /receipts/{id}`: the receipt's own fields. Leave out what stays as it is. */
+@Serializable
+data class UpdateReceiptRequest(
+    val merchantName: String? = null,
+    val purchasedAt: String? = null,
+    val taxMinor: Long? = null,
+    val totalMinor: Long? = null,
+)
+
 @Serializable
 data class MergeItemsRequest(val itemIds: List<String>, val description: String? = null)
 
