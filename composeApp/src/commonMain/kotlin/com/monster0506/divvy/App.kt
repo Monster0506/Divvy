@@ -29,6 +29,7 @@ import org.jetbrains.compose.resources.decodeToImageBitmap
 import com.monster0506.divvy.data.api.ApiException
 import com.monster0506.divvy.data.api.ApiFailure
 import com.monster0506.divvy.data.api.ApiConfig
+import com.monster0506.divvy.data.api.ApiConfigStore
 import com.monster0506.divvy.data.api.DivvyApi
 import com.monster0506.divvy.data.api.createHttpClient
 import com.monster0506.divvy.image.prepareReceiptImage
@@ -59,19 +60,31 @@ private data class SelectedReceiptPhoto(val jpeg: ByteArray, val preview: ImageB
 
 private fun Throwable.uploadMessage(): String = when (this) {
     is ApiException -> when (val reason = failure) {
-        ApiFailure.Offline -> "Could not reach the server. Check your connection and try again."
-        ApiFailure.Unauthorised -> "The server rejected the API key. Check the app's API configuration."
-        is ApiFailure.Validation -> reason.error.message
-        is ApiFailure.ServerError -> "The server could not save this receipt. Please try again."
+        ApiFailure.Offline -> "Could not reach the server. Check the URL in Account > Server and try again."
+        ApiFailure.Unauthorised -> "The server rejected the API key. Check Account > Server."
+        is ApiFailure.Validation -> if (reason.error.code == "http_404") {
+            "No receipt upload endpoint at this server address. Check the URL or update the server."
+        } else reason.error.message
+        is ApiFailure.ServerError -> if (reason.status == 503) {
+            "Server unavailable (503). Check that the backend is running and try again."
+        } else "The server could not save this receipt. Please try again."
     }
     else -> "Could not prepare this photo. Please choose a different image."
 }
 
 @Composable
 fun App(apiConfig: ApiConfig = ApiConfig()) {
-    val router = remember { LaunchRouter(HouseholdStore(Settings()), LocalHouseholdLookup()) }
+    val settings = remember { Settings() }
+    val router = remember(settings) { LaunchRouter(HouseholdStore(settings), LocalHouseholdLookup()) }
+    val configStore = remember(settings) { ApiConfigStore(settings) }
+    var activeConfig by remember(configStore) { mutableStateOf(configStore.load(apiConfig)) }
     DivvyTheme {
-        Surface(modifier = Modifier.fillMaxSize()) { DivvyApp(start = Route.Launch, router = router, apiConfig = apiConfig) }
+        Surface(modifier = Modifier.fillMaxSize()) {
+            DivvyApp(start = Route.Launch, router = router, apiConfig = activeConfig, onApiConfigChange = {
+                configStore.save(it)
+                activeConfig = it
+            })
+        }
     }
 }
 
@@ -81,6 +94,7 @@ fun DivvyApp(
     state: DivvyState = remember { DivvyState() },
     router: LaunchRouter? = null,
     apiConfig: ApiConfig = ApiConfig(),
+    onApiConfigChange: (ApiConfig) -> Unit = {},
 ) {
     var route by remember { mutableStateOf(start) }
     LaunchedEffect(router) {
@@ -217,6 +231,7 @@ fun DivvyApp(
                     uploadedReceiptId = null
                     route = Route.History
                 },
+                onServerSettings = { route = Route.Account },
             )
 
             Route.Review -> ReviewReceiptScreen(
@@ -280,6 +295,8 @@ fun DivvyApp(
                     route = Route.EditPerson
                 },
                 onSettingsChange = { state.settings = it },
+                apiConfig = apiConfig,
+                onApiConfigChange = onApiConfigChange,
                 onTab = onTab,
             )
 
