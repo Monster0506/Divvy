@@ -102,7 +102,18 @@ See JetBrains' guide on [running on a real iOS device](https://kotlinlang.org/do
 
 From Receipts, tap Scan receipt, then take a photo or choose one from Gallery. Review the prepared image and tap Upload photo. The app shows upload progress, keeps the image for retry after a failure, and displays the new receipt ID in `processing` state when the server saves it. Images are converted to a legible JPEG before upload. After the upload the app waits while the server reads the photo, then opens the review screen on the real receipt: fix or add lines, choose who owns each item, accept or change Divvy's guesses, and confirm. The Receipts tab lists the household's receipts from the server, a confirmed receipt shows each person's share, and it can be reopened for correction. Account holds the household's auto-assign switch and confidence threshold.
 
-Start the Ktor server before uploading. The Android emulator uses `http://10.0.2.2:8080` by default; the iOS simulator uses `http://localhost:8080`. On a physical device, open **Account > Server**, enter a reachable server URL and its API key, then save. Use a deployed HTTPS URL, or for local development use `http://<your-computer-LAN-IP>:8080` while the phone and computer are on the same network. `localhost` on a phone points to the phone itself. iOS will request local-network access for a LAN server. You can also set build defaults with `-Pdivvy.apiBaseUrl=...` and `-Pdivvy.apiKey=...`; the in-app settings override them. The app creates a server household on the first upload when onboarding has only stored a local placeholder ID.
+Start the Ktor server before uploading. The Android emulator uses `http://10.0.2.2:8080` by default; the iOS simulator uses `http://localhost:8080`. On a physical device, open **Account > Server**, enter a reachable server URL and its API key, then save. Use a deployed HTTPS URL, or for local development use `http://<your-computer-LAN-IP>:8080` while the phone and computer are on the same network. `localhost` on a phone points to the phone itself. iOS will request local-network access for a LAN server. You can also set build defaults with `-Pdivvy.apiBaseUrl=...` and `-Pdivvy.apiKey=...`; the in-app settings override them.
+
+#### Building the app for a deployed server
+
+Put the server address and key in the git-ignored `local.properties` at the repository root, next to `sdk.dir`:
+
+```
+divvy.apiBaseUrl=https://your-server.example
+divvy.apiKey=the-api-key
+```
+
+`local.properties` wins over `gradle.properties` and `-P`, so every build installed from your machine, for example `./gradlew :androidApp:installDebug`, starts pointed at that server with no setup in the app. Never put the key in a tracked file. Gradle regenerates the setting when it changes, so no clean build is needed. The values are only defaults: once someone has saved a server in **Account > Server** on a device, that saved value is used instead, so clear the app data (or save the new server in Account) after switching. The app creates a server household on the first upload when onboarding has only stored a local placeholder ID.
 
 The server must be built from a revision containing `POST /households/{id}/receipts` (this PR). If an older Docker server responds `404 Not Found` with an empty body, rebuild it from the updated source with `docker compose up -d --build server`. A current server responds to a nonexistent household with JSON like `{"code":"not_found","message":"household not found"}`. `GET /health` can confirm reachability, but does not verify the upload route. A proxy-generated `503 Service Unavailable` means the upstream service needs to be started or repaired before the app can upload. Do not share API or Qwen keys in issue comments.
 
