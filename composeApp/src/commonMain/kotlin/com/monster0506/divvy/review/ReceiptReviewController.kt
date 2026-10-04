@@ -53,6 +53,7 @@ class ReceiptReviewController(
     private val pollMillis: Long = 1_500,
     private val readTimeoutMillis: Long = 180_000,
     private val maxMissedPolls: Int = 5,
+    private val onPayerChosen: (personId: String) -> Unit = {},
 ) {
     private val mutableState = MutableStateFlow(ReviewState())
     val state: StateFlow<ReviewState> = mutableState
@@ -66,7 +67,7 @@ class ReceiptReviewController(
     private var job: Job? = null
     private val writes = Mutex()
 
-    /** Starts following [receiptId]. [payerId] is who paid when the photo does not say; it defaults to the first member. */
+    /** Starts following [receiptId]. [payerId] is who paid last time; it is used only if they are still a member. */
     fun open(householdId: String, receiptId: String, payerId: String? = null) {
         this.householdId = householdId
         this.receiptId = receiptId
@@ -93,6 +94,31 @@ class ReceiptReviewController(
                 if (result is ApiResult.Failure) return@launch fail(ReviewPhase.Unreachable, describe(result.failure))
             }
             guarded { follow() }
+        }
+    }
+
+    /** Records who paid. The change shows at once and is put back if the server refuses it. */
+    fun setPayer(personId: String) {
+        val current = mutableState.value
+        val draft = current.draft ?: return
+        val person = people.find { it.id == personId } ?: return
+        if (current.phase != ReviewPhase.Ready || (draft.payerChosen && draft.payer.id == personId)) return
+        val wasSaved = payerSaved
+        mutableState.update { it.copy(draft = draft.copy(payer = person, payerChosen = true), message = null) }
+        scope.launch {
+            when (val result = writes.withLock { api.setPayer(receiptId, personId) }) {
+                is ApiResult.Success -> {
+                    payerSaved = true
+                    onPayerChosen(personId)
+                }
+                is ApiResult.Failure -> {
+                    payerSaved = wasSaved
+                    mutableState.update { state ->
+                        val back = state.draft?.copy(payer = draft.payer, payerChosen = draft.payerChosen)
+                        state.copy(draft = back, message = "Could not save who paid. ${describe(result.failure)}")
+                    }
+                }
+            }
         }
     }
 
@@ -190,19 +216,19 @@ class ReceiptReviewController(
 
     private suspend fun showDraft(receipt: ReceiptDto, members: List<PersonDto>) {
         val predictions = (api.predictions(householdId, receiptId) as? ApiResult.Success)?.value
-        val payerId = receipt.paidByPersonId
-            ?: preferredPayerId?.takeIf { id -> members.any { it.id == id } }
-            ?: members.first().id
+        val payerId = receipt.paidByPersonId ?: preferredPayerId?.takeIf { id -> members.any { it.id == id } }
         var message: String? = null
         payerSaved = receipt.paidByPersonId != null
-        if (!payerSaved) {
+        if (payerId != null && !payerSaved) {
             when (val saved = api.setPayer(receiptId, payerId)) {
                 is ApiResult.Success -> payerSaved = true
                 is ApiResult.Failure -> message = "Could not save who paid. ${describe(saved.failure)}"
             }
         }
         val payer = people.find { it.id == payerId } ?: people.first()
-        val lines = buildReviewLines(receipt, people, payer, predictions)
+        val lines = buildReviewLines(receipt, people, payer, predictions).let {
+            it.copy(draft = it.draft.copy(payerChosen = payerId != null))
+        }
         itemIds = lines.itemIds
         mutableState.value = ReviewState(ReviewPhase.Ready, message, lines.draft, receiptId)
     }

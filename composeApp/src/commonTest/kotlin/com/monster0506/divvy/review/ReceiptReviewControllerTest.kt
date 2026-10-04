@@ -117,12 +117,17 @@ private class FakeApi : ReviewApi {
 private fun failure(f: ApiFailure) = ApiResult.Failure(f)
 
 class ReceiptReviewControllerTest {
+    private val remembered = mutableListOf<String>()
+
     private fun TestScope.controller(api: FakeApi, readTimeout: Long = 60_000) =
-        ReceiptReviewController(api, this, pollMillis = 1_000, readTimeoutMillis = readTimeout, maxMissedPolls = 3)
+        ReceiptReviewController(
+            api, this, pollMillis = 1_000, readTimeoutMillis = readTimeout, maxMissedPolls = 3,
+            onPayerChosen = { remembered += it },
+        )
 
     private suspend fun TestScope.ready(api: FakeApi): ReceiptReviewController =
         controller(api).also {
-            it.open("h1", "r1")
+            it.open("h1", "r1", payerId = "p1")
             advanceUntilIdle()
             assertEquals(ReviewPhase.Ready, it.state.value.phase, it.state.value.toString())
         }
@@ -297,16 +302,76 @@ class ReceiptReviewControllerTest {
     }
 
     @Test
-    fun the_first_member_pays_when_nobody_is_chosen_and_an_unknown_choice_is_ignored() = runTest {
-        val first = FakeApi()
-        controller(first).also { it.open("h1", "r1") }
+    fun nobody_is_saved_as_payer_until_one_is_chosen() = runTest {
+        val api = FakeApi()
+        val c = controller(api)
+
+        c.open("h1", "r1")
         advanceUntilIdle()
-        assertEquals(listOf("payer:p1"), first.calls)
+        assertTrue(api.calls.isEmpty())
+        assertFalse(c.state.value.draft!!.payerChosen)
 
         val unknown = FakeApi()
         controller(unknown).also { it.open("h1", "r1", payerId = "someone-else") }
         advanceUntilIdle()
-        assertEquals(listOf("payer:p1"), unknown.calls)
+        assertTrue(unknown.calls.isEmpty())
+    }
+
+    @Test
+    fun confirming_without_a_chosen_payer_is_refused() = runTest {
+        val api = FakeApi()
+        val c = controller(api).also { it.open("h1", "r1") }
+        advanceUntilIdle()
+
+        c.confirm()
+        advanceUntilIdle()
+
+        assertFalse("confirm" in api.calls)
+        assertEquals("Choose who paid before confirming.", c.state.value.message)
+    }
+
+    @Test
+    fun choosing_a_payer_saves_it_remembers_it_and_unblocks_confirm() = runTest {
+        val api = FakeApi()
+        val c = controller(api).also { it.open("h1", "r1") }
+        advanceUntilIdle()
+
+        c.setPayer("p2")
+        assertEquals("Sumedh", c.state.value.draft?.payer?.name)
+        assertTrue(c.state.value.draft!!.payerChosen)
+        advanceUntilIdle()
+        assertEquals(listOf("payer:p2"), api.calls)
+        assertEquals(listOf("p2"), remembered)
+
+        c.confirm()
+        advanceUntilIdle()
+        assertEquals(ReviewPhase.Confirmed, c.state.value.phase)
+    }
+
+    @Test
+    fun a_payer_the_server_refuses_is_put_back() = runTest {
+        val api = FakeApi().apply { payerResult = failure(ApiFailure.Offline) }
+        val c = controller(api).also { it.open("h1", "r1") }
+        advanceUntilIdle()
+
+        c.setPayer("p2")
+        advanceUntilIdle()
+
+        assertFalse(c.state.value.draft!!.payerChosen)
+        assertTrue(remembered.isEmpty())
+        assertTrue(c.state.value.message!!.startsWith("Could not save who paid"))
+    }
+
+    @Test
+    fun a_chosen_payer_can_be_changed() = runTest {
+        val api = FakeApi()
+        val c = ready(api)
+
+        c.setPayer("p2")
+        advanceUntilIdle()
+
+        assertEquals(listOf("payer:p1", "payer:p2"), api.calls)
+        assertEquals("Sumedh", c.state.value.draft?.payer?.name)
     }
 
     @Test
