@@ -54,6 +54,13 @@ import com.monster0506.divvy.ui.screens.HouseholdSetupScreen
 import com.monster0506.divvy.ui.screens.ReceiptDetailScreen
 import com.monster0506.divvy.ui.screens.ReceiptHistoryScreen
 import com.monster0506.divvy.ui.screens.ReviewReceiptScreen
+import com.monster0506.divvy.ui.screens.ReviewStatusScreen
+import com.monster0506.divvy.review.ReceiptReviewController
+import com.monster0506.divvy.review.RepositoryReviewApi
+import com.monster0506.divvy.review.ReviewPhase
+import com.monster0506.divvy.data.repository.HouseholdRepository
+import com.monster0506.divvy.data.repository.ReceiptRepository
+import androidx.compose.runtime.collectAsState
 import com.monster0506.divvy.ui.screens.ShoppingListScreen
 import com.monster0506.divvy.ui.state.AddMembersState
 import com.monster0506.divvy.ui.state.CreateHouseholdState
@@ -142,6 +149,17 @@ fun DivvyApp(
     val client = remember(apiConfig) { createHttpClient(apiConfig) }
     DisposableEffect(client) { onDispose { client.close() } }
     val api = remember(client) { DivvyApi(client) }
+    val review = remember(api) {
+        ReceiptReviewController(RepositoryReviewApi(ReceiptRepository(api), HouseholdRepository(api)), scope)
+    }
+    DisposableEffect(review) { onDispose { review.close() } }
+    val reviewState by review.state.collectAsState()
+    LaunchedEffect(reviewState.phase) {
+        if (reviewState.phase == ReviewPhase.Confirmed) {
+            review.close()
+            route = Route.Balances
+        }
+    }
     val onTab = { tab: Tab ->
         route = when (tab) {
             Tab.Receipts -> Route.History
@@ -196,7 +214,11 @@ fun DivvyApp(
                     } else throw e
                 }
                 uploadedReceiptId = uploaded.id
-                photoStage = ReceiptPhotoStage.Uploaded
+                review.open(householdId, uploaded.id)
+                selectedPhoto = null
+                photoStage = ReceiptPhotoStage.Empty
+                uploadProgress = null
+                route = Route.Review
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -289,24 +311,62 @@ fun DivvyApp(
                 onServerSettings = { route = Route.Account },
             )
 
-            Route.Review -> ReviewReceiptScreen(
-                draft = state.draft,
-                autoExpanded = state.autoExpanded,
-                onToggleOwner = state::toggleOwner,
-                onConfirmLine = state::confirmLine,
-                onToggleAuto = state::toggleAuto,
-                onConfirmSplit = {
-                    state.confirmSplit()
-                    route = Route.Balances
-                },
-                onTab = onTab,
-                onEditLine = state::editLine,
-                onAddLine = state::addLine,
-                onDeleteLine = state::deleteLine,
-                onMergeLines = state::mergeLines,
-                canUndo = state.canUndoDelete,
-                onUndo = state::undoDelete,
-            )
+            Route.Review -> {
+                val live = reviewState.draft
+                when {
+                    reviewState.phase == ReviewPhase.Idle -> ReviewReceiptScreen(
+                        draft = state.draft,
+                        autoExpanded = state.autoExpanded,
+                        onToggleOwner = state::toggleOwner,
+                        onConfirmLine = state::confirmLine,
+                        onToggleAuto = state::toggleAuto,
+                        onConfirmSplit = {
+                            state.confirmSplit()
+                            route = Route.Balances
+                        },
+                        onTab = onTab,
+                        onEditLine = state::editLine,
+                        onAddLine = state::addLine,
+                        onDeleteLine = state::deleteLine,
+                        onMergeLines = state::mergeLines,
+                        canUndo = state.canUndoDelete,
+                        onUndo = state::undoDelete,
+                    )
+                    live != null && (reviewState.phase == ReviewPhase.Ready || reviewState.phase == ReviewPhase.Confirming) ->
+                        ReviewReceiptScreen(
+                            draft = live,
+                            autoExpanded = state.autoExpanded,
+                            onToggleOwner = review::toggleOwner,
+                            onConfirmLine = review::accept,
+                            onToggleAuto = state::toggleAuto,
+                            onConfirmSplit = review::confirm,
+                            onTab = onTab,
+                            notice = reviewState.message,
+                        )
+                    else -> ReviewStatusScreen(
+                        title = when (reviewState.phase) {
+                            ReviewPhase.Reading -> "Reading your receipt"
+                            ReviewPhase.Failed -> "Could not read the receipt"
+                            else -> "Could not open the receipt"
+                        },
+                        message = if (reviewState.phase == ReviewPhase.Reading) {
+                            "This usually takes under a minute."
+                        } else reviewState.message,
+                        busy = reviewState.phase == ReviewPhase.Reading,
+                        actionLabel = when (reviewState.phase) {
+                            ReviewPhase.Failed -> "Try again"
+                            ReviewPhase.Unreachable -> "Check again"
+                            else -> null
+                        },
+                        onAction = review::retry,
+                        onBack = {
+                            review.close()
+                            route = Route.History
+                        },
+                        onTab = onTab,
+                    )
+                }
+            }
 
             Route.History -> ReceiptHistoryScreen(
                 entries = state.history,

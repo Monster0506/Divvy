@@ -74,6 +74,7 @@ fun ReviewReceiptScreen(
     onMergeLines: (Set<Int>) -> Unit = {},
     canUndo: Boolean = false,
     onUndo: () -> Unit = {},
+    notice: String? = null,
 ) {
     var editing by remember { mutableStateOf<ReceiptLine?>(null) }
     var adding by remember { mutableStateOf(false) }
@@ -94,6 +95,7 @@ fun ReviewReceiptScreen(
                 withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = DivvyColors.Ink)) { append(draft.payer.name) }
             },
         )
+        if (notice != null) SectionHeader(notice, warn = true)
         EditBar(
             merging = merging,
             selectedCount = selected.size,
