@@ -173,12 +173,6 @@ fun AccountScreen(
         )
 
         SectionHeader("Server")
-        Text(
-            "On a phone, use a reachable HTTPS address or your computer's LAN address, not localhost. The server must include the receipt upload route.",
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
-            fontSize = 13.sp,
-            color = DivvyColors.Dim,
-        )
         OutlinedTextField(
             value = serverUrl,
             onValueChange = { serverUrl = it; serverError = false },
