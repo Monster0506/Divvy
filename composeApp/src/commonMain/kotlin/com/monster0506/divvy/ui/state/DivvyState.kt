@@ -3,11 +3,15 @@ package com.monster0506.divvy.ui.state
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.monster0506.divvy.domain.editLine
+import com.monster0506.divvy.domain.mergeLines
+import com.monster0506.divvy.domain.nextLineId
 import com.monster0506.divvy.ui.model.AvatarColor
 import com.monster0506.divvy.ui.model.Balance
 import com.monster0506.divvy.ui.model.HistoryEntry
 import com.monster0506.divvy.ui.model.Person
 import com.monster0506.divvy.ui.model.ReceiptDraft
+import com.monster0506.divvy.ui.model.ReceiptLine
 import com.monster0506.divvy.ui.model.ReceiptStatus
 import com.monster0506.divvy.ui.model.Settings
 import com.monster0506.divvy.ui.model.ShoppingItem
@@ -91,6 +95,36 @@ class DivvyState {
 
     fun confirmLine(lineId: Int) {
         reviewed = reviewed + lineId
+    }
+
+    private var lastDeleted by mutableStateOf<Pair<Int, ReceiptLine>?>(null)
+    val canUndoDelete get() = lastDeleted != null
+
+    fun editLine(lineId: Int, name: String, priceCents: Int) {
+        rawDraft = rawDraft.copy(lines = rawDraft.lines.editLine(lineId, name, priceCents))
+    }
+
+    fun addLine(name: String, priceCents: Int) {
+        val line = ReceiptLine(rawDraft.lines.nextLineId(), name, priceCents, emptySet(), confidence = 0f, confirmed = false)
+        rawDraft = rawDraft.copy(lines = rawDraft.lines + line)
+    }
+
+    fun deleteLine(lineId: Int) {
+        val index = rawDraft.lines.indexOfFirst { it.id == lineId }
+        if (index < 0) return
+        lastDeleted = index to rawDraft.lines[index]
+        rawDraft = rawDraft.copy(lines = rawDraft.lines.filterNot { it.id == lineId })
+    }
+
+    fun undoDelete() {
+        val (index, line) = lastDeleted ?: return
+        val lines = rawDraft.lines.toMutableList().apply { add(index.coerceAtMost(size), line) }
+        rawDraft = rawDraft.copy(lines = lines)
+        lastDeleted = null
+    }
+
+    fun mergeLines(ids: Set<Int>) {
+        rawDraft = rawDraft.copy(lines = rawDraft.lines.mergeLines(ids))
     }
 
     fun toggleAuto() {

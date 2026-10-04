@@ -1,5 +1,14 @@
 package com.monster0506.divvy
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.Alignment
+import com.monster0506.divvy.launch.HouseholdStore
+import com.monster0506.divvy.launch.LaunchDestination
+import com.monster0506.divvy.launch.LaunchRouter
+import com.monster0506.divvy.launch.LocalHouseholdLookup
+import com.russhwolf.settings.Settings
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -29,18 +38,31 @@ import com.monster0506.divvy.ui.state.DivvyState
 import com.monster0506.divvy.ui.theme.DivvyTheme
 import androidx.compose.ui.tooling.preview.Preview
 
-enum class Route { Setup, Camera, Review, History, Detail, Balances, Shopping, Account, EditPerson }
+enum class Route { Launch, Setup, Camera, Review, History, Detail, Balances, Shopping, Account, EditPerson }
 
 @Composable
 fun App() {
+    val router = remember { LaunchRouter(HouseholdStore(Settings()), LocalHouseholdLookup()) }
     DivvyTheme {
-        Surface(modifier = Modifier.fillMaxSize()) { DivvyApp() }
+        Surface(modifier = Modifier.fillMaxSize()) { DivvyApp(start = Route.Launch, router = router) }
     }
 }
 
 @Composable
-fun DivvyApp(start: Route = Route.Setup, state: DivvyState = remember { DivvyState() }) {
+fun DivvyApp(
+    start: Route = Route.Setup,
+    state: DivvyState = remember { DivvyState() },
+    router: LaunchRouter? = null,
+) {
     var route by remember { mutableStateOf(start) }
+    LaunchedEffect(router) {
+        if (start == Route.Launch && router != null) {
+            route = when (router.decide()) {
+                LaunchDestination.Home -> Route.History
+                LaunchDestination.Onboarding -> Route.Setup
+            }
+        }
+    }
     var editingId by remember { mutableStateOf(state.meId) }
     val onTab = { tab: Tab ->
         route = when (tab) {
@@ -56,7 +78,15 @@ fun DivvyApp(start: Route = Route.Setup, state: DivvyState = remember { DivvySta
         transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(120)) },
     ) { current ->
         when (current) {
+            Route.Launch -> Box(Modifier.fillMaxSize()) {
+                CircularProgressIndicator(Modifier.align(Alignment.Center))
+            }
+
             Route.Setup -> HouseholdSetupScreen(
+                onStart = {
+                    router?.onboardingCompleted()
+                    route = Route.History
+                },
                 householdName = state.householdName,
                 members = state.people,
                 newMember = state.newMember,
@@ -65,13 +95,15 @@ fun DivvyApp(start: Route = Route.Setup, state: DivvyState = remember { DivvySta
                 onAddMember = state::addMember,
                 onRemoveMember = state::removePerson,
                 canRemove = state::canRemove,
-                onStart = { route = Route.History },
+
             )
+
             Route.Camera -> CameraScreen(
                 onCapture = { route = Route.Review },
                 onGallery = { galleryPicker.launch() },
                 onCancel = { route = Route.History },
             )
+
             Route.Review -> ReviewReceiptScreen(
                 draft = state.draft,
                 autoExpanded = state.autoExpanded,
@@ -83,13 +115,24 @@ fun DivvyApp(start: Route = Route.Setup, state: DivvyState = remember { DivvySta
                     route = Route.Balances
                 },
                 onTab = onTab,
+                onEditLine = state::editLine,
+                onAddLine = state::addLine,
+                onDeleteLine = state::deleteLine,
+                onMergeLines = state::mergeLines,
+                canUndo = state.canUndoDelete,
+                onUndo = state::undoDelete,
             )
+
             Route.History -> ReceiptHistoryScreen(
                 entries = state.history,
-                onOpen = { route = if (it == 0 && state.history[0].status == ReceiptStatus.NeedsReview) Route.Review else Route.Detail },
+                onOpen = {
+                    route =
+                        if (it == 0 && state.history[0].status == ReceiptStatus.NeedsReview) Route.Review else Route.Detail
+                },
                 onScan = { route = Route.Camera },
                 onTab = onTab,
             )
+
             Route.Detail -> ReceiptDetailScreen(
                 receipt = state.resolvedDraft,
                 shares = state.shares,
@@ -97,6 +140,7 @@ fun DivvyApp(start: Route = Route.Setup, state: DivvyState = remember { DivvySta
                 onReopen = {},
                 onTab = onTab,
             )
+
             Route.Balances -> BalancesScreen(state.balances, state.transfers, state::togglePaid, onTab)
             Route.Shopping -> ShoppingListScreen(
                 items = state.shopping,
@@ -105,6 +149,7 @@ fun DivvyApp(start: Route = Route.Setup, state: DivvyState = remember { DivvySta
                 onAddSuggestion = state::addSuggestion,
                 onTab = onTab,
             )
+
             Route.Account -> AccountScreen(
                 me = state.me,
                 householdName = state.householdName,
@@ -122,6 +167,7 @@ fun DivvyApp(start: Route = Route.Setup, state: DivvyState = remember { DivvySta
                 onSettingsChange = { state.settings = it },
                 onTab = onTab,
             )
+
             Route.EditPerson -> state.person(editingId)?.let { person ->
                 EditPersonScreen(
                     person = person,
