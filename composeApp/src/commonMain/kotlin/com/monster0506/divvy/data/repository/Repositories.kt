@@ -12,6 +12,7 @@ import com.monster0506.divvy.data.dto.EditedReceiptDto
 import com.monster0506.divvy.data.dto.ItemEditRequest
 import com.monster0506.divvy.data.dto.MlSettingsDto
 import com.monster0506.divvy.data.dto.ReceiptPageDto
+import com.monster0506.divvy.data.dto.UpdateReceiptRequest
 import com.monster0506.divvy.data.dto.PredictionsDto
 import com.monster0506.divvy.data.dto.HouseholdDto
 import com.monster0506.divvy.data.dto.ItemOwnerDto
@@ -90,6 +91,9 @@ class ReceiptRepository(private val api: DivvyApi) {
     suspend fun reopen(id: String): ApiResult<ReceiptDto> = apiCall { api.reopenReceipt(id) }
 
     suspend fun image(id: String): ApiResult<ByteArray> = apiCall { api.getReceiptImage(id) }
+
+    suspend fun updateReceipt(receiptId: String, change: UpdateReceiptRequest): ApiResult<EditedReceiptDto> =
+        apiCall { api.updateReceipt(receiptId, change) }
 
     suspend fun setPayer(receiptId: String, personId: String): ApiResult<Unit> =
         apiCall { api.setReceiptPayer(receiptId, personId) }
