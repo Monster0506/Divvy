@@ -80,6 +80,7 @@ fun ScreenHeader(
     title: String,
     metaStart: String? = null,
     metaEnd: AnnotatedString? = null,
+    onMetaEndClick: (() -> Unit)? = null,
     action: (@Composable () -> Unit)? = null,
 ) {
     Column(Modifier.fillMaxWidth().padding(start = 20.dp, top = 22.dp, end = 20.dp, bottom = 14.dp)) {
@@ -90,7 +91,10 @@ fun ScreenHeader(
         if (metaStart != null || metaEnd != null) {
             Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(metaStart.orEmpty(), fontSize = 13.sp, color = DivvyColors.Dim)
-                if (metaEnd != null) Text(metaEnd, fontSize = 13.sp, color = DivvyColors.Dim)
+                if (metaEnd != null) {
+                    val tap = if (onMetaEndClick != null) Modifier.clickable(onClick = onMetaEndClick) else Modifier
+                    Text(metaEnd, tap, fontSize = 13.sp, color = DivvyColors.Dim)
+                }
             }
         }
     }

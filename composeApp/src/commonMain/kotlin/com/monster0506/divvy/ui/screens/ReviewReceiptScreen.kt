@@ -41,6 +41,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -98,14 +99,16 @@ fun ReviewReceiptScreen(
             metaStart = draft.date,
             metaEnd = buildAnnotatedString {
                 append("Paid by ")
-                withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = DivvyColors.Ink)) {
-                    append(if (draft.payerChosen) draft.payer.name else "nobody yet")
-                }
+                val named = draft.payerChosen || onChoosePayer == null
+                val look = SpanStyle(
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (named) DivvyColors.Ink else DivvyColors.Warn,
+                    textDecoration = if (onChoosePayer != null) TextDecoration.Underline else null,
+                )
+                withStyle(look) { append(if (named) draft.payer.name else "choose") }
             },
+            onMetaEndClick = onChoosePayer?.let { { choosingPayer = true } },
         )
-        if (onChoosePayer != null) {
-            PayerRow(draft, onClick = { choosingPayer = true })
-        }
         if (notice != null) SectionHeader(notice, warn = true)
         EditBar(
             merging = merging,
@@ -163,23 +166,6 @@ fun ReviewReceiptScreen(
             onDelete = null,
         )
     }
-}
-
-@Composable
-private fun PayerRow(draft: ReceiptDraft, onClick: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text("Who paid?", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = DivvyColors.Dim)
-        if (draft.payerChosen) {
-            Text("${draft.payer.name} - change", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = DivvyColors.Accent)
-        } else {
-            Text("Choose", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = DivvyColors.Warn)
-        }
-    }
-    RowDivider()
 }
 
 @Composable
