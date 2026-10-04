@@ -1,0 +1,12 @@
+{
+  "merchant": "Walmart",
+  "date": "08/27/26",
+  "items": [
+    {"name": "IC TRAY W/LD", "quantity": 1, "unit_price": 1.97, "total_price": 1.97},
+    {"name": "GV WATER 24PK", "quantity": 1, "unit_price": 3.98, "total_price": 3.98},
+    {"name": "IC TRAY W/LD", "quantity": 1, "unit_price": 1.97, "total_price": 1.97}
+  ],
+  "subtotal": 7.92,
+  "tax": 0.55,
+  "total": 8.47
+}
