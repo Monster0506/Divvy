@@ -278,3 +278,18 @@ It prints item price accuracy and the total reconciliation rate. The checked-in 
 placeholders (`tests/data/make_fixtures.py`); real labelled receipts still need to be added. Hand-labelled real receipts go in `tests/data/labelled/` (kept apart so the
 synthetic set above stays at four); `test_labelled_receipts.py` checks each one adds up. The first is a Walmart receipt,
 where one blurry price was read from the printed subtotal.
+
+
+## Product name normalisation
+
+`divvy_ml.normalize.normalize_product_name` turns a raw receipt line (`ORG WHL MLK 1GAL`) into a readable lowercase name (`organic whole milk`). It is rule based: it drops sizes, weights, prices and numeric codes, then expands abbreviations from the dictionary in `divvy_ml/normalize/abbreviations.py`. Unknown tokens are kept as they are, with an optional LLM pass on top (below). Trailing units with no number (`GV WHOLE GAL`) are dropped, and store brands such as `GV` expand to `great value`.
+
+When an API key is set, one extra text-only call to the same Qwen API turns the rule-based names into better ones: the
+rule name is sent as a draft, unseen names go in one batch per request, and answers are cached per printed name. An
+unknown abbreviation is kept as printed rather than guessed. If the call fails, or an answer is not name-shaped, the
+rule name stays, so normalising never fails a request. It reads the same `QWEN_API_KEY` (or `QWEN_API_KEY_FILE`) and
+`QWEN_BASE_URL` as extraction. `QWEN_TEXT_MODEL` picks the model for this call (default `QWEN_MODEL`, so `qwen3.7-plus`)
+and `QWEN_LLM_NORMALIZE=false` turns it off. `POST /normalize` with `{"names": [...]}` returns a name per printed line for
+hand-entered items and history, using the same path.
+
+`POST /receipts/extract` fills `normalized_name` on every item (the printed `name` is kept as it is), so the backend can store the readable name as the item's description and keep the printed text.
