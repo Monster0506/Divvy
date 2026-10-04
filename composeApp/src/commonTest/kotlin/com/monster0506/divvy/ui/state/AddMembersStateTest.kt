@@ -63,6 +63,7 @@ class AddMembersStateTest {
         s.addName("Andrew")
         assertFalse(s.canFinish)
         s.addName("Sam")
+        s.setMe("Andrew")
         assertTrue(s.canFinish)
     }
 
@@ -71,6 +72,7 @@ class AddMembersStateTest {
         val created = mutableListOf<String>()
         val s = state { created += it; CreatePersonResult.Created("id-$it") }
         s.addName("Andrew")
+        s.setMe("Andrew")
         s.onDraftChange("Sam")
         assertTrue(s.canFinish)
         assertTrue(runNow { s.finish() })
@@ -87,6 +89,7 @@ class AddMembersStateTest {
         }
         s.addName("Andrew")
         s.addName("Sam")
+        s.setMe("Andrew")
         assertFalse(runNow { s.finish() })
         assertEquals("Name taken", s.rows.first { it.name == "Sam" }.error)
         rejectSam = false
@@ -99,9 +102,23 @@ class AddMembersStateTest {
         val s = state { CreatePersonResult.Failure("Can't reach the server.") }
         s.addName("Andrew")
         s.addName("Sam")
+        s.setMe("Andrew")
         assertFalse(runNow { s.finish() })
         assertEquals("Can't reach the server.", s.error)
         assertEquals(2, s.rows.size)
         assertFalse(s.submitting)
+    }
+
+    @Test
+    fun finish_requires_a_self_selection_and_exposes_the_selected_server_id() {
+        val s = state()
+        s.addName("Andrew")
+        s.addName("Sam")
+        assertFalse(s.canFinish)
+        assertFalse(runNow { s.finish() })
+
+        s.setMe("Sam")
+        assertTrue(runNow { s.finish() })
+        assertEquals("id-Sam", s.meId)
     }
 }

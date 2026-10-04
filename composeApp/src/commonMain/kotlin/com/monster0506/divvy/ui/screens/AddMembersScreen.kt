@@ -12,6 +12,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -53,6 +54,7 @@ fun AddMembersScreen(state: AddMembersState, onFinish: () -> Unit) {
                 Text("Add")
             }
         }
+        Text("Choose which person is you.", Modifier.padding(horizontal = 20.dp, vertical = 8.dp), fontSize = 13.sp)
         Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             state.rows.forEach { row ->
                 key(row.name) {
@@ -62,9 +64,14 @@ fun AddMembersScreen(state: AddMembersState, onFinish: () -> Unit) {
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween,
                         ) {
-                            Text(row.name, fontSize = 16.sp)
-                            if (state.canRemove(row)) {
-                                TextButton(onClick = { state.remove(row) }) { Text("Remove") }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(selected = state.meName == row.name, onClick = { state.setMe(row.name) })
+                                Text(row.name, fontSize = 16.sp)
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (state.canRemove(row)) {
+                                    TextButton(onClick = { state.remove(row) }) { Text("Remove") }
+                                }
                             }
                         }
                         row.error?.let {

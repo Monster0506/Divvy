@@ -32,6 +32,11 @@ class DivvyState(private val ownerSaver: DebouncedSaver<Int, Set<String>>? = nul
         private set
     val me: Person get() = people.find { it.id == meId } ?: people.firstOrNull() ?: SampleData.andrew
 
+    /** Selects the household member represented by this device until sign-in supplies a durable identity. */
+    fun setMe(id: String) {
+        meId = id
+    }
+
     var settings by mutableStateOf(Settings())
 
     // Lines the user has assigned or confirmed by hand; the rest follow the auto-assign settings.
@@ -228,4 +233,3 @@ class DivvyState(private val ownerSaver: DebouncedSaver<Int, Set<String>>? = nul
         if (canRemove(id)) people = people.filterNot { it.id == id }
     }
 }
-

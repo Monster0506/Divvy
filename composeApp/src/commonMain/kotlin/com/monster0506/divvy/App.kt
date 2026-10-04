@@ -14,6 +14,7 @@ import com.monster0506.divvy.data.api.HouseholdSettingsApi
 import com.monster0506.divvy.data.api.PeopleApi
 import com.monster0506.divvy.data.api.createHttpClient
 import com.monster0506.divvy.launch.HouseholdStore
+import com.monster0506.divvy.launch.HouseholdMemberStore
 import com.monster0506.divvy.launch.LaunchDestination
 import com.monster0506.divvy.launch.LaunchRouter
 import com.monster0506.divvy.launch.LocalHouseholdLookup
@@ -47,6 +48,7 @@ import com.monster0506.divvy.ui.components.Tab
 import com.monster0506.divvy.ui.model.ReceiptStatus
 import com.monster0506.divvy.ui.screens.AccountScreen
 import com.monster0506.divvy.ui.screens.AddMembersScreen
+import com.monster0506.divvy.ui.screens.JoinHouseholdScreen
 import com.monster0506.divvy.ui.screens.LiveBalancesScreen
 import com.monster0506.divvy.ui.screens.CameraScreen
 import com.monster0506.divvy.ui.screens.ReceiptPhotoStage
@@ -94,6 +96,7 @@ import com.monster0506.divvy.shopping.ShoppingListController
 import com.monster0506.divvy.ui.preview.SampleData
 import com.monster0506.divvy.ui.state.AddMembersState
 import com.monster0506.divvy.ui.state.CreateHouseholdState
+import com.monster0506.divvy.ui.state.JoinHouseholdState
 import com.monster0506.divvy.ui.state.DivvyState
 import com.monster0506.divvy.ui.state.HouseholdSettingsState
 import com.monster0506.divvy.ui.theme.DivvyTheme
@@ -101,7 +104,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
-enum class Route { Launch, CreateHousehold, AddMembers, Setup, Camera, Review, History, Detail, Balances, Shopping, ShoppingItem, Account, EditPerson, HouseholdSettings }
+enum class Route { Launch, CreateHousehold, AddMembers, JoinHousehold, Setup, Camera, Review, History, Detail, Balances, Shopping, ShoppingItem, Account, EditPerson, HouseholdSettings }
 
 private data class SelectedReceiptPhoto(val jpeg: ByteArray, val preview: ImageBitmap)
 
@@ -147,6 +150,7 @@ fun App(apiConfig: ApiConfig = ApiConfig()) {
                 },
                 createHousehold = householdApi::create,
                 createPerson = peopleApi::create,
+                loadHouseholdMembers = householdApi::members,
                 settingsApi = settingsApi,
             )
         }
@@ -166,6 +170,7 @@ fun DivvyApp(
     createPerson: suspend (householdId: String, name: String) -> CreatePersonResult = { _, _ ->
         CreatePersonResult.Failure("Not connected")
     },
+    loadHouseholdMembers: suspend (String) -> List<HouseholdMember> = { emptyList() },
     settingsApi: HouseholdSettingsApi? = null,
 ) {
     var route by remember { mutableStateOf(start) }
@@ -189,6 +194,7 @@ fun DivvyApp(
     DisposableEffect(client) { onDispose { client.close() } }
     val api = remember(client) { DivvyApi(client) }
     val payerStore = remember { PayerStore(Settings()) }
+    val memberStore = remember { HouseholdMemberStore(Settings()) }
     var reviewHouseholdId by remember { mutableStateOf("") }
     val review = remember(api) {
         ReceiptReviewController(
@@ -223,7 +229,15 @@ fun DivvyApp(
                 api.renamePerson(id, personId, name).let { HouseholdMember(it.id, it.displayName, it.isArchived) }
             },
             archiveMember = { id, personId -> api.archivePerson(id, personId) },
-            applyMembers = state::loadMembers,
+            applyMembers = { loaded ->
+                state.loadMembers(loaded)
+                val id = (householdId ?: router?.currentHouseholdId())?.takeIf { it != LOCAL_HOUSEHOLD_ID }
+                if (id != null) {
+                    val savedMe = memberStore.get(id)
+                    state.setMe(savedMe?.takeIf { personId -> loaded.any { it.id == personId } } ?: state.meId)
+                    memberStore.save(id, state.meId)
+                }
+            },
             applyName = state::renamePerson,
         )
     }
@@ -264,7 +278,7 @@ fun DivvyApp(
             load = balanceRepository::balances,
             scope = scope,
             record = balanceRepository::settle,
-            currentPerson = payerStore::get,
+            currentPerson = memberStore::get,
             saveVenmo = HouseholdRepository(api)::setVenmoUsername,
         )
     }
@@ -388,7 +402,7 @@ fun DivvyApp(
                             val id = form.submit() ?: return@launch
                             householdId = id
                             state.householdName = form.name.trim()
-                            route = Route.AddMembers
+                            route = if (form.joiningExisting) Route.JoinHousehold else Route.AddMembers
                         }
                     },
                 )
@@ -402,9 +416,29 @@ fun DivvyApp(
                     onFinish = {
                         scope.launch {
                             if (!form.finish()) return@launch
+                            val personId = form.meId ?: return@launch
+                            memberStore.save(householdId.orEmpty(), personId)
+                            state.setMe(personId)
                             router?.onboardingCompleted(householdId.orEmpty())
                             route = Route.History
                         }
+                    },
+                )
+            }
+
+            Route.JoinHousehold -> {
+                val id = householdId.orEmpty()
+                val form = remember(id, loadHouseholdMembers) { JoinHouseholdState(id, loadHouseholdMembers) }
+                LaunchedEffect(form) { form.load() }
+                JoinHouseholdScreen(
+                    state = form,
+                    onRetry = { scope.launch { form.load() } },
+                    onContinue = {
+                        val personId = form.selectedId ?: return@JoinHouseholdScreen
+                        memberStore.save(id, personId)
+                        state.setMe(personId)
+                        router?.onboardingCompleted(id)
+                        route = Route.History
                     },
                 )
             }
