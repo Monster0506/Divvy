@@ -1,6 +1,13 @@
 # Divvy
 
+[![Gradle](https://github.com/Monster0506/Divvy/actions/workflows/gradle.yml/badge.svg)](https://github.com/Monster0506/Divvy/actions/workflows/gradle.yml)
+[![ML service](https://github.com/Monster0506/Divvy/actions/workflows/ml.yml/badge.svg)](https://github.com/Monster0506/Divvy/actions/workflows/ml.yml)
+[![Server tests](https://github.com/Monster0506/Divvy/actions/workflows/server-tests.yml/badge.svg)](https://github.com/Monster0506/Divvy/actions/workflows/server-tests.yml)
+[![iOS](https://github.com/Monster0506/Divvy/actions/workflows/ios.yml/badge.svg)](https://github.com/Monster0506/Divvy/actions/workflows/ios.yml)
+
 A Kotlin Multiplatform app (Compose Multiplatform) targeting Android, iOS, and the web (Wasm). See [product-vision.md](product-vision.md) and [project-structure.md](project-structure.md) for background.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for running the CI checks locally and the branch protection settings.
 
 ## Project layout
 
