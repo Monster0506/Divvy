@@ -7,7 +7,9 @@ import com.monster0506.divvy.data.dto.BalancesDto
 import com.monster0506.divvy.data.dto.CreateSettlementRequest
 import com.monster0506.divvy.data.dto.CurrencyBalancesDto
 import com.monster0506.divvy.data.dto.PersonBalanceDto
+import com.monster0506.divvy.data.dto.PersonDto
 import com.monster0506.divvy.data.dto.SettlementDto
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -31,6 +33,14 @@ private class FakeServer {
     var balances: BalancesDto = household
     var settlementFailure: ApiFailure? = null
     val settlements = mutableListOf<CreateSettlementRequest>()
+    var venmoFailure: ApiFailure? = null
+    val venmoSaves = mutableListOf<Pair<String, String>>()
+
+    suspend fun saveVenmo(householdId: String, personId: String, username: String): ApiResult<PersonDto> {
+        venmoSaves += personId to username
+        venmoFailure?.let { return ApiResult.Failure(it) }
+        return ApiResult.Success(PersonDto(personId, householdId, personId, venmoUsername = username.ifEmpty { null }))
+    }
 
     suspend fun load(id: String): ApiResult<BalancesDto> = ApiResult.Success(balances)
 
@@ -55,6 +65,7 @@ private class FakeServer {
     }
 }
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class SettleUpTest {
     private val server = FakeServer()
 
@@ -64,6 +75,7 @@ class SettleUpTest {
         record = server::record,
         currentPerson = { me },
         undoWindowMillis = window,
+        saveVenmo = server::saveVenmo,
     )
 
     private suspend fun TestScope.open(c: BalancesController): BalancesController {
@@ -116,6 +128,51 @@ class SettleUpTest {
         val c = open(controller())
 
         assertNull(c.state.value.transfers.single().toVenmo)
+    }
+
+    @Test
+    fun a_venmo_username_typed_on_settle_up_is_saved_and_used_for_their_payments() = runTest {
+        val c = open(controller())
+        val tj = c.state.value.transfers.first().to
+        var saved = false
+
+        c.setVenmo(tj, " @tj-pays ") { saved = true }
+        advanceUntilIdle()
+
+        assertEquals(listOf("tj" to "tj-pays"), server.venmoSaves)
+        assertTrue(saved)
+        assertEquals(listOf("tj-pays", "tj-pays"), c.state.value.transfers.map { it.toVenmo })
+        assertFalse(c.state.value.savingVenmo)
+        assertNull(c.state.value.venmoMessage)
+    }
+
+    @Test
+    fun an_invalid_venmo_username_is_not_sent() = runTest {
+        val c = open(controller())
+        var saved = false
+
+        c.setVenmo(c.state.value.transfers.first().to, "tj") { saved = true }
+        advanceUntilIdle()
+
+        assertTrue(server.venmoSaves.isEmpty())
+        assertFalse(saved)
+        assertEquals("Venmo usernames are at least 5 characters.", c.state.value.venmoMessage)
+    }
+
+    @Test
+    fun a_rejected_venmo_username_shows_the_servers_message_and_changes_nothing() = runTest {
+        server.venmoFailure = ApiFailure.Validation(ApiError("validation_error", "venmoUsername must be 5 to 30 letters"))
+        val c = open(controller())
+        var saved = false
+
+        c.setVenmo(c.state.value.transfers.first().to, "tj-pays") { saved = true }
+        advanceUntilIdle()
+
+        assertFalse(saved)
+        assertEquals("venmoUsername must be 5 to 30 letters", c.state.value.venmoMessage)
+        assertTrue(c.state.value.transfers.all { it.toVenmo == null })
+        c.dismissVenmoMessage()
+        assertNull(c.state.value.venmoMessage)
     }
 
     @Test
