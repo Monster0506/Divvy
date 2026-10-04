@@ -8,12 +8,19 @@ import com.monster0506.divvy.server.domain.LedgerEntry
 import com.monster0506.divvy.server.domain.LedgerSourceType
 import com.monster0506.divvy.server.domain.NewLedgerEntry
 import com.monster0506.divvy.server.domain.NewReceipt
+import com.monster0506.divvy.server.domain.NewReceiptItem
 import com.monster0506.divvy.server.domain.NewSettlement
 import com.monster0506.divvy.server.domain.OwnerShare
 import com.monster0506.divvy.server.domain.OwnershipSource
 import com.monster0506.divvy.server.domain.Person
 import com.monster0506.divvy.server.domain.Receipt
 import com.monster0506.divvy.server.domain.ReceiptStatus
+
+import com.monster0506.divvy.server.domain.ReceiptCursor
+import com.monster0506.divvy.server.domain.ReceiptFilter
+import com.monster0506.divvy.server.domain.ReceiptPage
+import com.monster0506.divvy.server.domain.ReceiptItemPatch
+import com.monster0506.divvy.server.domain.ReceiptPatch
 import com.monster0506.divvy.server.domain.Settlement
 import kotlin.uuid.Uuid
 
@@ -69,11 +76,34 @@ interface ReceiptRepository {
     /** Receipts newest first, with items and owners. */
     suspend fun listByHousehold(householdId: Uuid, limit: Int = 50): List<Receipt>
 
+    /** One page of receipts newest first, ordered by purchase time then id so pages never overlap. */
+    suspend fun page(
+        householdId: Uuid,
+        filter: ReceiptFilter = ReceiptFilter(),
+        after: ReceiptCursor? = null,
+        limit: Int = 50,
+    ): ReceiptPage
+
     /**
      * Confirms a draft receipt and records a [com.monster0506.divvy.server.domain.LabelSource]
      * for each item by comparing its final owners with what the model first predicted.
      */
     suspend fun confirm(id: Uuid): Receipt?
+
+    /*
+     * Edits below apply to draft receipts only and throw [ReceiptLockedException] otherwise.
+     * They return the updated receipt, or null if the receipt (or the item) does not exist.
+     */
+    suspend fun update(id: Uuid, patch: ReceiptPatch): Receipt?
+    suspend fun addItem(receiptId: Uuid, item: NewReceiptItem): Receipt?
+    suspend fun updateItem(receiptId: Uuid, itemId: Uuid, patch: ReceiptItemPatch): Receipt?
+    suspend fun deleteItem(receiptId: Uuid, itemId: Uuid): Receipt?
+
+    /**
+     * Combines two or more items into the first (lowest line number): totals, discounts and
+     * quantities are summed and the first item's owners are kept. The others are removed.
+     */
+    suspend fun mergeItems(receiptId: Uuid, itemIds: List<Uuid>, description: String? = null): Receipt?
 
     /**
      * Confirms a draft receipt in one transaction if every item has at least one active owner.
@@ -102,6 +132,9 @@ sealed interface ConfirmResult {
     data class Unassigned(val itemIds: List<Uuid>) : ConfirmResult
     data class Confirmed(val receipt: Receipt) : ConfirmResult
 }
+
+/** The receipt is no longer a draft, so its contents cannot be edited. */
+class ReceiptLockedException(message: String) : RuntimeException(message)
 
 interface ItemOwnerRepository {
     /**
