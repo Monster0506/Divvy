@@ -13,6 +13,7 @@ dependencies = [
 
 [project.optional-dependencies]
 semantic = ["sentence-transformers>=3"]
+export = ["psycopg[binary]>=3"]
 dev = [
     "pytest>=8.0",
     "httpx>=0.27",
