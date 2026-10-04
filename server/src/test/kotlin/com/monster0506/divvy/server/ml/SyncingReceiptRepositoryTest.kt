@@ -11,6 +11,7 @@ import com.monster0506.divvy.server.domain.ReceiptPage
 import com.monster0506.divvy.server.domain.ReceiptItemPatch
 import com.monster0506.divvy.server.domain.ReceiptPatch
 import com.monster0506.divvy.server.domain.ReceiptStatus
+import com.monster0506.divvy.server.repository.ConfirmResult
 import com.monster0506.divvy.server.repository.ReceiptRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -67,6 +68,8 @@ private class StubReceipts(
     override suspend fun mergeItems(receiptId: Uuid, itemIds: List<Uuid>, description: String?): Receipt? = error("not used")
 
     override suspend fun confirm(id: Uuid): Receipt? = onConfirm
+
+    override suspend fun confirmAssigned(id: Uuid): ConfirmResult = error("not used")
 
     override suspend fun correctionRate(householdId: Uuid): Double? = 0.25
 

@@ -5,6 +5,8 @@ import com.monster0506.divvy.server.domain.Household
 import com.monster0506.divvy.server.domain.NewReceipt
 import com.monster0506.divvy.server.domain.NewReceiptItem
 import com.monster0506.divvy.server.domain.Receipt
+import com.monster0506.divvy.server.repository.ConfirmResult
+
 import com.monster0506.divvy.server.domain.ReceiptCursor
 import com.monster0506.divvy.server.domain.ReceiptFilter
 import com.monster0506.divvy.server.domain.ReceiptPage
@@ -44,6 +46,8 @@ class FakeReceipts(var all: List<Receipt>) : ReceiptRepository {
     override suspend fun mergeItems(receiptId: Uuid, itemIds: List<Uuid>, description: String?): Receipt? = error("not used")
 
     override suspend fun confirm(id: Uuid): Receipt? = error("not used")
+
+    override suspend fun confirmAssigned(id: Uuid): ConfirmResult = error("not used")
 
     override suspend fun correctionRate(householdId: Uuid): Double? = null
 
