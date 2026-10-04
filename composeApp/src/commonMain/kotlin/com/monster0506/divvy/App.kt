@@ -115,6 +115,12 @@ fun DivvyApp(
                     route = Route.Balances
                 },
                 onTab = onTab,
+                onEditLine = state::editLine,
+                onAddLine = state::addLine,
+                onDeleteLine = state::deleteLine,
+                onMergeLines = state::mergeLines,
+                canUndo = state.canUndoDelete,
+                onUndo = state::undoDelete,
             )
 
             Route.History -> ReceiptHistoryScreen(
