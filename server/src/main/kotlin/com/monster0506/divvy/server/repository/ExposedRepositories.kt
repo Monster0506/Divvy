@@ -31,6 +31,7 @@ import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNull
+import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.notInList
 import org.jetbrains.exposed.v1.javatime.CurrentTimestampWithTimeZone
 import org.jetbrains.exposed.v1.jdbc.Database
@@ -109,6 +110,7 @@ class ExposedPersonRepository(private val db: Database) : PersonRepository {
 
 class ExposedReceiptRepository(private val db: Database) : ReceiptRepository {
     override suspend fun create(receipt: NewReceipt): Receipt = db.dbQuery {
+        rejectArchivedPeople(receipt.items.flatMap { item -> item.owners.map { it.personId } })
         val receiptId = ReceiptTable.insertReturning(listOf(ReceiptTable.id)) {
             it[householdId] = receipt.householdId
             it[paidByPersonId] = receipt.paidByPersonId
@@ -196,8 +198,8 @@ class ExposedReceiptRepository(private val db: Database) : ReceiptRepository {
         val predicted = ItemOwnerHistoryTable.selectAll()
             .where {
                 (ItemOwnerHistoryTable.receiptItemId inList items) and
-                    (ItemOwnerHistoryTable.operation eq OwnershipChange.ASSIGNED.dbValue) and
-                    (ItemOwnerHistoryTable.ownershipSource eq OwnershipSource.MODEL.dbValue)
+                        (ItemOwnerHistoryTable.operation eq OwnershipChange.ASSIGNED.dbValue) and
+                        (ItemOwnerHistoryTable.ownershipSource eq OwnershipSource.MODEL.dbValue)
             }
             .orderBy(ItemOwnerHistoryTable.id)
             .toList()
@@ -225,7 +227,8 @@ class ExposedReceiptRepository(private val db: Database) : ReceiptRepository {
     /** Loads receipts with their items and owners in three queries, preserving the order of [ids]. */
     private fun loadReceipts(ids: List<Uuid>): List<Receipt> {
         if (ids.isEmpty()) return emptyList()
-        val receiptRows = ReceiptTable.selectAll().where { ReceiptTable.id inList ids }.associateBy { it[ReceiptTable.id] }
+        val receiptRows =
+            ReceiptTable.selectAll().where { ReceiptTable.id inList ids }.associateBy { it[ReceiptTable.id] }
         val itemRows = ReceiptItemTable.selectAll()
             .where { ReceiptItemTable.receiptId inList ids }
             .orderBy(ReceiptItemTable.lineNumber)
@@ -270,7 +273,11 @@ class ExposedItemOwnerRepository(private val db: Database) : ItemOwnerRepository
         require(owners.map { it.personId }.toSet().size == owners.size) { "Each person may own an item only once" }
         val householdId = householdOfItem(receiptItemId)
         val keep = owners.map { it.personId }
-
+        val existing = ItemOwnerTable.select(ItemOwnerTable.personId)
+            .where { ItemOwnerTable.receiptItemId eq receiptItemId }
+            .map { it[ItemOwnerTable.personId] }
+            .toSet()
+        rejectArchivedPeople(keep, alreadyOwners = existing)
         ItemOwnerTable.deleteWhere {
             (ItemOwnerTable.receiptItemId eq receiptItemId) and (ItemOwnerTable.personId notInList keep)
         }
@@ -325,6 +332,16 @@ class ExposedSettlementRepository(private val db: Database) : SettlementReposito
 }
 
 // --- shared queries (must run inside a transaction) ------------------------------------------
+
+/** Rejects archived people, except those in [alreadyOwners] who keep their existing ownership. */
+private fun rejectArchivedPeople(personIds: Collection<Uuid>, alreadyOwners: Set<Uuid> = emptySet()) {
+    val candidates = personIds.toSet() - alreadyOwners
+    if (candidates.isEmpty()) return
+    val archived = PersonTable.select(PersonTable.id)
+        .where { (PersonTable.id inList candidates) and PersonTable.archivedAt.isNotNull() }
+        .map { it[PersonTable.id] }
+    if (archived.isNotEmpty()) throw ArchivedPersonException(archived)
+}
 
 private fun peopleOf(householdId: Uuid, includeArchived: Boolean): List<Person> =
     PersonTable.selectAll()
