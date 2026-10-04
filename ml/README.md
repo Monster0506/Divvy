@@ -269,3 +269,8 @@ It prints item price accuracy and the total reconciliation rate. The checked-in 
 placeholders (`tests/data/make_fixtures.py`); real labelled receipts still need to be added. Hand-labelled real receipts go in `tests/data/labelled/` (kept apart so the
 synthetic set above stays at four); `test_labelled_receipts.py` checks each one adds up. The first is a Walmart receipt,
 where one blurry price was read from the printed subtotal.
+
+
+## Product name normalisation
+
+`divvy_ml.normalize.normalize_product_name` turns a raw receipt line (`ORG WHL MLK 1GAL`) into a readable lowercase name (`organic whole milk`). It is rule based: it drops sizes, weights, prices and numeric codes, then expands abbreviations from the dictionary in `divvy_ml/normalize/abbreviations.py`. Unknown tokens are kept as they are, with no LLM or lookup fallback.
