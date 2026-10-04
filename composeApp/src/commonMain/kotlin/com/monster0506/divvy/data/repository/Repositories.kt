@@ -6,6 +6,10 @@ import com.monster0506.divvy.data.api.DivvyApi
 import com.monster0506.divvy.data.dto.AcceptedPredictionsDto
 import com.monster0506.divvy.data.dto.BalanceDto
 import com.monster0506.divvy.data.dto.ConfirmedReceiptDto
+import com.monster0506.divvy.data.dto.EditedReceiptDto
+import com.monster0506.divvy.data.dto.ItemEditRequest
+import com.monster0506.divvy.data.dto.MlSettingsDto
+import com.monster0506.divvy.data.dto.ReceiptPageDto
 import com.monster0506.divvy.data.dto.PredictionsDto
 import com.monster0506.divvy.data.dto.HouseholdDto
 import com.monster0506.divvy.data.dto.ItemOwnerDto
@@ -44,6 +48,13 @@ class HouseholdRepository(private val api: DivvyApi) {
         apiCall { api.archivePerson(householdId, personId) }
 }
 
+class SettingsRepository(private val api: DivvyApi) {
+    suspend fun autoAssign(householdId: String): ApiResult<MlSettingsDto> = apiCall { api.getMlSettings(householdId) }
+
+    suspend fun saveAutoAssign(householdId: String, settings: MlSettingsDto): ApiResult<MlSettingsDto> =
+        apiCall { api.putMlSettings(householdId, settings) }
+}
+
 class ReceiptRepository(private val api: DivvyApi) {
 
     suspend fun setItemOwners(receiptId: String, itemId: String, owners: List<ItemOwnerDto>): ApiResult<ItemOwnersDto> =
@@ -58,6 +69,21 @@ class ReceiptRepository(private val api: DivvyApi) {
     ): ApiResult<ReceiptUploadDto> = apiCall { api.uploadReceipt(householdId, jpeg, onProgress) }
 
     suspend fun confirm(id: String): ApiResult<ConfirmedReceiptDto> = apiCall { api.confirmReceipt(id) }
+
+    suspend fun list(householdId: String, status: String? = null, cursor: String? = null, limit: Int = 50): ApiResult<ReceiptPageDto> =
+        apiCall { api.listReceipts(householdId, status, cursor, limit) }
+
+    suspend fun addItem(receiptId: String, item: ItemEditRequest): ApiResult<EditedReceiptDto> =
+        apiCall { api.addItem(receiptId, item) }
+
+    suspend fun updateItem(receiptId: String, itemId: String, change: ItemEditRequest): ApiResult<EditedReceiptDto> =
+        apiCall { api.updateItem(receiptId, itemId, change) }
+
+    suspend fun deleteItem(receiptId: String, itemId: String): ApiResult<EditedReceiptDto> =
+        apiCall { api.deleteItem(receiptId, itemId) }
+
+    suspend fun mergeItems(receiptId: String, itemIds: List<String>, description: String? = null): ApiResult<EditedReceiptDto> =
+        apiCall { api.mergeItems(receiptId, itemIds, description) }
 
     suspend fun setPayer(receiptId: String, personId: String): ApiResult<Unit> =
         apiCall { api.setReceiptPayer(receiptId, personId) }

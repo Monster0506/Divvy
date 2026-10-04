@@ -5,6 +5,11 @@ import com.monster0506.divvy.data.api.ApiResult
 import com.monster0506.divvy.data.dto.AcceptedPredictionsDto
 import com.monster0506.divvy.data.dto.ApiError
 import com.monster0506.divvy.data.dto.ConfirmedReceiptDto
+import com.monster0506.divvy.data.dto.EditedItemDto
+import com.monster0506.divvy.data.dto.EditedOwnerDto
+import com.monster0506.divvy.data.dto.EditedReceiptDto
+import com.monster0506.divvy.data.dto.ItemEditRequest
+import com.monster0506.divvy.data.dto.ReconciliationDto
 import com.monster0506.divvy.data.dto.ItemOwnerDto
 import com.monster0506.divvy.data.dto.ItemOwnerReadDto
 import com.monster0506.divvy.data.dto.ItemOwnersDto
@@ -112,7 +117,45 @@ private class FakeApi : ReviewApi {
         calls += "retry"
         return retryResult
     }
+
+    var editResult: ApiResult<EditedReceiptDto> = ApiResult.Success(edited())
+
+    override suspend fun addItem(receiptId: String, item: ItemEditRequest): ApiResult<EditedReceiptDto> {
+        calls += "add:${item.description}:${item.totalMinor}"
+        return editResult
+    }
+
+    override suspend fun updateItem(receiptId: String, itemId: String, change: ItemEditRequest): ApiResult<EditedReceiptDto> {
+        calls += "update:$itemId:${change.description}:${change.totalMinor}"
+        return editResult
+    }
+
+    override suspend fun deleteItem(receiptId: String, itemId: String): ApiResult<EditedReceiptDto> {
+        calls += "delete:$itemId"
+        return editResult
+    }
+
+    override suspend fun mergeItems(receiptId: String, itemIds: List<String>): ApiResult<EditedReceiptDto> {
+        calls += "merge:$itemIds"
+        return editResult
+    }
 }
+
+private fun edited(
+    vararg items: EditedItemDto,
+    reconciled: Boolean = true,
+    subtotalGap: Long? = null,
+) = EditedReceiptDto(
+    id = "r1",
+    householdId = "h1",
+    status = ReceiptStatusDto.Draft,
+    items = items.toList(),
+    taxMinor = 41,
+    reconciliation = ReconciliationDto(items.sumOf { it.totalMinor }, 0, subtotalGap, reconciled),
+)
+
+private fun line(id: String, number: Int, name: String, cents: Long, vararg owners: String) =
+    EditedItemDto(id, name, cents, lineNumber = number, owners = owners.map { EditedOwnerDto(it) })
 
 private fun failure(f: ApiFailure) = ApiResult.Failure(f)
 
@@ -503,6 +546,226 @@ class ReceiptReviewControllerTest {
 
         assertEquals("r2", c.state.value.receiptId)
         assertEquals(ReviewPhase.Ready, c.state.value.phase)
+    }
+
+    // --- editing lines ----------------------------------------------------------------------------
+
+    @Test
+    fun editing_a_line_saves_it_and_shows_the_servers_answer_keeping_the_other_lines_state() = runTest {
+        val api = FakeApi()
+        val c = ready(api)
+        api.editResult = ApiResult.Success(
+            edited(
+                line("i1", 1, "bananas", 188, "p1"),
+                line("i2", 2, "whole milk", 410, "p2"),
+                line("i3", 3, "mystery thing", 250),
+            ),
+        )
+
+        c.editLine(2, "  whole milk ", 410)
+        advanceUntilIdle()
+
+        assertEquals("update:i2:whole milk:410", api.calls.last())
+        val lines = c.state.value.draft!!.lines
+        assertEquals(listOf("bananas", "whole milk", "mystery thing"), lines.map { it.name })
+        assertEquals(410, lines[1].priceCents)
+        assertEquals(listOf(true, false, false), lines.map { it.confirmed })
+        assertEquals(0.95f, lines[0].confidence)
+        assertNull(c.state.value.message)
+    }
+
+    @Test
+    fun an_edit_the_server_refuses_leaves_the_lines_alone_and_says_why() = runTest {
+        val api = FakeApi().apply {
+            editResult = failure(ApiFailure.Validation(ApiError("conflict", "receipt is confirmed and can no longer be edited")))
+        }
+        val c = ready(api)
+        val before = c.state.value.draft
+
+        c.editLine(1, "x", 1)
+        advanceUntilIdle()
+
+        assertEquals(before, c.state.value.draft)
+        assertTrue(c.state.value.message!!.contains("can no longer be edited"))
+    }
+
+    @Test
+    fun a_new_line_starts_with_no_owner_and_needs_confirming() = runTest {
+        val api = FakeApi()
+        val c = ready(api)
+        api.editResult = ApiResult.Success(
+            edited(
+                line("i1", 1, "bananas", 188, "p1"),
+                line("i2", 2, "great value milk", 398, "p2"),
+                line("i3", 3, "mystery thing", 250),
+                line("i4", 4, "paper towels", 899),
+            ),
+        )
+
+        c.addLine("paper towels", 899)
+        advanceUntilIdle()
+
+        assertEquals("add:paper towels:899", api.calls.last())
+        val added = c.state.value.draft!!.lines.last()
+        assertEquals("paper towels", added.name)
+        assertEquals(emptySet(), added.owners)
+        assertFalse(added.confirmed)
+    }
+
+    @Test
+    fun deleting_a_line_removes_it_and_undo_puts_it_back() = runTest {
+        val api = FakeApi()
+        val c = ready(api)
+        api.editResult = ApiResult.Success(
+            edited(line("i1", 1, "bananas", 188, "p1"), line("i3", 2, "mystery thing", 250)),
+        )
+
+        c.deleteLine(2)
+        advanceUntilIdle()
+
+        assertEquals("delete:i2", api.calls.last())
+        assertEquals(listOf("bananas", "mystery thing"), c.state.value.draft!!.lines.map { it.name })
+        assertTrue(c.state.value.canUndo)
+
+        api.editResult = ApiResult.Success(
+            edited(
+                line("i1", 1, "bananas", 188, "p1"),
+                line("i3", 2, "mystery thing", 250),
+                line("i5", 3, "great value milk", 398),
+            ),
+        )
+        c.undoDelete()
+        advanceUntilIdle()
+
+        assertEquals("add:great value milk:398", api.calls.last())
+        assertFalse(c.state.value.canUndo)
+        assertEquals(3, c.state.value.draft!!.lines.size)
+    }
+
+    @Test
+    fun undo_with_nothing_deleted_does_nothing() = runTest {
+        val api = FakeApi()
+        val c = ready(api)
+        val calls = api.calls.size
+
+        c.undoDelete()
+        advanceUntilIdle()
+
+        assertEquals(calls, api.calls.size)
+    }
+
+    @Test
+    fun a_delete_the_server_refuses_cannot_be_undone() = runTest {
+        val api = FakeApi().apply { editResult = failure(ApiFailure.Offline) }
+        val c = ready(api)
+
+        c.deleteLine(2)
+        advanceUntilIdle()
+
+        assertFalse(c.state.value.canUndo)
+        assertEquals(3, c.state.value.draft!!.lines.size)
+    }
+
+    @Test
+    fun merging_lines_sends_their_items_in_order_and_shows_the_combined_line() = runTest {
+        val api = FakeApi()
+        val c = ready(api)
+        api.editResult = ApiResult.Success(edited(line("i1", 1, "bananas", 188, "p1"), line("i3", 2, "mystery thing", 250)))
+
+        c.mergeLines(setOf(3, 2))
+        advanceUntilIdle()
+
+        assertEquals("merge:[i2, i3]", api.calls.last())
+        assertEquals(2, c.state.value.draft!!.lines.size)
+    }
+
+    @Test
+    fun merging_fewer_than_two_known_lines_does_nothing() = runTest {
+        val api = FakeApi()
+        val c = ready(api)
+        val calls = api.calls.size
+
+        c.mergeLines(setOf(2))
+        c.mergeLines(setOf(2, 99))
+        advanceUntilIdle()
+
+        assertEquals(calls, api.calls.size)
+    }
+
+    @Test
+    fun edits_are_ignored_before_the_draft_is_ready_and_for_unknown_lines() = runTest {
+        val api = FakeApi().apply { lastPoll = ApiResult.Success(receipt(ReceiptStatusDto.Processing, items = emptyList())) }
+        val c = controller(api, readTimeout = 100_000)
+        c.open("h1", "r1")
+
+        c.addLine("x", 1)
+        advanceUntilIdle()
+        assertTrue(api.calls.none { it.startsWith("add") })
+        c.close()
+
+        val ready = FakeApi()
+        val d = ready(ready)
+        val calls = ready.calls.size
+        d.editLine(99, "x", 1)
+        d.deleteLine(99)
+        advanceUntilIdle()
+        assertEquals(calls, ready.calls.size)
+    }
+
+    // --- the lines against the printed amounts --------------------------------------------------
+
+    @Test
+    fun a_draft_whose_lines_do_not_match_the_printed_subtotal_shows_a_warning() = runTest {
+        val api = FakeApi().apply {
+            lastPoll = ApiResult.Success(receipt().copy(subtotal = MoneyDto(1000), tax = MoneyDto(41), total = MoneyDto(1041)))
+        }
+
+        val c = ready(api)
+
+        assertEquals(
+            "The lines add up to \$8.36, which is \$1.64 less than the receipt subtotal.",
+            c.state.value.warning,
+        )
+    }
+
+    @Test
+    fun a_draft_that_adds_up_has_no_warning_and_an_edit_can_clear_or_raise_one() = runTest {
+        val api = FakeApi().apply {
+            lastPoll = ApiResult.Success(receipt().copy(subtotal = MoneyDto(836), tax = MoneyDto(41), total = MoneyDto(877)))
+        }
+        val c = ready(api)
+        assertNull(c.state.value.warning)
+
+        api.editResult = ApiResult.Success(
+            edited(line("i1", 1, "bananas", 188, "p1"), reconciled = false, subtotalGap = -20),
+        )
+        c.editLine(1, "bananas", 188)
+        advanceUntilIdle()
+        assertEquals(
+            "The lines add up to \$1.88, which is \$0.20 more than the receipt subtotal.",
+            c.state.value.warning,
+        )
+
+        api.editResult = ApiResult.Success(edited(line("i1", 1, "bananas", 188, "p1")))
+        c.editLine(1, "bananas", 188)
+        advanceUntilIdle()
+        assertNull(c.state.value.warning)
+    }
+
+    @Test
+    fun the_total_is_used_when_there_is_no_subtotal() {
+        val dto = receipt().copy(subtotal = null, tax = MoneyDto(41), total = MoneyDto(900))
+
+        val warning = reconciliationWarning(reconcile(dto))
+
+        assertEquals("The lines add up to \$8.36, which is \$0.23 less than the receipt total.", warning)
+    }
+
+    @Test
+    fun a_receipt_with_no_printed_amounts_is_never_flagged() {
+        val dto = receipt().copy(subtotal = null, tax = null, total = null)
+
+        assertNull(reconciliationWarning(reconcile(dto)))
     }
 
     // --- mapping ----------------------------------------------------------------------------------
