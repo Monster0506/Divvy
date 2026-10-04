@@ -104,3 +104,17 @@ object SettlementTable : TimestampedTable("settlement") {
 
     override val primaryKey = PrimaryKey(id)
 }
+
+object LedgerEntryTable : TimestampedTable("ledger_entry") {
+    val id = uuid("id").databaseGenerated()
+    val householdId = uuid("household_id")
+    val debtorPersonId = uuid("debtor_person_id")
+    val creditorPersonId = uuid("creditor_person_id")
+    val amountMinor = long("amount_minor")
+    val currency = char("currency", 3)
+    val sourceType = text("source_type")
+    val sourceId = uuid("source_id")
+    val reversesEntryId = uuid("reverses_entry_id").nullable()
+
+    override val primaryKey = PrimaryKey(id)
+}

@@ -3,6 +3,7 @@ package com.monster0506.divvy.server.repository
 import com.monster0506.divvy.server.db.HouseholdTable
 import com.monster0506.divvy.server.db.ItemOwnerHistoryTable
 import com.monster0506.divvy.server.db.ItemOwnerTable
+import com.monster0506.divvy.server.db.LedgerEntryTable
 import com.monster0506.divvy.server.db.PersonTable
 import com.monster0506.divvy.server.db.ReceiptItemTable
 import com.monster0506.divvy.server.db.ReceiptTable
@@ -13,6 +14,9 @@ import com.monster0506.divvy.server.domain.Household
 import com.monster0506.divvy.server.domain.ItemOwner
 import com.monster0506.divvy.server.domain.ItemOwnerHistoryEntry
 import com.monster0506.divvy.server.domain.Money
+import com.monster0506.divvy.server.domain.LedgerEntry
+import com.monster0506.divvy.server.domain.LedgerSourceType
+import com.monster0506.divvy.server.domain.NewLedgerEntry
 import com.monster0506.divvy.server.domain.NewReceipt
 import com.monster0506.divvy.server.domain.NewSettlement
 import com.monster0506.divvy.server.domain.OwnerShare
@@ -52,6 +56,7 @@ class ExposedRepositories(db: Database) {
     val receipts: ReceiptRepository = ExposedReceiptRepository(db)
     val itemOwners: ItemOwnerRepository = ExposedItemOwnerRepository(db)
     val settlements: SettlementRepository = ExposedSettlementRepository(db)
+    val ledger: LedgerRepository = ExposedLedgerRepository(db)
 }
 
 class ExposedHouseholdRepository(private val db: Database) : HouseholdRepository {
@@ -280,6 +285,56 @@ class ExposedSettlementRepository(private val db: Database) : SettlementReposito
     }
 }
 
+class ExposedLedgerRepository(private val db: Database) : LedgerRepository {
+    override suspend fun append(entry: NewLedgerEntry): LedgerEntry = db.dbQuery { insertEntry(entry, null) }
+
+    override suspend fun reverse(entryId: Uuid): LedgerEntry? = db.dbQuery {
+        val original = LedgerEntryTable.selectAll().where { LedgerEntryTable.id eq entryId }
+            .singleOrNull()?.toLedgerEntry() ?: return@dbQuery null
+        insertEntry(
+            NewLedgerEntry(
+                householdId = original.householdId,
+                debtorPersonId = original.creditorPersonId,
+                creditorPersonId = original.debtorPersonId,
+                amount = original.amount,
+                sourceType = original.sourceType,
+                sourceId = original.sourceId,
+            ),
+            reverses = original.id,
+        )
+    }
+
+    override suspend fun findById(id: Uuid): LedgerEntry? = db.dbQuery {
+        LedgerEntryTable.selectAll().where { LedgerEntryTable.id eq id }.singleOrNull()?.toLedgerEntry()
+    }
+
+    override suspend fun listByHousehold(householdId: Uuid): List<LedgerEntry> = db.dbQuery {
+        LedgerEntryTable.selectAll()
+            .where { LedgerEntryTable.householdId eq householdId }
+            .orderBy(LedgerEntryTable.createdAt to SortOrder.ASC, LedgerEntryTable.id to SortOrder.ASC)
+            .map { it.toLedgerEntry() }
+    }
+
+    override suspend fun listBySource(sourceType: LedgerSourceType, sourceId: Uuid): List<LedgerEntry> = db.dbQuery {
+        LedgerEntryTable.selectAll()
+            .where { (LedgerEntryTable.sourceType eq sourceType.dbValue) and (LedgerEntryTable.sourceId eq sourceId) }
+            .orderBy(LedgerEntryTable.createdAt to SortOrder.ASC, LedgerEntryTable.id to SortOrder.ASC)
+            .map { it.toLedgerEntry() }
+    }
+
+    private fun insertEntry(entry: NewLedgerEntry, reverses: Uuid?): LedgerEntry =
+        LedgerEntryTable.insertReturning {
+            it[householdId] = entry.householdId
+            it[debtorPersonId] = entry.debtorPersonId
+            it[creditorPersonId] = entry.creditorPersonId
+            it[amountMinor] = entry.amount.amountMinor
+            it[currency] = entry.amount.currency.code
+            it[sourceType] = entry.sourceType.dbValue
+            it[sourceId] = entry.sourceId
+            it[reversesEntryId] = reverses
+        }.single().toLedgerEntry()
+}
+
 // --- shared queries (must run inside a transaction) ------------------------------------------
 
 private fun peopleOf(householdId: Uuid, includeArchived: Boolean): List<Person> =
@@ -371,6 +426,18 @@ private fun ResultRow.toHistoryEntry() = ItemOwnerHistoryEntry(
     source = OwnershipSource.fromDb(this[ItemOwnerHistoryTable.ownershipSource]),
     confidence = this[ItemOwnerHistoryTable.confidence],
     changedAt = this[ItemOwnerHistoryTable.changedAt].toInstant(),
+)
+
+private fun ResultRow.toLedgerEntry() = LedgerEntry(
+    id = this[LedgerEntryTable.id],
+    householdId = this[LedgerEntryTable.householdId],
+    debtorPersonId = this[LedgerEntryTable.debtorPersonId],
+    creditorPersonId = this[LedgerEntryTable.creditorPersonId],
+    amount = Money(this[LedgerEntryTable.amountMinor], CurrencyCode(this[LedgerEntryTable.currency])),
+    sourceType = LedgerSourceType.fromDb(this[LedgerEntryTable.sourceType]),
+    sourceId = this[LedgerEntryTable.sourceId],
+    reversesEntryId = this[LedgerEntryTable.reversesEntryId],
+    createdAt = this[LedgerEntryTable.createdAt].toInstant(),
 )
 
 private fun ResultRow.toSettlement() = Settlement(
