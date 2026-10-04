@@ -78,6 +78,14 @@ fun DivvyApp(start: Route = Route.Setup, state: DivvyState = remember { DivvySta
                 onToggleOwner = state::toggleOwner,
                 onConfirmLine = state::confirmLine,
                 onToggleAuto = state::toggleAuto,
+                selecting = state.selecting,
+                selected = state.selected,
+                unassignedOnly = state.unassignedOnly,
+                onToggleSelecting = state::toggleSelecting,
+                onToggleSelected = state::toggleSelected,
+                onToggleOwnerOnSelected = state::toggleOwnerOnSelected,
+                onAssignRemaining = state::assignRemaining,
+                onToggleUnassignedOnly = state::toggleUnassignedOnly,
                 onConfirmSplit = {
                     state.confirmSplit()
                     route = Route.Balances

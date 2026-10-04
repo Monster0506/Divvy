@@ -59,6 +59,14 @@ fun ReviewReceiptScreen(
     onConfirmLine: (lineId: Int) -> Unit,
     onToggleAuto: () -> Unit,
     onConfirmSplit: () -> Unit,
+    selecting: Boolean = false,
+    selected: Set<Int> = emptySet(),
+    unassignedOnly: Boolean = false,
+    onToggleSelecting: () -> Unit = {},
+    onToggleSelected: (lineId: Int) -> Unit = {},
+    onToggleOwnerOnSelected: (personId: String) -> Unit = {},
+    onAssignRemaining: (personId: String) -> Unit = {},
+    onToggleUnassignedOnly: () -> Unit = {},
     onTab: (Tab) -> Unit = {},
 ) {
     val pendingCount = draft.lines.count { !it.confirmed }
@@ -72,25 +80,65 @@ fun ReviewReceiptScreen(
                 withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = DivvyColors.Ink)) { append(draft.payer.name) }
             },
         )
+        BulkBar(
+            draft, pendingCount, selecting, selected, unassignedOnly,
+            onToggleSelecting, onToggleOwnerOnSelected, onAssignRemaining, onToggleUnassignedOnly,
+        )
         AnimatedVisibility(pendingCount > 0) {
             SectionHeader("Needs confirmation", pendingCount.toString(), warn = true)
         }
         draft.lines.forEach { line ->
             key(line.id) {
                 AnimatedVisibility(visible = !line.confirmed) {
-                    LineRow(line, draft, onToggleOwner, onConfirmLine)
+                    LineRow(line, draft, onToggleOwner, onConfirmLine, selecting, line.id in selected, onToggleSelected)
                 }
             }
         }
-        AutoHeader(autoCount, autoExpanded, onToggleAuto)
+        AnimatedVisibility(!unassignedOnly) { AutoHeader(autoCount, autoExpanded, onToggleAuto) }
         draft.lines.forEach { line ->
             key(line.id) {
-                AnimatedVisibility(visible = line.confirmed && autoExpanded) {
-                    LineRow(line, draft, onToggleOwner, onConfirmLine)
+                AnimatedVisibility(visible = line.confirmed && autoExpanded && !unassignedOnly) {
+                    LineRow(line, draft, onToggleOwner, onConfirmLine, selecting, line.id in selected, onToggleSelected)
                 }
             }
         }
         Totals(draft, pendingCount, onConfirmSplit)
+    }
+}
+
+@Composable
+private fun BulkBar(
+    draft: ReceiptDraft,
+    pendingCount: Int,
+    selecting: Boolean,
+    selected: Set<Int>,
+    unassignedOnly: Boolean,
+    onToggleSelecting: () -> Unit,
+    onToggleOwnerOnSelected: (String) -> Unit,
+    onAssignRemaining: (String) -> Unit,
+    onToggleUnassignedOnly: () -> Unit,
+) {
+    Column(Modifier.fillMaxWidth().animateContentSize().padding(horizontal = 20.dp, vertical = 8.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onToggleUnassignedOnly, enabled = pendingCount > 0 || unassignedOnly) {
+                val label = if (unassignedOnly) "Show all" else "$pendingCount unassigned"
+                Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = DivvyColors.Warn)
+            }
+            TextButton(onClick = onToggleSelecting) {
+                Text(if (selecting) "Done" else "Select", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = DivvyColors.Accent)
+            }
+        }
+        if (selecting) {
+            val owners = draft.lines.filter { it.id in selected }.map { it.owners }
+                .reduceOrNull { a, b -> a intersect b }.orEmpty()
+            Text("${selected.size} selected, tap a person to assign", fontSize = 12.sp, color = DivvyColors.Dim)
+            Spacer(Modifier.height(6.dp))
+            OwnerPicker(draft.people, owners, onToggle = onToggleOwnerOnSelected)
+        } else if (pendingCount > 0) {
+            Text("Assign all remaining to", fontSize = 12.sp, color = DivvyColors.Dim)
+            Spacer(Modifier.height(6.dp))
+            OwnerPicker(draft.people, emptySet(), onToggle = onAssignRemaining)
+        }
     }
 }
 
@@ -122,9 +170,14 @@ private fun LineRow(
     draft: ReceiptDraft,
     onToggleOwner: (Int, String) -> Unit,
     onConfirmLine: (Int) -> Unit,
+    selecting: Boolean,
+    isSelected: Boolean,
+    onToggleSelected: (Int) -> Unit,
 ) {
     Column {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
+        val tint = if (isSelected) DivvyColors.Page else DivvyColors.Surface
+        val rowMod = if (selecting) Modifier.clickable { onToggleSelected(line.id) } else Modifier
+        Column(Modifier.fillMaxWidth().background(tint).then(rowMod).padding(horizontal = 20.dp, vertical = 12.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(line.name, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = DivvyColors.Ink)
                 Text(line.priceCents.toMoney(), fontSize = 15.sp, fontWeight = FontWeight.Medium, color = DivvyColors.Ink)
