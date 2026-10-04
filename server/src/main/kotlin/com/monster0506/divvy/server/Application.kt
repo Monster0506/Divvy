@@ -24,6 +24,7 @@ import com.monster0506.divvy.server.routes.personRoutes
 import com.monster0506.divvy.server.routes.receiptReadRoutes
 import com.monster0506.divvy.server.routes.receiptRoutes
 import com.monster0506.divvy.server.storage.LocalFileImageStorage
+import com.monster0506.divvy.server.routes.settlementRoutes
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.auth.HttpAuthHeader
 import io.ktor.serialization.kotlinx.json.json
@@ -136,6 +137,7 @@ fun Application.module(connectDatabase: Boolean = true) {
             mlSettingsRoutes({ repositories.households }, { ml.settings })
             predictionRoutes({ repositories.receipts }, { ml.predictions })
             receiptRoutes({ repositories.households }, { repositories.receipts }, { imageStorage }, config.maxUploadBytes)
+            settlementRoutes({ repositories.households }, { repositories.people }, { repositories.settlements })
             receiptReadRoutes({ repositories.receipts }, { imageStorage })
         }
     }
