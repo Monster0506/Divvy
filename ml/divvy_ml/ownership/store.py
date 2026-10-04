@@ -74,6 +74,16 @@ class HistoryStore:
             self._bump(household_id)
             return True
 
+    def households(self) -> list[str]:
+        """Ids of every household that has stored history."""
+        with self._lock:
+            if self._root is None:
+                return sorted(h for h, records in self._memory.items() if records)
+
+            return sorted(
+                p.stem for p in self._root.glob("*.jsonl") if HOUSEHOLD_ID.fullmatch(p.stem)
+            )
+
     def count(self, household_id: str) -> int:
         with self._lock:
             return len(self._read(household_id))

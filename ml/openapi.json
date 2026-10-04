@@ -526,6 +526,86 @@
         "title": "PredictionStatus",
         "type": "string"
       },
+      "RetrainRunOut": {
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "finished_at": {
+            "title": "Finished At",
+            "type": "string"
+          },
+          "history_size": {
+            "title": "History Size",
+            "type": "integer"
+          },
+          "household_id": {
+            "title": "Household Id",
+            "type": "string"
+          },
+          "metrics": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metrics"
+          },
+          "new_observations": {
+            "title": "New Observations",
+            "type": "integer"
+          },
+          "reason": {
+            "description": "first, new-observations or interval",
+            "title": "Reason",
+            "type": "string"
+          },
+          "seconds": {
+            "title": "Seconds",
+            "type": "number"
+          },
+          "started_at": {
+            "title": "Started At",
+            "type": "string"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Model version built; null if history was too small",
+            "title": "Version"
+          }
+        },
+        "required": [
+          "household_id",
+          "started_at",
+          "finished_at",
+          "seconds",
+          "history_size",
+          "new_observations",
+          "reason",
+          "version"
+        ],
+        "title": "RetrainRunOut",
+        "type": "object"
+      },
       "UpsertObservationsRequest": {
         "additionalProperties": false,
         "properties": {
@@ -868,6 +948,32 @@
           }
         },
         "summary": "Predict",
+        "tags": [
+          "ownership"
+        ]
+      }
+    },
+    "/ownership/retraining": {
+      "get": {
+        "description": "Recent scheduled retraining runs, newest first; empty when the schedule is off.",
+        "operationId": "retraining_runs_ownership_retraining_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RetrainRunOut"
+                  },
+                  "title": "Response Retraining Runs Ownership Retraining Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Retraining Runs",
         "tags": [
           "ownership"
         ]
