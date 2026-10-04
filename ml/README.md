@@ -227,4 +227,11 @@ directory. The model itself is derived from the history, so only this metadata i
 5,000 items is fit on its 5,000 most recent. Thirty items predict in well under a second (checked by a test on a
 1,000-item household).
 
+Scheduled retraining runs alongside this. A background job checks every minute and retrains a household when its
+history has grown by `DIVVY_RETRAIN_AFTER` observations (default 50), or when `DIVVY_RETRAIN_INTERVAL` seconds (default
+86400, nightly) have passed since its last run and it has any new observations. `DIVVY_RETRAIN_INTERVAL=off` disables
+it. Each run logs its start and end with the history size, model version and metrics (logger `divvy_ml.retrain`), and
+`GET /ownership/retraining` lists the most recent 100 runs, newest first. A failed run is recorded and retried on the
+next check.
+
 In Docker the data directory is `/data`, a named volume (`mldata`) in `docker-compose.yml`.

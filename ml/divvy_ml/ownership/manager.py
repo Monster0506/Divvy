@@ -150,11 +150,16 @@ class ModelManager:
         path = self._meta_path(household_id)
         return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
 
-    def _rebuild(self, household_id: str) -> ModelState | None:
+    def retrain(self, household_id: str) -> ModelState | None:
+        """Rebuild the household model now, even if its history is unchanged."""
+        check_household_id(household_id)
+        return self._rebuild(household_id, force=True)
+
+    def _rebuild(self, household_id: str, force: bool = False) -> ModelState | None:
         with self._lock_for(household_id):
             revision, dataset = self.store.snapshot(household_id)
             state = self._states.get(household_id)
-            if state and state.revision == revision:
+            if state and state.revision == revision and not force:
                 return state
 
             if dataset is None or len(dataset) < self.policy.min_history:
