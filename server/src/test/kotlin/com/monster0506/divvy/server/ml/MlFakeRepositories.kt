@@ -12,7 +12,9 @@ import com.monster0506.divvy.server.domain.ReceiptFilter
 import com.monster0506.divvy.server.domain.ReceiptPage
 
 import com.monster0506.divvy.server.domain.ReceiptItemPatch
+import com.monster0506.divvy.server.domain.ProcessedReceipt
 import com.monster0506.divvy.server.domain.ReceiptPatch
+import com.monster0506.divvy.server.domain.ReceiptStatus
 import com.monster0506.divvy.server.repository.HouseholdRepository
 import com.monster0506.divvy.server.repository.ReceiptRepository
 import kotlin.uuid.Uuid
@@ -22,6 +24,30 @@ class FakeReceipts(var all: List<Receipt>) : ReceiptRepository {
     override suspend fun create(receipt: NewReceipt): Receipt = error("not used")
 
     override suspend fun createProcessing(householdId: Uuid, imageKey: String): Receipt = error("not used")
+
+    val completed = java.util.concurrent.CopyOnWriteArrayList<Pair<Uuid, ProcessedReceipt>>()
+
+    override suspend fun completeProcessing(id: Uuid, processed: ProcessedReceipt): Receipt? =
+        change(id, ReceiptStatus.PROCESSING) { it.copy(
+                status = ReceiptStatus.DRAFT,
+                merchantName = processed.merchantName,
+                items = processed.items.mapIndexed { i, line -> item(id, line.description, emptyList(), null, i + 1) },
+            )
+        }
+            ?.also { completed += id to processed }
+
+    override suspend fun failProcessing(id: Uuid, reason: String): Receipt? =
+        change(id, ReceiptStatus.PROCESSING) { it.copy(status = ReceiptStatus.FAILED, failureReason = reason) }
+
+    override suspend fun retryProcessing(id: Uuid): Receipt? =
+        change(id, ReceiptStatus.FAILED) { it.copy(status = ReceiptStatus.PROCESSING, failureReason = null) }
+
+    override suspend fun idsWithStatus(status: ReceiptStatus): List<Uuid> = all.filter { it.status == status }.map { it.id }
+
+    private fun change(id: Uuid, from: ReceiptStatus, apply: (Receipt) -> Receipt): Receipt? {
+        val current = all.firstOrNull { it.id == id && it.status == from } ?: return null
+        return apply(current).also { updated -> all = all.map { if (it.id == id) updated else it } }
+    }
 
     override suspend fun findById(id: Uuid): Receipt? = all.firstOrNull { it.id == id }
 
