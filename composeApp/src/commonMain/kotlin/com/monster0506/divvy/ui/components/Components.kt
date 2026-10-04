@@ -1,5 +1,6 @@
 package com.monster0506.divvy.ui.components
 
+import androidx.compose.foundation.ScrollState
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
@@ -49,10 +50,11 @@ enum class Tab(val label: String) { Receipts("Receipts"), Balances("Balances"), 
 fun AppScaffold(
     selected: Tab?,
     onSelect: (Tab) -> Unit = {},
+    scrollState: ScrollState = rememberScrollState(),
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(Modifier.fillMaxSize().background(DivvyColors.Surface).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), content = content)
+        Column(Modifier.weight(1f).verticalScroll(scrollState), content = content)
         if (selected != null) {
             HorizontalDivider(color = DivvyColors.Line)
             Row(Modifier.fillMaxWidth()) {
