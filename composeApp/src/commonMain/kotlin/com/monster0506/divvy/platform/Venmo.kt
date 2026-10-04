@@ -16,8 +16,8 @@ private fun formatAmount(amountCents: Long): String {
     return "${amountCents / 100}.${(amountCents % 100).toString().padStart(2, '0')}"
 }
 
-private fun query(recipient: String?, amountCents: Long, note: String): String = buildList {
-    add("txn=pay")
+private fun query(recipient: String?, amountCents: Long, note: String, txn: String = "pay"): String = buildList {
+    add("txn=$txn")
     if (recipient != null) add("recipients=${recipient.encodeURLParameter()}")
     add("amount=${formatAmount(amountCents)}")
     add("note=${note.encodeURLParameter()}")
@@ -43,25 +43,26 @@ fun venmoUsernameProblem(raw: String): String? {
     }
 }
 
-/** Link that opens the Venmo app on a pre-filled payment. */
-fun venmoDeepLink(username: String, amountCents: Long, note: String): String =
-    "venmo://paycharge?" + query(cleanUsername(username), amountCents, note)
-
-/** Browser link used when the Venmo app is not installed. */
-fun venmoWebUrl(username: String, amountCents: Long, note: String): String =
-    "https://venmo.com/${cleanUsername(username).encodeURLParameter()}?" + query(null, amountCents, note)
-
 /**
- * Venmo's pay page, pre-filled with recipient, amount and note. Venmo's app opens it where it claims the link, and the
- * browser otherwise. Since 2024 the app no longer finds recipients passed through [venmoDeepLink], so this is what
- * settle-up opens.
+ * Link that opens the Venmo app on a payment to the recipient ([txn] "pay") or a request from them ("charge"),
+ * pre-filled with amount and note. Venmo's app finds the recipient by their numeric [userId] (see [VenmoUserIds]); a
+ * username alone comes back "recipient not found", so it is only used when the ID is unknown.
  */
-fun venmoPayUrl(username: String, amountCents: Long, note: String): String =
-    "https://account.venmo.com/pay?" + query(cleanUsername(username), amountCents, note)
+fun venmoDeepLink(username: String, amountCents: Long, note: String, txn: String = "pay", userId: String? = null): String =
+    "venmo://paycharge?" + query(userId ?: cleanUsername(username), amountCents, note, txn)
 
-/** Opens Venmo's pay page for [username], falling back to their profile page if that cannot be opened. */
-fun UrlOpener.payWithVenmo(username: String, amountCents: Long, note: String) {
-    open(venmoPayUrl(username, amountCents, note)) {
-        open(venmoWebUrl(username, amountCents, note))
+/** Venmo's pay page, used when the Venmo app is not installed. */
+fun venmoPayUrl(username: String, amountCents: Long, note: String, txn: String = "pay"): String =
+    "https://account.venmo.com/pay?" + query(cleanUsername(username), amountCents, note, txn)
+
+/** Opens the Venmo app on a payment to [username], or Venmo's pay page if the app is not installed. */
+fun UrlOpener.payWithVenmo(username: String, amountCents: Long, note: String, userId: String? = null) {
+    open(venmoDeepLink(username, amountCents, note, userId = userId)) { open(venmoPayUrl(username, amountCents, note)) }
+}
+
+/** Opens the Venmo app on a request from [username], or Venmo's pay page if the app is not installed. */
+fun UrlOpener.requestWithVenmo(username: String, amountCents: Long, note: String, userId: String? = null) {
+    open(venmoDeepLink(username, amountCents, note, txn = "charge", userId = userId)) {
+        open(venmoPayUrl(username, amountCents, note, txn = "charge"))
     }
 }
