@@ -84,9 +84,27 @@ data class ReceiptItem(
     /** Line total. Negative for standalone coupon lines. */
     val total: Money,
     val owners: List<ItemOwner>,
+    /** Set when the receipt is confirmed; null while it is a draft. */
+    val labelSource: LabelSource? = null,
     val createdAt: Instant,
     val updatedAt: Instant,
 )
+
+/** How a confirmed item's owners were decided. */
+enum class LabelSource(val dbValue: String) {
+    /** No model prediction existed; a person chose the owners. */
+    MANUAL("manual"),
+
+    /** The model's prediction was kept unchanged. */
+    PREDICTED_ACCEPTED("predicted_accepted"),
+
+    /** The model predicted owners and a person changed them. */
+    PREDICTED_CORRECTED("predicted_corrected");
+
+    companion object {
+        fun fromDb(value: String): LabelSource = entries.first { it.dbValue == value }
+    }
+}
 
 enum class OwnershipSource(val dbValue: String) {
     /** Chosen or confirmed by a person. */
