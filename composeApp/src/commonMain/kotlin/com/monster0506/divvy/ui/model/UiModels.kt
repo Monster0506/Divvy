@@ -50,6 +50,7 @@ data class ReceiptLine(
     val owners: Set<String>,
     val confidence: Float,
     val confirmed: Boolean,
+    val weights: Map<String, Int> = emptyMap(),
 )
 
 data class ReceiptDraft(
@@ -117,3 +118,5 @@ fun ReceiptLine.ownersLabel(people: List<Person>): String = when {
     owners.size == people.size -> "Everyone"
     else -> people.filter { it.id in owners }.joinToString(" + ") { it.name }
 }
+
+fun ReceiptLine.weightOf(personId: String): Int = weights[personId] ?: 1
