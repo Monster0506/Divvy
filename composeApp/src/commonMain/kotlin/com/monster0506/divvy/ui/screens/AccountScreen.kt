@@ -56,6 +56,7 @@ fun AccountScreen(
     onApiConfigChange: (ApiConfig) -> Unit = {},
     onTab: (Tab) -> Unit = {},
     onOpenHouseholdSettings: () -> Unit = {},
+    householdNameMessage: String? = null,
 ) {
     var serverUrl by remember(apiConfig) { mutableStateOf(apiConfig.baseUrl) }
     var serverKey by remember(apiConfig) { mutableStateOf(apiConfig.apiKey) }
@@ -89,6 +90,8 @@ fun AccountScreen(
             onValueChange = onHouseholdNameChange,
             label = { Text("Household name") },
             singleLine = true,
+            isError = householdNameMessage != null,
+            supportingText = householdNameMessage?.let { message -> { Text(message) } },
             shape = RoundedCornerShape(8.dp),
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
         )
