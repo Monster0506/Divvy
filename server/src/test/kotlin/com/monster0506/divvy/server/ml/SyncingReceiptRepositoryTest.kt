@@ -2,8 +2,16 @@ package com.monster0506.divvy.server.ml
 
 import com.monster0506.divvy.server.domain.LabelSource
 import com.monster0506.divvy.server.domain.NewReceipt
+import com.monster0506.divvy.server.domain.NewReceiptItem
 import com.monster0506.divvy.server.domain.Receipt
+import com.monster0506.divvy.server.domain.ReceiptCursor
+import com.monster0506.divvy.server.domain.ReceiptFilter
+import com.monster0506.divvy.server.domain.ReceiptPage
+
+import com.monster0506.divvy.server.domain.ReceiptItemPatch
+import com.monster0506.divvy.server.domain.ReceiptPatch
 import com.monster0506.divvy.server.domain.ReceiptStatus
+import com.monster0506.divvy.server.repository.ConfirmResult
 import com.monster0506.divvy.server.repository.ReceiptRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -39,7 +47,29 @@ private class StubReceipts(
         return emptyList()
     }
 
+    override suspend fun page(
+        householdId: Uuid,
+        filter: ReceiptFilter,
+        after: ReceiptCursor?,
+        limit: Int,
+    ): ReceiptPage {
+        calls += "page"
+        return ReceiptPage(emptyList(), null)
+    }
+
+    override suspend fun update(id: Uuid, patch: ReceiptPatch): Receipt? = error("not used")
+
+    override suspend fun addItem(receiptId: Uuid, item: NewReceiptItem): Receipt? = error("not used")
+
+    override suspend fun updateItem(receiptId: Uuid, itemId: Uuid, patch: ReceiptItemPatch): Receipt? = error("not used")
+
+    override suspend fun deleteItem(receiptId: Uuid, itemId: Uuid): Receipt? = error("not used")
+
+    override suspend fun mergeItems(receiptId: Uuid, itemIds: List<Uuid>, description: String?): Receipt? = error("not used")
+
     override suspend fun confirm(id: Uuid): Receipt? = onConfirm
+
+    override suspend fun confirmAssigned(id: Uuid): ConfirmResult = error("not used")
 
     override suspend fun correctionRate(householdId: Uuid): Double? = 0.25
 

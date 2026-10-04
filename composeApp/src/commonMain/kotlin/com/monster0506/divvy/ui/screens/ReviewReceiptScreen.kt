@@ -19,21 +19,29 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.monster0506.divvy.domain.centsToInput
+import com.monster0506.divvy.domain.parsePriceCents
 import com.monster0506.divvy.ui.components.AppScaffold
 import com.monster0506.divvy.ui.components.DivvyIcons
 import com.monster0506.divvy.ui.components.OwnerPicker
@@ -60,7 +68,21 @@ fun ReviewReceiptScreen(
     onToggleAuto: () -> Unit,
     onConfirmSplit: () -> Unit,
     onTab: (Tab) -> Unit = {},
+    onEditLine: (lineId: Int, name: String, priceCents: Int) -> Unit = { _, _, _ -> },
+    onAddLine: (name: String, priceCents: Int) -> Unit = { _, _ -> },
+    onDeleteLine: (lineId: Int) -> Unit = {},
+    onMergeLines: (Set<Int>) -> Unit = {},
+    canUndo: Boolean = false,
+    onUndo: () -> Unit = {},
 ) {
+    var editing by remember { mutableStateOf<ReceiptLine?>(null) }
+    var adding by remember { mutableStateOf(false) }
+    var merging by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf(emptySet<Int>()) }
+    val onLineClick = { line: ReceiptLine ->
+        if (merging) selected = if (line.id in selected) selected - line.id else selected + line.id
+        else editing = line
+    }
     val pendingCount = draft.lines.count { !it.confirmed }
     val autoCount = draft.lines.size - pendingCount
     AppScaffold(selected = Tab.Receipts, onSelect = onTab) {
@@ -72,13 +94,22 @@ fun ReviewReceiptScreen(
                 withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = DivvyColors.Ink)) { append(draft.payer.name) }
             },
         )
+        EditBar(
+            merging = merging,
+            selectedCount = selected.size,
+            canUndo = canUndo,
+            onAdd = { adding = true },
+            onToggleMerge = { merging = !merging; selected = emptySet() },
+            onMerge = { onMergeLines(selected); merging = false; selected = emptySet() },
+            onUndo = onUndo,
+        )
         AnimatedVisibility(pendingCount > 0) {
             SectionHeader("Needs confirmation", pendingCount.toString(), warn = true)
         }
         draft.lines.forEach { line ->
             key(line.id) {
                 AnimatedVisibility(visible = !line.confirmed) {
-                    LineRow(line, draft, onToggleOwner, onConfirmLine)
+                    LineRow(line, draft, line.id in selected, { onLineClick(line) }, onToggleOwner, onConfirmLine)
                 }
             }
         }
@@ -86,12 +117,98 @@ fun ReviewReceiptScreen(
         draft.lines.forEach { line ->
             key(line.id) {
                 AnimatedVisibility(visible = line.confirmed && autoExpanded) {
-                    LineRow(line, draft, onToggleOwner, onConfirmLine)
+                    LineRow(line, draft, line.id in selected, { onLineClick(line) }, onToggleOwner, onConfirmLine)
                 }
             }
         }
         Totals(draft, pendingCount, onConfirmSplit)
     }
+    editing?.let { line ->
+        LineDialog(
+            title = "Edit item",
+            initialName = line.name,
+            initialPrice = centsToInput(line.priceCents),
+            onDismiss = { editing = null },
+            onSave = { name, cents -> onEditLine(line.id, name, cents); editing = null },
+            onDelete = { onDeleteLine(line.id); editing = null },
+        )
+    }
+    if (adding) {
+        LineDialog(
+            title = "Add item",
+            initialName = "",
+            initialPrice = "",
+            onDismiss = { adding = false },
+            onSave = { name, cents -> onAddLine(name, cents); adding = false },
+            onDelete = null,
+        )
+    }
+}
+
+@Composable
+private fun EditBar(
+    merging: Boolean,
+    selectedCount: Int,
+    canUndo: Boolean,
+    onAdd: () -> Unit,
+    onToggleMerge: () -> Unit,
+    onMerge: () -> Unit,
+    onUndo: () -> Unit,
+) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (merging) {
+            TextButton(onClick = onMerge, enabled = selectedCount >= 2) {
+                Text("Merge $selectedCount selected", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            }
+            TextButton(onClick = onToggleMerge) { Text("Cancel", fontSize = 13.sp, color = DivvyColors.Dim) }
+        } else {
+            TextButton(onClick = onAdd) { Text("Add item", fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
+            TextButton(onClick = onToggleMerge) { Text("Merge", fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
+            if (canUndo) {
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = onUndo) { Text("Undo delete", fontSize = 13.sp, color = DivvyColors.Accent) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LineDialog(
+    title: String,
+    initialName: String,
+    initialPrice: String,
+    onDismiss: () -> Unit,
+    onSave: (name: String, priceCents: Int) -> Unit,
+    onDelete: (() -> Unit)?,
+) {
+    var name by remember { mutableStateOf(initialName) }
+    var price by remember { mutableStateOf(initialPrice) }
+    val cents = parsePriceCents(price)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(name, { name = it }, label = { Text("Description") }, singleLine = true)
+                OutlinedTextField(
+                    price,
+                    { price = it },
+                    label = { Text("Price") },
+                    singleLine = true,
+                    isError = price.isNotEmpty() && cents == null,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(name.trim(), cents!!) }, enabled = cents != null && name.isNotBlank()) { Text("Save") }
+        },
+        dismissButton = {
+            Row {
+                if (onDelete != null) TextButton(onClick = onDelete) { Text("Delete", color = DivvyColors.Warn) }
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        },
+    )
 }
 
 @Composable
@@ -120,12 +237,17 @@ private fun AutoHeader(count: Int, expanded: Boolean, onClick: () -> Unit) {
 private fun LineRow(
     line: ReceiptLine,
     draft: ReceiptDraft,
+    selected: Boolean,
+    onClick: () -> Unit,
     onToggleOwner: (Int, String) -> Unit,
     onConfirmLine: (Int) -> Unit,
 ) {
     Column {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Column(
+            Modifier.fillMaxWidth().background(if (selected) DivvyColors.Page else Color.Transparent)
+                .padding(horizontal = 20.dp, vertical = 12.dp),
+        ) {
+            Row(Modifier.fillMaxWidth().clickable(onClick = onClick), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(line.name, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = DivvyColors.Ink)
                 Text(line.priceCents.toMoney(), fontSize = 15.sp, fontWeight = FontWeight.Medium, color = DivvyColors.Ink)
             }
