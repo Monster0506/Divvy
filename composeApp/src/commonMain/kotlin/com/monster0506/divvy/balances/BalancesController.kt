@@ -36,9 +36,10 @@ data class SettleTransfer(
     val amountCents: Int,
     val involvesMe: Boolean = false,
     val toVenmo: String? = null,
-    /** True when this device's person is the one paying, the only case Venmo is offered. */
-    val iPay: Boolean = false,
 )
+
+/** True when [personId] (this device's person) makes this payment, the only case Venmo is offered. */
+fun SettleTransfer.isPaidBy(personId: String?): Boolean = personId != null && from.id == personId
 
 /** The note Venmo shows on a settle-up payment. */
 const val VENMO_NOTE = "Divvy settle-up"
@@ -275,7 +276,6 @@ class BalancesController(
                 t.amountCents.toInt(),
                 involvesMe = me != null && (from.id == me || to.id == me),
                 toVenmo = venmo[to.id],
-                iPay = me != null && from.id == me,
             )
         }.sortedWith(compareByDescending<SettleTransfer> { it.involvesMe }.thenByDescending { it.amountCents })
     }

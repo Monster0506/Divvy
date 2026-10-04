@@ -627,7 +627,13 @@ fun DivvyApp(
             Route.Balances -> {
                 val id = householdId ?: router?.currentHouseholdId()
                 val real = id != null && id != LOCAL_HOUSEHOLD_ID
-                LaunchedEffect(id) { if (real) balancesController.open(id!!) }
+                LaunchedEffect(id) {
+                    if (real) {
+                        balancesController.open(id!!)
+                        // Works out who "you" are on this device, which decides where Venmo is offered.
+                        members.load(id)
+                    }
+                }
                 LiveBalancesScreen(
                     balancesState,
                     hasHousehold = real,
@@ -640,6 +646,8 @@ fun DivvyApp(
                     },
                     onSaveVenmo = balancesController::setVenmo,
                     onEditVenmo = balancesController::dismissVenmoMessage,
+                    // The same "(you)" as the Account screen, once members have loaded from the server.
+                    meId = state.meId.takeIf { me -> state.people.any { it.id == me } && serverId.matches(me) },
                 )
             }
             Route.Shopping -> {
