@@ -37,6 +37,7 @@ class DivvyState(private val ownerSaver: DebouncedSaver<Int, Set<String>>? = nul
 
     // Lines the user has assigned or confirmed by hand; the rest follow the auto-assign settings.
     private var reviewed by mutableStateOf(emptySet<Int>())
+    private var pendingReview by mutableStateOf(emptySet<Int>())
     private var rawDraft by mutableStateOf(SampleData.draft)
     val draft: ReceiptDraft
         get() = rawDraft.copy(
@@ -44,7 +45,7 @@ class DivvyState(private val ownerSaver: DebouncedSaver<Int, Set<String>>? = nul
             people = people,
             lines = rawDraft.lines.map { line ->
                 val auto = settings.autoAssign && line.confidence >= settings.autoAssignThreshold
-                line.copy(confirmed = line.id in reviewed || auto)
+                line.copy(confirmed = line.id !in pendingReview && (line.id in reviewed || auto))
             },
         )
 
@@ -116,12 +117,16 @@ class DivvyState(private val ownerSaver: DebouncedSaver<Int, Set<String>>? = nul
                 else it.copy(owners = if (personId in it.owners) it.owners - personId else it.owners + personId)
             },
         )
-        reviewed = reviewed + lineId
-        rawDraft.lines.find { it.id == lineId }?.let { ownerSaver?.submit(lineId, it.owners) }
+        reviewed = reviewed - lineId
+        pendingReview = pendingReview + lineId
     }
 
     fun confirmLine(lineId: Int) {
+        val owners = rawDraft.lines.find { it.id == lineId }?.owners ?: return
+        if (owners.isEmpty()) return
         reviewed = reviewed + lineId
+        pendingReview = pendingReview - lineId
+        ownerSaver?.submit(lineId, owners)
     }
 
     private var lastDeleted by mutableStateOf<Pair<Int, ReceiptLine>?>(null)

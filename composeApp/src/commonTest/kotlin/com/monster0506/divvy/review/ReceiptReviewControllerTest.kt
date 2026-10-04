@@ -460,16 +460,21 @@ class ReceiptReviewControllerTest {
     // --- assigning ------------------------------------------------------------------------------
 
     @Test
-    fun choosing_owners_shows_at_once_and_saves_to_the_server() = runTest {
+    fun choosing_multiple_owners_keeps_the_line_pending_until_confirmed() = runTest {
         val api = FakeApi()
         val c = ready(api)
 
-        c.setOwners(3, setOf("p1", "p2"))
+        c.toggleOwner(3, "p1")
+        c.toggleOwner(3, "p2")
         assertEquals(setOf("p1", "p2"), c.state.value.draft!!.lines[2].owners)
-        assertTrue(c.state.value.draft!!.lines[2].confirmed)
+        assertFalse(c.state.value.draft!!.lines[2].confirmed)
         advanceUntilIdle()
+        assertTrue(api.calls.none { it.startsWith("owners:") })
 
+        c.accept(3)
+        advanceUntilIdle()
         assertEquals("owners:i3:[p1, p2]", api.calls.last())
+        assertTrue(c.state.value.draft!!.lines[2].confirmed)
     }
 
     @Test
@@ -484,20 +489,25 @@ class ReceiptReviewControllerTest {
         c.toggleOwner(2, "p2")
         advanceUntilIdle()
         assertEquals(setOf("p1"), c.state.value.draft!!.lines[1].owners)
+        assertFalse(c.state.value.draft!!.lines[1].confirmed)
+        assertTrue(api.calls.none { it.startsWith("owners:") })
+
+        c.accept(2)
+        advanceUntilIdle()
         assertEquals("owners:i2:[p1]", api.calls.last())
     }
 
     @Test
-    fun a_change_the_server_refuses_is_put_back_with_a_message() = runTest {
+    fun a_refused_confirmation_keeps_the_selection_visible_for_retry() = runTest {
         val api = FakeApi().apply { ownersResult = failure(ApiFailure.Validation(ApiError("conflict", "receipt is confirmed"))) }
         val c = ready(api)
-        val before = c.state.value.draft!!.lines[1]
-
         c.setOwners(2, setOf("p1"))
+        c.accept(2)
         advanceUntilIdle()
 
-        assertEquals(before, c.state.value.draft!!.lines[1])
-        assertTrue(c.state.value.message!!.contains("Could not save that change"))
+        assertEquals(setOf("p1"), c.state.value.draft!!.lines[1].owners)
+        assertFalse(c.state.value.draft!!.lines[1].confirmed)
+        assertTrue(c.state.value.message!!.contains("Could not confirm that item"))
         assertTrue(c.state.value.message!!.contains("receipt is confirmed"))
     }
 
@@ -514,15 +524,49 @@ class ReceiptReviewControllerTest {
     }
 
     @Test
+    fun an_item_without_owners_cannot_be_confirmed() = runTest {
+        val api = FakeApi()
+        val c = ready(api)
+
+        c.accept(3)
+        advanceUntilIdle()
+
+        assertFalse(c.state.value.draft!!.lines[2].confirmed)
+        assertTrue(api.calls.none { it.startsWith("accept:") || it.startsWith("owners:") })
+    }
+
+    @Test
+    fun an_edit_does_not_discard_owners_chosen_before_confirmation() = runTest {
+        val api = FakeApi()
+        val c = ready(api)
+        c.setOwners(2, setOf("p1", "p2"))
+        api.editResult = ApiResult.Success(edited(
+            line("i1", 1, "bananas", 188, "p1"),
+            line("i2", 2, "milk", 398, "p2"),
+            line("i3", 3, "mystery thing", 250),
+        ))
+
+        c.editLine(2, "milk", 398)
+        advanceUntilIdle()
+
+        assertEquals(setOf("p1", "p2"), c.state.value.draft!!.lines[1].owners)
+        assertFalse(c.state.value.draft!!.lines[1].confirmed)
+        c.accept(2)
+        advanceUntilIdle()
+        assertEquals("owners:i2:[p1, p2]", api.calls.last())
+    }
+
+    @Test
     fun accepting_a_guess_confirms_that_line_on_the_server() = runTest {
         val api = FakeApi()
         val c = ready(api)
 
         c.accept(2)
-        assertTrue(c.state.value.draft!!.lines[1].confirmed)
+        assertFalse(c.state.value.draft!!.lines[1].confirmed)
         advanceUntilIdle()
 
         assertEquals("accept:[i2]", api.calls.last())
+        assertTrue(c.state.value.draft!!.lines[1].confirmed)
     }
 
     @Test
