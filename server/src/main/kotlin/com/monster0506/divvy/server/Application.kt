@@ -4,6 +4,7 @@ import com.monster0506.divvy.server.db.DatabaseFactory
 import com.monster0506.divvy.server.db.DivyDatabase
 import com.monster0506.divvy.server.repository.ExposedRepositories
 import com.monster0506.divvy.server.routes.householdRoutes
+import com.monster0506.divvy.server.routes.personRoutes
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.auth.HttpAuthHeader
 import io.ktor.serialization.kotlinx.json.json
@@ -89,6 +90,7 @@ fun Application.module(connectDatabase: Boolean = true) {
         get("/health") { call.respond(HealthResponse("ok", config.version)) }
         authenticate(API_KEY_AUTH) {
             householdRoutes { repositories.households }
+            personRoutes({ repositories.households }, { repositories.people })
         }
     }
 
