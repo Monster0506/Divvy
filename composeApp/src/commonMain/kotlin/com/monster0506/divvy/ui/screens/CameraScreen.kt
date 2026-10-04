@@ -3,6 +3,7 @@ package com.monster0506.divvy.ui.screens
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.border
@@ -30,6 +31,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -42,16 +47,34 @@ private val Paper = Color(0xFFE9E7E0)
 private val PaperInk = Color(0xFFB9B6AC)
 
 @Composable
-fun CameraScreen(onCapture: () -> Unit, onGallery: () -> Unit, onCancel: () -> Unit) {
+fun CameraScreen(
+    photo: ImageBitmap?,
+    errorMessage: String?,
+    cameraSupported: Boolean,
+    onCapture: () -> Unit,
+    onGallery: () -> Unit,
+    onCancel: () -> Unit,
+) {
     Column(Modifier.fillMaxSize().background(Color(0xFF111111)).windowInsetsPadding(WindowInsets.safeDrawing)) {
         Box(Modifier.weight(1f).fillMaxWidth().background(Viewfinder), contentAlignment = Alignment.Center) {
-            ReceiptPlaceholder()
+            if (photo == null) ReceiptPlaceholder()
+            else Image(
+                bitmap = photo,
+                contentDescription = "Captured receipt photo",
+                modifier = Modifier.fillMaxSize().padding(16.dp),
+                contentScale = ContentScale.Fit,
+            )
         }
         Text(
-            "Fit the whole receipt in the frame",
+            when {
+                errorMessage != null -> errorMessage
+                photo != null -> "Photo captured. This preview is temporary; saving and uploading come later."
+                !cameraSupported -> "Camera capture is available on Android and iOS. You can choose a photo from Gallery."
+                else -> "Open the camera and fit the whole receipt in the frame"
+            },
             Modifier.fillMaxWidth().padding(top = 18.dp),
             fontSize = 14.sp,
-            color = Color(0xFFCFD2D6),
+            color = if (errorMessage != null) Color(0xFFFFB4AB) else Color(0xFFCFD2D6),
             textAlign = TextAlign.Center,
         )
         Row(
@@ -64,12 +87,15 @@ fun CameraScreen(onCapture: () -> Unit, onGallery: () -> Unit, onCancel: () -> U
             val pressed by source.collectIsPressedAsState()
             val inner by animateFloatAsState(if (pressed) 0.82f else 1f, tween(90))
             Box(
-                Modifier.size(66.dp).border(4.dp, Color.White, CircleShape).clickable(source, null, onClick = onCapture),
+                Modifier.size(66.dp)
+                    .border(4.dp, if (cameraSupported) Color.White else Color.Gray, CircleShape)
+                    .semantics { contentDescription = if (photo == null) "Take receipt photo" else "Retake receipt photo" }
+                    .clickable(interactionSource = source, indication = null, enabled = cameraSupported, onClick = onCapture),
                 contentAlignment = Alignment.Center,
             ) {
-                Box(Modifier.size(54.dp).scale(inner).background(Color.White, CircleShape))
+                Box(Modifier.size(54.dp).scale(inner).background(if (cameraSupported) Color.White else Color.Gray, CircleShape))
             }
-            Text("Cancel", Modifier.clickable(onClick = onCancel), fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color(0xFF8D939A))
+            Text("Back", Modifier.clickable(onClick = onCancel), fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color(0xFF8D939A))
         }
     }
 }
@@ -88,5 +114,5 @@ private fun ReceiptPlaceholder() {
 @Preview(widthDp = 390, heightDp = 800, showBackground = true)
 @Composable
 private fun CameraPreview() = DivvyTheme {
-    CameraScreen({}, {}, {})
+    CameraScreen(null, null, true, {}, {}, {})
 }

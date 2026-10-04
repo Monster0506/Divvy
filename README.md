@@ -98,6 +98,10 @@ The dev server uses port 8080, the same default as the Ktor server, so set `PORT
 
 See JetBrains' guide on [running on a real iOS device](https://kotlinlang.org/docs/multiplatform/compose-multiplatform-create-first-app.html#run-on-a-real-ios-device) for device setup details.
 
+### Taking a receipt photo
+
+From Receipts, tap Scan receipt, then the shutter button to open the device camera on Android or iOS. After taking a photo, the app shows a temporary preview; tap the shutter again to retake it, or choose Gallery to use an existing image. Camera failures show guidance on the screen. Photos are not saved or uploaded yet, and the receipt review screen still uses sample data.
+
 ## ML service
 
 The Python ML service lives in `ml/`. See [ml/README.md](ml/README.md) for setup, run, test and lint commands.

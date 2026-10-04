@@ -22,6 +22,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.ImageBitmap
+import org.jetbrains.compose.resources.decodeToImageBitmap
+import com.monster0506.divvy.platform.rememberCameraCapture
 import com.monster0506.divvy.platform.rememberGalleryPicker
 import com.monster0506.divvy.ui.components.Tab
 import com.monster0506.divvy.ui.model.ReceiptStatus
@@ -64,6 +67,9 @@ fun DivvyApp(
         }
     }
     var editingId by remember { mutableStateOf(state.meId) }
+    var selectedPhotoBytes by remember { mutableStateOf<ByteArray?>(null) }
+    var selectedPhotoPreview by remember { mutableStateOf<ImageBitmap?>(null) }
+    var photoError by remember { mutableStateOf<String?>(null) }
     val onTab = { tab: Tab ->
         route = when (tab) {
             Tab.Receipts -> Route.History
@@ -72,7 +78,21 @@ fun DivvyApp(
             Tab.Account -> Route.Account
         }
     }
-    val galleryPicker = rememberGalleryPicker { bytes -> if (bytes != null) route = Route.Review }
+    fun selectPhoto(bytes: ByteArray) {
+        val preview = runCatching { bytes.decodeToImageBitmap() }.getOrNull()
+        if (preview == null) {
+            photoError = "This photo could not be opened. Please try again."
+        } else {
+            selectedPhotoBytes = bytes
+            selectedPhotoPreview = preview
+            photoError = null
+        }
+    }
+    val cameraCapture = rememberCameraCapture(
+        onResult = ::selectPhoto,
+        onError = { photoError = "Camera unavailable. Check camera access in Settings, or choose a photo from Gallery." },
+    )
+    val galleryPicker = rememberGalleryPicker { bytes -> if (bytes != null) selectPhoto(bytes) }
     AnimatedContent(
         targetState = route,
         transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(120)) },
@@ -99,9 +119,23 @@ fun DivvyApp(
             )
 
             Route.Camera -> CameraScreen(
-                onCapture = { route = Route.Review },
-                onGallery = { galleryPicker.launch() },
-                onCancel = { route = Route.History },
+                photo = selectedPhotoPreview,
+                errorMessage = photoError,
+                cameraSupported = cameraCapture.isSupported,
+                onCapture = {
+                    photoError = null
+                    cameraCapture.launch()
+                },
+                onGallery = {
+                    photoError = null
+                    galleryPicker.launch()
+                },
+                onCancel = {
+                    selectedPhotoBytes = null
+                    selectedPhotoPreview = null
+                    photoError = null
+                    route = Route.History
+                },
             )
 
             Route.Review -> ReviewReceiptScreen(
