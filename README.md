@@ -104,22 +104,21 @@ The Python ML service lives in `ml/`. See [ml/README.md](ml/README.md) for setup
 
 ## Deployment
 
-The stack (Postgres with pgvector, the ML service and the Ktor server) runs with Docker Compose on a single host. It is sized for 4 vCPU and 8 GB RAM.
+The backend runs as a Docker Compose stack on a single host (target: 4 vCPU / 8 GB / Linux). Only `server` is reachable from the host, and only on `127.0.0.1:8080`. `ml` and `db` live on an internal Docker network with no published ports.
 
-### Resource limits
+| Service | Image | Memory limit | CPU limit | Data |
+|---|---|---|---|---|
+| `db` | `pgvector/pgvector:pg16` | 1.5 GB | 1.5 | `pgdata` volume |
+| `ml` | built from `ml/` | 3 GB | 2.0 | none |
+| `server` | built from `server/Dockerfile` | 1.5 GB | 1.5 | `receipts` volume |
 
-| Service | Memory | CPUs |
-| --- | --- | --- |
-| `db` | 1.5 GB | 1 |
-| `ml` | 3 GB | 2 |
-| `server` | 1.5 GB | 1 |
+The `receipts` volume is mounted at `/data/receipts` for uploaded receipt images. Receipt upload is not implemented yet, so the volume is currently empty.
 
-That leaves about 2 GB for the OS, Caddy and page cache. Adjust the `deploy.resources.limits` blocks in `docker-compose.yml` for a different host.
+The `receipts` volume is mounted at `/data/receipts` for uploaded receipt images. Receipt upload is not implemented yet, so the volume is currently empty.
 
 ### Prerequisites
 
-- Docker Engine with the Compose plugin (v2)
-- Caddy on the host, proxying your domain to `127.0.0.1:8080` (the server only listens on loopback)
+- Docker Engine with the Compose v2 plugin (`docker compose version`)
 - Git
 
 ### First deploy
@@ -128,13 +127,24 @@ That leaves about 2 GB for the OS, Caddy and page cache. Adjust the `deploy.reso
 git clone https://github.com/Monster0506/Divvy.git
 cd Divvy
 cp .env.example .env
-# edit .env: set a real POSTGRES_PASSWORD and API_KEY
-docker compose up -d --build
-docker compose ps
-curl http://127.0.0.1:8080/health
 ```
 
-`.env` is gitignored. Compose refuses to start if a required variable is missing. Data lives in the named volumes `pgdata` (database) and `receipts` (receipt images).
+Edit `.env` and set real values. Generate secrets with `openssl rand -hex 24`. Then:
+
+```bash
+docker compose up -d --build
+docker compose ps
+```
+
+The first build takes several minutes. All three services should reach `healthy`. Verify with `curl http://<server-ip>:8080/health`.
+The server speaks plain HTTP. The X-Api-Key header travels unencrypted, so don't use this setup for real user data without TLS.
+
+
+```
+api.example.com {
+    reverse_proxy 127.0.0.1:8080
+}
+```
 
 ### Updating
 
@@ -143,29 +153,42 @@ git pull
 docker compose up -d --build
 ```
 
-Containers are recreated only when their image changed, and the volumes are kept. Check logs with `docker compose logs -f server`.
+Named volumes survive this. Never run `docker compose down -v`, which deletes the database and uploaded images.
 
 ### Backups
 
-Database dump:
+Back up both volumes. Run these from the repo root.
+
+**Database dump:**
 
 ```bash
 docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > divvy-$(date +%F).dump
 ```
 
-Restore into a running stack (this replaces existing objects):
+**Database restore** (replaces existing data):
 
 ```bash
-docker compose exec -T db sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists' < divvy-2025-01-01.dump
+docker compose exec -T db sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists' < divvy-2026-01-01.dump
 ```
 
-Receipt images are in the `receipts` volume and are not part of the dump. Back them up with:
+**Receipt images:**
 
 ```bash
-docker compose run --rm --no-deps -v "$PWD":/backup server tar czf /backup/receipts.tgz -C /data receipts
+docker run --rm -v divvy_receipts:/data -v "$PWD":/backup alpine tar czf /backup/receipts-$(date +%F).tgz -C /data .
 ```
 
-Copy the dump and archive off the host, for example with `rsync` on a cron job.
+To restore the images, extract the archive into the volume the same way:
+
+```bash
+docker run --rm -v divvy_receipts:/data -v "$PWD":/backup alpine tar xzf /backup/receipts-2026-01-01.tgz -C /data
+```
+
+Copy backups off the server. A backup that lives only on the same disk is not a backup.
+
+### Notes
+
+- `ml` has no outbound internet access (internal network). Model files must be baked into its image.
+- Changing `POSTGRES_PASSWORD` in `.env` does not change an existing database. Alter the role inside Postgres instead.
 
 ## Continuous integration
 

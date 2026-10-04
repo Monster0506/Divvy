@@ -187,9 +187,9 @@ The service keeps a copy of each household's confirmed items so it can predict f
 
 | Method | Path | Purpose |
 |---|---|---|
-| PUT | `/ownership/households/{id}/observations` | Add or update observations by `observation_id` (idempotent); `?replace=true` replaces the whole history |
+| PUT | `/ownership/households/{id}/observations` | Add or update observations by `observation_id` (idempotent); `?replace=true` replaces the whole history (an empty list is allowed only with `replace=true`, to clear a household) |
 | DELETE | `/ownership/households/{id}/observations/{observation_id}` | Remove one |
-| GET | `/ownership/households/{id}/history` | History size and whether there is enough to predict |
+| GET | `/ownership/households/{id}/history` | History size, whether there is enough to predict, and a `digest` of the stored labels the backend compares with its own |
 
 An observation has a `purchased_on` date, a `description`, `member_ids` (who was in the household then) and `owner_ids`.
 A correction resends the same `observation_id` with the original date. Each household is one JSONL file under
@@ -235,3 +235,13 @@ it. Each run logs its start and end with the history size, model version and met
 next check.
 
 In Docker the data directory is `/data`, a named volume (`mldata`) in `docker-compose.yml`.
+
+## Receipt extraction evaluation
+
+Ground-truth receipts live in `tests/data/receipts/`, one JSON per receipt (same shape as
+`ExtractedReceipt`, money in cents). Score a directory of predictions with:
+
+    python evaluate_extraction.py --predictions DIR [--truth tests/data/receipts]
+
+It prints item price accuracy and the total reconciliation rate. The checked-in files are synthetic
+placeholders (`tests/data/make_fixtures.py`); real labelled receipts still need to be added.
