@@ -83,6 +83,7 @@ import com.monster0506.divvy.balances.BalancesController
 import com.monster0506.divvy.balances.VENMO_NOTE
 import com.monster0506.divvy.platform.payWithVenmo
 import com.monster0506.divvy.platform.requestWithVenmo
+import com.monster0506.divvy.platform.VenmoUserIds
 import com.monster0506.divvy.platform.rememberUrlOpener
 import com.monster0506.divvy.data.repository.BalanceRepository
 import com.monster0506.divvy.data.repository.HouseholdRepository
@@ -285,6 +286,7 @@ fun DivvyApp(
     }
     val balancesState by balancesController.state.collectAsState()
     val urlOpener = rememberUrlOpener()
+    val venmoIds = remember { VenmoUserIds() }
     val serverShopping = remember(api) {
         ShoppingListController(
             RepositoryShoppingListApi(ShoppingListRepository(api)),
@@ -643,10 +645,18 @@ fun DivvyApp(
                     onSettle = balancesController::settle,
                     onUndo = balancesController::undo,
                     onPayWithVenmo = { transfer ->
-                        transfer.toVenmo?.let { urlOpener.payWithVenmo(it, transfer.amountCents.toLong(), VENMO_NOTE) }
+                        transfer.toVenmo?.let { username ->
+                            scope.launch {
+                                urlOpener.payWithVenmo(username, transfer.amountCents.toLong(), VENMO_NOTE, venmoIds.idFor(username))
+                            }
+                        }
                     },
                     onRequestWithVenmo = { transfer ->
-                        transfer.fromVenmo?.let { urlOpener.requestWithVenmo(it, transfer.amountCents.toLong(), VENMO_NOTE) }
+                        transfer.fromVenmo?.let { username ->
+                            scope.launch {
+                                urlOpener.requestWithVenmo(username, transfer.amountCents.toLong(), VENMO_NOTE, venmoIds.idFor(username))
+                            }
+                        }
                     },
                     onSaveVenmo = balancesController::setVenmo,
                     onEditVenmo = balancesController::dismissVenmoMessage,
