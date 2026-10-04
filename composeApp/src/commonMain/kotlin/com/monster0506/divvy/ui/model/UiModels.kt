@@ -40,7 +40,6 @@ data class Settings(
     val autoAssign: Boolean = true,
     /** Minimum model confidence for an item to be assigned without review. */
     val autoAssignThreshold: Float = 0.85f,
-    val venmoUsername: String = "",
 )
 
 data class ReceiptLine(

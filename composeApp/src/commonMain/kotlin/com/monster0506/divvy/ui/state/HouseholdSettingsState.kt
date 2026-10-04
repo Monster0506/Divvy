@@ -7,12 +7,17 @@ import com.monster0506.divvy.data.api.SettingsResult
 import com.monster0506.divvy.data.api.CreatePersonResult
 import com.monster0506.divvy.data.api.HouseholdDetails
 import com.monster0506.divvy.data.api.HouseholdMember
+import com.monster0506.divvy.platform.normalizeVenmoUsername
+import com.monster0506.divvy.platform.venmoUsernameProblem
 
 class HouseholdSettingsState(
     private val load: suspend () -> SettingsResult<HouseholdDetails>,
     private val rename: suspend (name: String) -> SettingsResult<Unit>,
     private val create: suspend (name: String) -> CreatePersonResult,
     private val archive: suspend (personId: String) -> SettingsResult<Unit>,
+    /** Saves a Venmo username ("" removes it) and returns it as stored. */
+    private val setVenmo: suspend (personId: String, username: String) -> SettingsResult<String?> =
+        { _, _ -> SettingsResult.Failure("Not connected") },
 ) {
     /** The name as the server has it. */
     var name by mutableStateOf("")
@@ -43,6 +48,14 @@ class HouseholdSettingsState(
         private set
     var showArchived by mutableStateOf(false)
         private set
+    /** The member whose Venmo username is open for editing. */
+    var editingVenmo by mutableStateOf<HouseholdMember?>(null)
+        private set
+    var venmoDraft by mutableStateOf("")
+        private set
+    private var serverVenmoError by mutableStateOf<String?>(null)
+
+    val venmoMessage: String? get() = serverVenmoError ?: venmoUsernameProblem(venmoDraft)
 
     val nameFieldMessage: String? get() = serverNameError ?: if (nameTouched) validateHouseholdName(nameDraft) else null
     val canSaveName: Boolean
@@ -181,5 +194,49 @@ class HouseholdSettingsState(
 
     fun toggleArchived() {
         showArchived = !showArchived
+    }
+
+    fun editVenmo(member: HouseholdMember) {
+        if (busy || member !in members) return
+        editingVenmo = member
+        venmoDraft = member.venmoUsername.orEmpty()
+        serverVenmoError = null
+    }
+
+    fun onVenmoDraftChange(value: String) {
+        venmoDraft = value
+        serverVenmoError = null
+    }
+
+    fun cancelVenmo() {
+        editingVenmo = null
+    }
+
+    /** Saves the draft for the member being edited; a blank draft removes their username. */
+    suspend fun saveVenmo(): Boolean {
+        val target = editingVenmo ?: return false
+        if (busy || venmoUsernameProblem(venmoDraft) != null) return false
+        busy = true
+        error = null
+        serverVenmoError = null
+        try {
+            return when (val result = setVenmo(target.id, normalizeVenmoUsername(venmoDraft))) {
+                is SettingsResult.Ok -> {
+                    members = members.map { if (it.id == target.id) it.copy(venmoUsername = result.value) else it }
+                    editingVenmo = null
+                    true
+                }
+                is SettingsResult.Invalid -> {
+                    serverVenmoError = result.message
+                    false
+                }
+                is SettingsResult.Failure -> {
+                    serverVenmoError = result.message
+                    false
+                }
+            }
+        } finally {
+            busy = false
+        }
     }
 }

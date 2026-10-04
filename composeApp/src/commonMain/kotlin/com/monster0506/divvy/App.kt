@@ -83,6 +83,9 @@ import com.monster0506.divvy.review.PayerStore
 import com.monster0506.divvy.review.RepositoryReviewApi
 import com.monster0506.divvy.review.ReviewPhase
 import com.monster0506.divvy.balances.BalancesController
+import com.monster0506.divvy.balances.VENMO_NOTE
+import com.monster0506.divvy.platform.payWithVenmo
+import com.monster0506.divvy.platform.rememberUrlOpener
 import com.monster0506.divvy.data.repository.BalanceRepository
 import com.monster0506.divvy.data.repository.HouseholdRepository
 import com.monster0506.divvy.data.repository.ReceiptRepository
@@ -304,9 +307,11 @@ fun DivvyApp(
             scope = scope,
             record = balanceRepository::settle,
             currentPerson = memberStore::get,
+            saveVenmo = HouseholdRepository(api)::setVenmoUsername,
         )
     }
     val balancesState by balancesController.state.collectAsState()
+    val urlOpener = rememberUrlOpener()
     val serverShopping = remember(api) {
         ShoppingListController(
             RepositoryShoppingListApi(ShoppingListRepository(api)),
@@ -687,7 +692,13 @@ fun DivvyApp(
             Route.Balances -> {
                 val id = householdId ?: router?.currentHouseholdId()
                 val real = id != null && id != LOCAL_HOUSEHOLD_ID
-                LaunchedEffect(id) { if (real) balancesController.open(id!!) }
+                LaunchedEffect(id) {
+                    if (real) {
+                        balancesController.open(id!!)
+                        // Works out who "you" are on this device, which decides where Venmo is offered.
+                        members.load(id)
+                    }
+                }
                 LiveBalancesScreen(
                     balancesState,
                     hasHousehold = real,
@@ -695,6 +706,13 @@ fun DivvyApp(
                     onTab = onTab,
                     onSettle = balancesController::settle,
                     onUndo = balancesController::undo,
+                    onPayWithVenmo = { transfer ->
+                        transfer.toVenmo?.let { urlOpener.payWithVenmo(it, transfer.amountCents.toLong(), VENMO_NOTE) }
+                    },
+                    onSaveVenmo = balancesController::setVenmo,
+                    onEditVenmo = balancesController::dismissVenmoMessage,
+                    // The same "(you)" as the Account screen, once members have loaded from the server.
+                    meId = state.meId.takeIf { me -> state.people.any { it.id == me } && serverId.matches(me) },
                 )
             }
 
@@ -800,6 +818,10 @@ fun DivvyApp(
                         archive = { personId ->
                             if (id == null || settingsApi == null) SettingsResult.Failure("Not connected")
                             else settingsApi.archive(id, personId)
+                        },
+                        setVenmo = { personId, username ->
+                            if (id == null || settingsApi == null) SettingsResult.Failure("Not connected")
+                            else settingsApi.setVenmo(id, personId, username)
                         },
                     )
                 }
