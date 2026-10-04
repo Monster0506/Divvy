@@ -43,6 +43,40 @@ class DebtSimplifierTest {
     }
 
     @Test
+    fun two_person_household() {
+        assertEquals(
+            listOf(Transfer("a", "b", 1234)),
+            simplifyDebts(mapOf("a" to -1234L, "b" to 1234L)),
+        )
+    }
+
+    @Test
+    fun three_person_household_with_one_creditor() {
+        val result = simplifyDebts(mapOf("a" to 900L, "b" to -300L, "c" to -600L))
+        assertEquals(listOf(Transfer("c", "a", 600), Transfer("b", "a", 300)), result)
+    }
+
+    @Test
+    fun three_person_chain_collapses_to_two_transfers() {
+        val result = simplifyDebts(mapOf("a" to -500L, "b" to 0L, "c" to 500L))
+        assertEquals(listOf(Transfer("a", "c", 500)), result)
+    }
+
+    @Test
+    fun four_person_household_with_uneven_balances() {
+        val result = simplifyDebts(mapOf("a" to 1500L, "b" to -200L, "c" to -700L, "d" to -600L))
+        assertEquals(
+            listOf(Transfer("c", "a", 700), Transfer("d", "a", 600), Transfer("b", "a", 200)),
+            result,
+        )
+    }
+
+    @Test
+    fun already_settled_household_needs_nothing() {
+        assertEquals(emptyList(), simplifyDebts(mapOf("a" to 0L, "b" to 0L, "c" to 0L, "d" to 0L)))
+    }
+
+    @Test
     fun unbalanced_input_is_rejected() {
         assertFailsWith<IllegalArgumentException> { simplifyDebts(mapOf("a" to 100L, "b" to -50L)) }
     }
@@ -50,7 +84,7 @@ class DebtSimplifierTest {
     @Test
     fun random_balances_settle_with_at_most_n_minus_one_transfers() {
         val random = Random(42)
-        repeat(500) {
+        repeat(2000) {
             val people = (0 until random.nextInt(2, 9)).map { "p$it" }
             val net = people.associateWith { random.nextLong(-5000, 5000) }.toMutableMap()
             net[people.first()] = net.getValue(people.first()) - net.values.sum()
