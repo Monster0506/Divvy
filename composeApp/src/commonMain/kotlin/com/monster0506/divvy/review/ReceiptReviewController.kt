@@ -5,6 +5,7 @@ import com.monster0506.divvy.data.api.ApiResult
 import com.monster0506.divvy.data.dto.EditedReceiptDto
 import com.monster0506.divvy.data.dto.ItemEditRequest
 import com.monster0506.divvy.data.dto.ItemOwnerDto
+import com.monster0506.divvy.data.dto.UpdateReceiptRequest
 import com.monster0506.divvy.data.dto.PersonDto
 import com.monster0506.divvy.data.dto.ReceiptDto
 import com.monster0506.divvy.data.dto.ReceiptStatusDto
@@ -20,6 +21,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+
+/** The receipt's own fields as a person typed them. [dateIso] is `YYYY-MM-DD`. */
+data class ReceiptDetailsEdit(val store: String, val dateIso: String, val taxCents: Int, val totalCents: Int)
 
 enum class ReviewPhase {
     Idle,
@@ -161,6 +165,23 @@ class ReceiptReviewController(
         }
     }
 
+    /** Saves a changed store, date, tax or total. Only what differs from what is shown is sent. */
+    fun editDetails(details: ReceiptDetailsEdit) {
+        val draft = mutableState.value.draft ?: return
+        val store = details.store.trim().takeIf { it != draft.store }
+        val date = details.dateIso.takeIf { it != draft.dateIso }
+        val tax = details.taxCents.takeIf { it != draft.taxCents }
+        val total = details.totalCents.takeIf { it != draft.printedTotalCents }
+        if (store == null && date == null && tax == null && total == null) return
+        val change = UpdateReceiptRequest(
+            merchantName = store,
+            purchasedAt = date?.let { "${it}T12:00:00Z" },
+            taxMinor = tax?.toLong(),
+            totalMinor = total?.toLong(),
+        )
+        edit { api.updateDetails(receiptId, change) }
+    }
+
     /** Renames a line and changes its price. */
     fun editLine(lineId: Int, name: String, priceCents: Int) {
         val itemId = itemIds[lineId] ?: return
@@ -253,7 +274,14 @@ class ReceiptReviewController(
             }
             itemIds = ids
             state.copy(
-                draft = draft.copy(lines = lines, taxCents = edited.taxMinor?.toInt() ?: draft.taxCents),
+                draft = draft.copy(
+                    lines = lines,
+                    store = edited.merchantName ?: draft.store,
+                    date = edited.purchasedAt?.let(::formatDate) ?: draft.date,
+                    dateIso = edited.purchasedAt?.take(DATE_LENGTH) ?: draft.dateIso,
+                    taxCents = edited.taxMinor?.toInt() ?: draft.taxCents,
+                    printedTotalCents = edited.totalMinor.toInt(),
+                ),
                 warning = reconciliationWarning(edited.reconciliation),
                 message = null,
             )
