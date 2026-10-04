@@ -63,6 +63,7 @@ object ReceiptItemTable : TimestampedTable("receipt_item") {
     val unitPriceMinor = long("unit_price_minor").nullable()
     val discountMinor = long("discount_minor")
     val totalMinor = long("total_minor")
+    val labelSource = text("label_source").nullable()
 
     override val primaryKey = PrimaryKey(id)
 }

@@ -13,3 +13,5 @@ class NotFoundException(message: String) : RuntimeException(message)
 
 class ValidationException(message: String, val details: List<String> = emptyList()) :
     RuntimeException(message)
+
+class InvalidTransitionException(message: String) : RuntimeException(message)
