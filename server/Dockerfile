@@ -7,7 +7,8 @@ COPY gradlew settings.gradle.kts build.gradle.kts gradle.properties ./
 COPY gradle ./gradle
 
 # Drop the Android/Compose modules inside the image only (no Android SDK here)
-RUN chmod +x gradlew \
+RUN sed -i 's/\r$//' gradlew \
+ && chmod +x gradlew \
  && sed -i '/include(":composeApp")/d;/include(":androidApp")/d' settings.gradle.kts
 
 # Server sources, then build the fat jar

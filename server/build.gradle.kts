@@ -38,3 +38,10 @@ dependencies {
     testImplementation(libs.kotlin.test.junit)
     testImplementation(libs.testcontainers.postgresql)
 }
+
+// Flyway discovers its plugins through META-INF/services; without merging, the fat jar keeps only one copy of that file.
+tasks.withType<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar> {
+    // The Ktor plugin sets EXCLUDE, which drops duplicate service files before the merge sees them
+    duplicatesStrategy = DuplicatesStrategy.INCLUDE
+    mergeServiceFiles()
+}
