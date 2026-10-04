@@ -4,6 +4,9 @@ import com.monster0506.divvy.server.db.DatabaseFactory
 import com.monster0506.divvy.server.db.DivyDatabase
 import com.monster0506.divvy.server.repository.ExposedRepositories
 import com.monster0506.divvy.server.routes.householdRoutes
+import com.monster0506.divvy.server.routes.receiptRoutes
+import com.monster0506.divvy.server.storage.LocalFileImageStorage
+import java.nio.file.Path
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.auth.HttpAuthHeader
 import io.ktor.serialization.kotlinx.json.json
@@ -85,10 +88,14 @@ fun Application.module(connectDatabase: Boolean = true) {
         }
     }
 
+    // Created on first upload so tests and startup without images never touch the directory.
+    val imageStorage by lazy { LocalFileImageStorage(Path.of(config.imageDir)) }
+
     routing {
         get("/health") { call.respond(HealthResponse("ok", config.version)) }
         authenticate(API_KEY_AUTH) {
             householdRoutes { repositories.households }
+            receiptRoutes({ repositories.households }, { repositories.receipts }, { imageStorage }, config.maxUploadBytes)
         }
     }
 

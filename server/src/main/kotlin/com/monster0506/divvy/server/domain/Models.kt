@@ -40,6 +40,9 @@ data class Person(
 )
 
 enum class ReceiptStatus(val dbValue: String) {
+    /** Image uploaded, nothing extracted yet. */
+    PROCESSING("processing"),
+
     DRAFT("draft"),
     CONFIRMED("confirmed"),
 
@@ -54,7 +57,8 @@ enum class ReceiptStatus(val dbValue: String) {
 data class Receipt(
     val id: Uuid,
     val householdId: Uuid,
-    val paidByPersonId: Uuid,
+    /** Null until a payer is chosen, e.g. while the receipt is still processing. */
+    val paidByPersonId: Uuid?,
     val merchantName: String?,
     val purchasedAt: Instant,
     val subtotal: Money?,
@@ -62,6 +66,8 @@ data class Receipt(
     val total: Money,
     val status: ReceiptStatus,
     val confirmedAt: Instant?,
+    /** Key of the original image in image storage, if one was uploaded. */
+    val imageKey: String?,
     val items: List<ReceiptItem>,
     val createdAt: Instant,
     val updatedAt: Instant,
