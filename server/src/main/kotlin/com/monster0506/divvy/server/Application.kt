@@ -5,6 +5,7 @@ import com.monster0506.divvy.server.db.DivyDatabase
 import com.monster0506.divvy.server.repository.ExposedRepositories
 import com.monster0506.divvy.server.routes.householdRoutes
 import com.monster0506.divvy.server.routes.personArchiveRoutes
+import com.monster0506.divvy.server.routes.personRoutes
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.auth.HttpAuthHeader
 import io.ktor.serialization.kotlinx.json.json
@@ -80,6 +81,12 @@ fun Application.module(connectDatabase: Boolean = true) {
         exception<NotFoundException> { call, cause ->
             call.respond(HttpStatusCode.NotFound, ApiError("not_found", cause.message ?: "Not found"))
         }
+        exception<InvalidTransitionException> { call, cause ->
+            call.respond(
+                HttpStatusCode.Conflict,
+                ApiError("invalid_transition", cause.message ?: "Invalid status transition"),
+            )
+        }
         exception<Throwable> { call, cause ->
             call.application.environment.log.error("Unhandled exception", cause)
             call.respond(HttpStatusCode.InternalServerError, ApiError("internal_error", "Internal server error"))
@@ -91,6 +98,7 @@ fun Application.module(connectDatabase: Boolean = true) {
         authenticate(API_KEY_AUTH) {
             householdRoutes { repositories.households }
             personArchiveRoutes({ repositories.households }, { repositories.people })
+            personRoutes({ repositories.households }, { repositories.people })
         }
     }
 

@@ -1,17 +1,24 @@
 # Divvy
 
+[![Gradle](https://github.com/Monster0506/Divvy/actions/workflows/gradle.yml/badge.svg)](https://github.com/Monster0506/Divvy/actions/workflows/gradle.yml)
+[![ML service](https://github.com/Monster0506/Divvy/actions/workflows/ml.yml/badge.svg)](https://github.com/Monster0506/Divvy/actions/workflows/ml.yml)
+[![Server tests](https://github.com/Monster0506/Divvy/actions/workflows/server-tests.yml/badge.svg)](https://github.com/Monster0506/Divvy/actions/workflows/server-tests.yml)
+[![iOS](https://github.com/Monster0506/Divvy/actions/workflows/ios.yml/badge.svg)](https://github.com/Monster0506/Divvy/actions/workflows/ios.yml)
+
 A Kotlin Multiplatform app (Compose Multiplatform) targeting Android, iOS, and the web (Wasm). See [product-vision.md](product-vision.md) and [project-structure.md](project-structure.md) for background.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for running the CI checks locally and the branch protection settings.
 
 ## Project layout
 
-- `composeApp/` – shared Compose UI and logic (Android library, iOS framework, Wasm web app)
-- `androidApp/` – Android application entry point
-- `iosApp/` – Xcode project for the iOS app
+- `composeApp/` - shared Compose UI and logic (Android library, iOS framework, Wasm web app)
+- `androidApp/` - Android application entry point
+- `iosApp/` - Xcode project for the iOS app
 
 ## Prerequisites
 
 - **JDK 17 or newer**
-- **Android Studio** (latest stable) with the Android SDK installed – compile SDK 37, min SDK 24
+- **Android Studio** (latest stable) with the Android SDK installed - compile SDK 37, min SDK 24
 - **For iOS:** a Mac with Xcode, plus an Apple Developer account to run on a physical device
 - No separate Gradle install is needed; use the included Gradle wrapper (`./gradlew`, or `gradlew.bat` on Windows)
 
@@ -95,14 +102,79 @@ See JetBrains' guide on [running on a real iOS device](https://kotlinlang.org/do
 
 The Python ML service lives in `ml/`. See [ml/README.md](ml/README.md) for setup, run, test and lint commands.
 
+## Deployment
+
+The stack (Postgres with pgvector, the ML service and the Ktor server) runs with Docker Compose on a single host. It is sized for 4 vCPU and 8 GB RAM.
+
+### Resource limits
+
+| Service | Memory | CPUs |
+| --- | --- | --- |
+| `db` | 1.5 GB | 1 |
+| `ml` | 3 GB | 2 |
+| `server` | 1.5 GB | 1 |
+
+That leaves about 2 GB for the OS, Caddy and page cache. Adjust the `deploy.resources.limits` blocks in `docker-compose.yml` for a different host.
+
+### Prerequisites
+
+- Docker Engine with the Compose plugin (v2)
+- Caddy on the host, proxying your domain to `127.0.0.1:8080` (the server only listens on loopback)
+- Git
+
+### First deploy
+
+```bash
+git clone https://github.com/Monster0506/Divvy.git
+cd Divvy
+cp .env.example .env
+# edit .env: set a real POSTGRES_PASSWORD and API_KEY
+docker compose up -d --build
+docker compose ps
+curl http://127.0.0.1:8080/health
+```
+
+`.env` is gitignored. Compose refuses to start if a required variable is missing. Data lives in the named volumes `pgdata` (database) and `receipts` (receipt images).
+
+### Updating
+
+```bash
+git pull
+docker compose up -d --build
+```
+
+Containers are recreated only when their image changed, and the volumes are kept. Check logs with `docker compose logs -f server`.
+
+### Backups
+
+Database dump:
+
+```bash
+docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > divvy-$(date +%F).dump
+```
+
+Restore into a running stack (this replaces existing objects):
+
+```bash
+docker compose exec -T db sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists' < divvy-2025-01-01.dump
+```
+
+Receipt images are in the `receipts` volume and are not part of the dump. Back them up with:
+
+```bash
+docker compose run --rm --no-deps -v "$PWD":/backup server tar czf /backup/receipts.tgz -C /data receipts
+```
+
+Copy the dump and archive off the host, for example with `rsync` on a cron job.
+
 ## Continuous integration
 
 GitHub Actions runs each workflow only when its files change, so a docs-only change runs no build jobs:
 
 | Workflow | Runs when | Does | Typical time |
 |----------|-----------|------|--------------|
-| **Gradle** (`.github/workflows/gradle.yml`) | PRs and pushes to `main` touching `composeApp/`, `androidApp/`, `server/`, `gradle/` or the build scripts | `./gradlew :composeApp:check :androidApp:assembleDebug :server:test` on JDK 17; uploads test reports on failure | ~4–5 min |
+| **Gradle** (`.github/workflows/gradle.yml`) | PRs and pushes to `main` touching `composeApp/`, `androidApp/`, `server/`, `gradle/` or the build scripts | `./gradlew :composeApp:check :androidApp:assembleDebug :server:test` on JDK 17; uploads test reports on failure | ~4-5 min |
 | **ML service** (`.github/workflows/ml.yml`) | PRs and pushes to `main` touching `ml/` | ruff, pytest and a Docker build with a `/health` check. See [ml/README.md](ml/README.md). | ~20 s per job (parallel) |
 | **iOS** (`.github/workflows/ios.yml`) | Nightly at 06:17 UTC, manual trigger, and PRs touching `composeApp/src/iosMain/` or `iosApp/` | `:composeApp:linkDebugFrameworkIosSimulatorArm64` on macOS | IOS_TIME |
 
-To run the iOS build by hand, use **Actions → iOS → Run workflow**, or run `gh workflow run ios.yml`.
+To run the iOS build by hand, use **Actions > iOS > Run workflow**, or run `gh workflow run ios.yml`.
