@@ -33,7 +33,7 @@ data class PersonResponse(
     val updatedAt: String,
 )
 
-private fun Person.toResponse() = PersonResponse(
+internal fun Person.toResponse() = PersonResponse(
     id = id.toString(),
     householdId = householdId.toString(),
     displayName = displayName,
@@ -82,7 +82,8 @@ fun Route.personRoutes(households: () -> HouseholdRepository, people: () -> Pers
         get {
             val householdId = parseId(call.parameters["id"])?.takeIf { households().findById(it) != null }
                 ?: return@get call.respond(HttpStatusCode.NotFound, householdNotFound)
-            call.respond(people().listByHousehold(householdId).map { it.toResponse() })
+            val includeArchived = call.request.queryParameters["includeArchived"].toBoolean()
+            call.respond(people().listByHousehold(householdId, includeArchived).map { it.toResponse() })
         }
 
         patch("/{personId}") {
