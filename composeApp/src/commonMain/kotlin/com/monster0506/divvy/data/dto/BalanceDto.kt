@@ -14,6 +14,7 @@ data class PersonBalanceDto(
     val netMinor: Long,
     val owes: List<DebtDto> = emptyList(),
     val owedBy: List<DebtDto> = emptyList(),
+    val venmoUsername: String? = null,
 )
 
 @Serializable

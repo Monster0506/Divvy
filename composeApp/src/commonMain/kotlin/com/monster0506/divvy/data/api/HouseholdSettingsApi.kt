@@ -4,7 +4,13 @@ import io.ktor.client.HttpClient
 import kotlinx.coroutines.CancellationException
 
 /** A person in the household; archived people stay in past receipts but are no longer active. */
-data class HouseholdMember(val id: String, val name: String, val archived: Boolean = false)
+data class HouseholdMember(
+    val id: String,
+    val name: String,
+    val archived: Boolean = false,
+    /** Where they receive payments, without the "@"; null if they have not said. */
+    val venmoUsername: String? = null,
+)
 
 data class HouseholdDetails(val name: String, val members: List<HouseholdMember>)
 
@@ -22,8 +28,15 @@ class HouseholdSettingsApi(client: HttpClient) {
     suspend fun load(householdId: String): SettingsResult<HouseholdDetails> = settingsCall {
         val household = api.getHousehold(householdId)
         val people = api.listPeople(householdId, includeArchived = true)
-        HouseholdDetails(household.name, people.map { HouseholdMember(it.id, it.displayName, it.isArchived) })
+        HouseholdDetails(household.name, people.map { HouseholdMember(it.id, it.displayName, it.isArchived, it.venmoUsername) })
     }
+
+    /** Saves [personId]'s Venmo username, or removes it when [username] is empty. Returns it as the server stored it. */
+    suspend fun setVenmo(householdId: String, personId: String, username: String): SettingsResult<String?> =
+        when (val result = settingsCall { api.setVenmoUsername(householdId, personId, username).venmoUsername }) {
+            is SettingsResult.Invalid -> SettingsResult.Invalid(venmoNotSupported(result.message) ?: result.message)
+            else -> result
+        }
 
     suspend fun rename(householdId: String, name: String): SettingsResult<Unit> = settingsCall {
         api.renameHousehold(householdId, name)
@@ -35,6 +48,14 @@ class HouseholdSettingsApi(client: HttpClient) {
         Unit
     }
 }
+
+/** Shown when the server is older than Venmo usernames and so demands a name on every person update. */
+const val VENMO_SERVER_TOO_OLD =
+    "This server doesn't support Venmo usernames yet. Update the Divvy server, then try again."
+
+/** [VENMO_SERVER_TOO_OLD] if [message] is an older server's reply to a Venmo-only update, else null. */
+fun venmoNotSupported(message: String): String? =
+    VENMO_SERVER_TOO_OLD.takeIf { message.startsWith("displayName must be") }
 
 private suspend fun <T> settingsCall(block: suspend () -> T): SettingsResult<T> = try {
     SettingsResult.Ok(block())

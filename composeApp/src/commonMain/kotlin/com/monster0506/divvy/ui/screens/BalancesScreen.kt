@@ -21,6 +21,12 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.ImeAction
+import com.monster0506.divvy.platform.venmoUsernameProblem
+import com.monster0506.divvy.ui.model.Person
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.getValue
@@ -37,6 +43,7 @@ import com.monster0506.divvy.balances.BalancesPhase
 import com.monster0506.divvy.balances.BalancesState
 import com.monster0506.divvy.balances.Payment
 import com.monster0506.divvy.balances.SettleTransfer
+import com.monster0506.divvy.balances.isPaidBy
 import com.monster0506.divvy.domain.centsToInput
 import com.monster0506.divvy.domain.parsePriceCents
 import com.monster0506.divvy.ui.components.AppScaffold
@@ -77,8 +84,27 @@ fun LiveBalancesScreen(
     onTab: (Tab) -> Unit = {},
     onSettle: (SettleTransfer, amountCents: Int) -> Unit = { _, _ -> },
     onUndo: () -> Unit = {},
+    onPayWithVenmo: (SettleTransfer) -> Unit = {},
+    onSaveVenmo: (person: Person, username: String, onSaved: () -> Unit) -> Unit = { _, _, _ -> },
+    onEditVenmo: () -> Unit = {},
+    /** This device's person; Venmo is offered only on payments they make. */
+    meId: String? = null,
 ) {
     var paying by remember { mutableStateOf<SettleTransfer?>(null) }
+    var askingVenmo by remember { mutableStateOf<Person?>(null) }
+    askingVenmo?.let { person ->
+        VenmoUsernameDialog(
+            person = person,
+            saving = state.savingVenmo,
+            serverMessage = state.venmoMessage,
+            onSave = { onSaveVenmo(person, it) { askingVenmo = null } },
+            onEdit = onEditVenmo,
+            onDismiss = {
+                askingVenmo = null
+                onEditVenmo()
+            },
+        )
+    }
     paying?.let { transfer ->
         PaymentDialog(
             transfer = transfer,
@@ -110,7 +136,15 @@ fun LiveBalancesScreen(
                     if (state.balances.isEmpty()) BalancesNote("Nobody in this household yet.")
                     if (state.transfers.isNotEmpty()) {
                         SectionHeader("Settle up", if (state.transfers.size == 1) "1 payment" else "${state.transfers.size} payments")
-                        state.transfers.forEach { SettleRow(it, enabled = !state.recording) { paying = it } }
+                        state.transfers.forEach {
+                            SettleRow(
+                                it,
+                                meId = meId,
+                                enabled = !state.recording,
+                                onPay = { paying = it },
+                                onVenmo = { if (it.toVenmo != null) onPayWithVenmo(it) else askingVenmo = it.to },
+                            )
+                        }
                     }
                     if (state.otherCurrencies) {
                         Spacer(Modifier.height(8.dp))
@@ -122,29 +156,87 @@ fun LiveBalancesScreen(
     }
 }
 
-/** "A pays B $X" with a button to record the payment. Payments involving this device's person stand out. */
+/**
+ * "A pays B $X" with a Mark paid button and, when this device's person is A, a Venmo button. Venmo opens a payment to
+ * B, or asks for B's Venmo username first if nobody has added it yet. Payments involving this device's person stand out.
+ */
 @Composable
-private fun SettleRow(transfer: SettleTransfer, enabled: Boolean, onPay: () -> Unit) {
-    val weight = if (transfer.involvesMe) FontWeight.SemiBold else FontWeight.Normal
-    val tint = if (transfer.involvesMe) DivvyColors.Accent else DivvyColors.Ink
+private fun SettleRow(transfer: SettleTransfer, meId: String?, enabled: Boolean, onPay: () -> Unit, onVenmo: () -> Unit) {
+    val iPay = transfer.isPaidBy(meId)
+    val involvesMe = transfer.involvesMe || iPay || (meId != null && transfer.to.id == meId)
+    val weight = if (involvesMe) FontWeight.SemiBold else FontWeight.Normal
+    val tint = if (involvesMe) DivvyColors.Accent else DivvyColors.Ink
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text("${transfer.from.name} pays ${transfer.to.name}", Modifier.weight(1f), fontSize = 14.sp, fontWeight = weight, color = tint)
         Text(transfer.amountCents.toMoney(), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = tint)
-        OutlinedButton(
-            onClick = onPay,
-            enabled = enabled,
-            modifier = Modifier.padding(start = 10.dp),
-            shape = RoundedCornerShape(6.dp),
-            border = BorderStroke(1.dp, if (enabled) tint else DivvyColors.Line),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-        ) {
-            Text("Mark paid", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = tint)
+        if (iPay) {
+            SettleButton("Venmo", enabled = true, tint = tint, onClick = onVenmo, modifier = Modifier.padding(start = 10.dp))
         }
+        SettleButton(
+            "Mark paid",
+            enabled = enabled,
+            tint = tint,
+            onClick = onPay,
+            modifier = Modifier.padding(start = if (iPay) 6.dp else 10.dp),
+        )
     }
     RowDivider()
+}
+
+/** Asks for [person]'s Venmo username and saves it for the household, the same as Household settings. */
+@Composable
+private fun VenmoUsernameDialog(
+    person: Person,
+    saving: Boolean,
+    serverMessage: String?,
+    onSave: (String) -> Unit,
+    onEdit: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var text by remember(person.id) { mutableStateOf("") }
+    val problem = venmoUsernameProblem(text)
+    val message = serverMessage ?: problem
+    val canSave = !saving && problem == null && text.isNotBlank()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("${person.name}'s Venmo") },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = {
+                    text = it
+                    onEdit()
+                },
+                label = { Text("Venmo username") },
+                prefix = { Text("@") },
+                singleLine = true,
+                enabled = !saving,
+                isError = message != null,
+                supportingText = { Text(message ?: "Saved for the household, so anyone can pay ${person.name} with Venmo.") },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { if (canSave) onSave(text) }),
+            )
+        },
+        confirmButton = { TextButton(onClick = { onSave(text) }, enabled = canSave) { Text("Save") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun SettleButton(label: String, enabled: Boolean, tint: Color, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    OutlinedButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier,
+        shape = RoundedCornerShape(6.dp),
+        border = BorderStroke(1.dp, if (enabled) tint else DivvyColors.Line),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+    ) {
+        Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = tint)
+    }
 }
 
 /** Confirms a payment. The amount can be lowered to record a part payment. */

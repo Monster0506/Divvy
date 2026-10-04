@@ -92,11 +92,11 @@ fun Route.receiptAssignmentRoutes(
             }
             val unusable = shares.filter { share ->
                 people().findById(share.personId)
-                    ?.let { it.householdId != receipt.householdId || it.archivedAt != null } != false
+                    ?.let { it.householdId != receipt.householdId } != false
             }
             if (unusable.isNotEmpty()) {
                 return@put call.invalid(
-                    "owners must be active members of the household",
+                    "owners must belong to the household",
                     unusable.map { it.personId.toString() },
                 )
             }

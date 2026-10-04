@@ -5,6 +5,11 @@
 Name is trimmed and must be 1-80 characters (400 otherwise). Unknown or malformed ids return 404.
 Errors use the standard ApiError body. All routes require the X-Api-Key header.
 
+- PATCH /households/{id}/people/{personId}  {"displayName": "...", "venmoUsername": "..."} -> 200 | 400 | 404
+  Send either field or both; absent fields are unchanged (400 if neither is sent). `venmoUsername` is where the person
+  receives payments. A leading "@" and surrounding spaces are removed, and it must then be 5-30 letters, digits, `-` or
+  `_` (400 otherwise). An empty `venmoUsername` removes it. People are returned with `venmoUsername` when they have one.
+  Only the username is stored; Divvy never holds payment credentials.
 - POST /households/{id}/people/{personId}/archive -> 200 | 404
   Marks the person as having left. Archived people are hidden from GET /households/{id}/people unless
   ?includeArchived=true, cannot be newly assigned to receipt items (ArchivedPersonException in the
@@ -51,7 +56,8 @@ The household's shared list. Items are `{"id", "householdId", "text", "quantity"
 
 ## Balances
 - GET /households/{id}/balances -> 200 | 404
-  {"balances": [{"currency": "USD", "people": [{"personId", "displayName", "netMinor", "owes": [{"personId", "amountMinor"}], "owedBy": [...]}]}]}
+  {"balances": [{"currency": "USD", "people": [{"personId", "displayName", "netMinor", "owes": [{"personId", "amountMinor"}], "owedBy": [...], "venmoUsername"}]}]}
+  `venmoUsername` is present for people who have set one, so settle-up can offer Pay with Venmo.
   One block per currency in the ledger (the household's default currency is always present). `netMinor` is positive when
   the person is owed money and negative when they owe it; nets in a currency always sum to zero. `owes`/`owedBy` are
   pairwise debts after netting opposite directions, not simplified across people. People who have left are listed only

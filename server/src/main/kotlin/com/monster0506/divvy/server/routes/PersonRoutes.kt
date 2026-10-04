@@ -2,6 +2,7 @@ package com.monster0506.divvy.server.routes
 
 import com.monster0506.divvy.server.ApiError
 import com.monster0506.divvy.server.domain.Person
+import com.monster0506.divvy.server.domain.PersonPatch
 import com.monster0506.divvy.server.repository.HouseholdRepository
 import com.monster0506.divvy.server.repository.PersonRepository
 import io.ktor.http.HttpStatusCode
@@ -23,6 +24,10 @@ private const val UNIQUE_VIOLATION = "23505"
 @Serializable
 data class PersonRequest(val displayName: String? = null)
 
+/** `PATCH`: omitted fields stay as they are. An empty [venmoUsername] removes it. */
+@Serializable
+data class PersonPatchRequest(val displayName: String? = null, val venmoUsername: String? = null)
+
 @Serializable
 data class PersonResponse(
     val id: String,
@@ -31,6 +36,7 @@ data class PersonResponse(
     val archivedAt: String?,
     val createdAt: String,
     val updatedAt: String,
+    val venmoUsername: String? = null,
 )
 
 internal fun Person.toResponse() = PersonResponse(
@@ -40,6 +46,7 @@ internal fun Person.toResponse() = PersonResponse(
     archivedAt = archivedAt?.toString(),
     createdAt = createdAt.toString(),
     updatedAt = updatedAt.toString(),
+    venmoUsername = venmoUsername,
 )
 
 /** Returns the trimmed name, or null if it is empty or longer than 80 characters. */
@@ -48,12 +55,26 @@ internal fun validPersonName(raw: String?): String? {
     return name.takeIf { it.isNotEmpty() && it.length <= MAX_PERSON_NAME_LENGTH }
 }
 
+private val venmoUsernamePattern = Regex("^[A-Za-z0-9_-]{5,30}$")
+
+/**
+ * Returns the username without spaces or a leading "@", "" for a blank value (which clears it), or
+ * null if it is not 5 to 30 letters, digits, hyphens and underscores.
+ */
+internal fun validVenmoUsername(raw: String): String? {
+    val username = raw.trim().removePrefix("@")
+    return username.takeIf { it.isEmpty() || venmoUsernamePattern.matches(it) }
+}
+
 @OptIn(ExperimentalUuidApi::class)
 private fun parseId(raw: String?): Uuid? = raw?.let { runCatching { Uuid.parse(it) }.getOrNull() }
 
 private val badJson = ApiError("validation_error", "invalid JSON body")
 private val badName =
     ApiError("validation_error", "displayName must be between 1 and $MAX_PERSON_NAME_LENGTH characters")
+private val badVenmo =
+    ApiError("validation_error", "venmoUsername must be 5 to 30 letters, numbers, hyphens or underscores")
+private val emptyPatch = ApiError("validation_error", "send displayName or venmoUsername")
 private val duplicateName = ApiError("validation_error", "a person with that name already exists in this household")
 private val householdNotFound = ApiError("not_found", "household not found")
 private val personNotFound = ApiError("not_found", "person not found")
@@ -92,12 +113,19 @@ fun Route.personRoutes(households: () -> HouseholdRepository, people: () -> Pers
             val personId = parseId(call.parameters["personId"])
                 ?.takeIf { people().findById(it)?.householdId == householdId }
                 ?: return@patch call.respond(HttpStatusCode.NotFound, personNotFound)
-            val body = runCatching { call.receive<PersonRequest>() }.getOrNull()
+            val body = runCatching { call.receive<PersonPatchRequest>() }.getOrNull()
                 ?: return@patch call.respond(HttpStatusCode.BadRequest, badJson)
-            val name = validPersonName(body.displayName)
-                ?: return@patch call.respond(HttpStatusCode.BadRequest, badName)
+            if (body.displayName == null && body.venmoUsername == null) {
+                return@patch call.respond(HttpStatusCode.BadRequest, emptyPatch)
+            }
+            val name = body.displayName?.let {
+                validPersonName(it) ?: return@patch call.respond(HttpStatusCode.BadRequest, badName)
+            }
+            val venmo = body.venmoUsername?.let {
+                validVenmoUsername(it) ?: return@patch call.respond(HttpStatusCode.BadRequest, badVenmo)
+            }
             val updated = try {
-                people().rename(personId, name)
+                people().update(personId, PersonPatch(name, venmo))
             } catch (e: ExposedSQLException) {
                 if (e.sqlState != UNIQUE_VIOLATION) throw e
                 return@patch call.respond(HttpStatusCode.BadRequest, duplicateName)

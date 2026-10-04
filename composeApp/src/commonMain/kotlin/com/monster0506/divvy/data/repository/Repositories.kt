@@ -52,6 +52,9 @@ class HouseholdRepository(private val api: DivvyApi) {
 
     suspend fun archivePerson(householdId: String, personId: String): ApiResult<PersonDto> =
         apiCall { api.archivePerson(householdId, personId) }
+
+    suspend fun setVenmoUsername(householdId: String, personId: String, username: String): ApiResult<PersonDto> =
+        apiCall { api.setVenmoUsername(householdId, personId, username) }
 }
 
 class SettingsRepository(private val api: DivvyApi) {

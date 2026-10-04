@@ -96,13 +96,17 @@ fun HouseholdSettingsScreen(state: HouseholdSettingsState, onBack: () -> Unit, o
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Avatar(member.asPerson(), size = 32)
-                Text(
-                    member.name,
-                    Modifier.weight(1f),
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = DivvyColors.Ink,
-                )
+                Column(Modifier.weight(1f)) {
+                    Text(member.name, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = DivvyColors.Ink)
+                    Text(
+                        member.venmoUsername?.let { "Venmo @$it" } ?: "No Venmo username",
+                        fontSize = 12.sp,
+                        color = DivvyColors.Dim,
+                    )
+                }
+                TextButton(onClick = { state.editVenmo(member) }, enabled = !state.busy) {
+                    Text("Venmo")
+                }
                 TextButton(onClick = { state.requestArchive(member) }, enabled = state.canArchive(member)) {
                     Text("Archive")
                 }
@@ -176,6 +180,38 @@ fun HouseholdSettingsScreen(state: HouseholdSettingsState, onBack: () -> Unit, o
                 }
             }
         }
+    }
+
+    state.editingVenmo?.let { member ->
+        AlertDialog(
+            onDismissRequest = state::cancelVenmo,
+            title = { Text("${member.name}'s Venmo") },
+            text = {
+                OutlinedTextField(
+                    value = state.venmoDraft,
+                    onValueChange = state::onVenmoDraftChange,
+                    label = { Text("Venmo username") },
+                    prefix = { Text("@") },
+                    singleLine = true,
+                    enabled = !state.busy,
+                    isError = state.venmoMessage != null,
+                    supportingText = {
+                        Text(state.venmoMessage ?: "Housemates use this to pay ${member.name} when settling up. Leave it empty to remove it.")
+                    },
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { scope.launch { state.saveVenmo() } }),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { scope.launch { state.saveVenmo() } },
+                    enabled = !state.busy && state.venmoMessage == null,
+                ) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = state::cancelVenmo) { Text("Cancel") }
+            },
+        )
     }
 
     state.archiving?.let { member ->
