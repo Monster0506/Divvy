@@ -6,7 +6,7 @@ module never depends on how receipts are extracted.
 
 from datetime import date
 from enum import StrEnum
-from typing import Annotated, Self
+from typing import Annotated, Any, Self
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
@@ -145,3 +145,16 @@ class HistoryStatus(BaseModel):
     model_version: str | None = Field(
         default=None, description="Version of the model currently serving, if one is built"
     )
+
+
+class RetrainRunOut(BaseModel):
+    household_id: str
+    started_at: str
+    finished_at: str
+    seconds: float
+    history_size: int
+    new_observations: int
+    reason: str = Field(description="first, new-observations or interval")
+    version: str | None = Field(description="Model version built; null if history was too small")
+    metrics: dict[str, Any] | None = None
+    error: str | None = None
