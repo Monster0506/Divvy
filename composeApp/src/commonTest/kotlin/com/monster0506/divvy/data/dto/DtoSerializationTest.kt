@@ -105,9 +105,9 @@ class DtoSerializationTest {
     }
 
     @Test
-    fun money_is_serialized_as_integer_cents() {
-        val text = json.encodeToString(BalanceDto("p1", netCents = 3410))
-        assertEquals("""{"personId":"p1","netCents":3410,"currency":"USD"}""", text)
+    fun balances_use_the_servers_field_names() {
+        val text = json.encodeToString(PersonBalanceDto("p1", "TJ", netMinor = 3410))
+        assertEquals("""{"personId":"p1","displayName":"TJ","netMinor":3410,"owes":[],"owedBy":[]}""", text)
     }
 
     @Test
@@ -127,7 +127,7 @@ class DtoSerializationTest {
     fun settlement_and_balance_round_trip() {
         val settlement = SettlementDto("s1", "h1", "p1", "p2", 1240, createdAt = "2026-10-03T10:00:00Z")
         assertEquals(settlement, roundTrip(settlement))
-        val balance = BalanceDto("p1", netCents = -985, currency = "EUR")
+        val balance = CurrencyBalancesDto("EUR", listOf(PersonBalanceDto("p1", "TJ", -985, owes = listOf(DebtDto("p2", 985)))))
         assertEquals(balance, roundTrip(balance))
     }
 

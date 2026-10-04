@@ -1,7 +1,7 @@
 package com.monster0506.divvy.data.api
 
 import com.monster0506.divvy.data.dto.ApiError
-import com.monster0506.divvy.data.dto.BalanceDto
+import com.monster0506.divvy.data.dto.BalancesDto
 import com.monster0506.divvy.data.dto.AcceptPredictionsRequest
 import com.monster0506.divvy.data.dto.AcceptedPredictionsDto
 import com.monster0506.divvy.data.dto.ConfirmedReceiptDto
@@ -33,7 +33,6 @@ import io.ktor.client.request.post
 import io.ktor.client.plugins.onUpload
 import io.ktor.client.request.forms.MultiPartFormDataContent
 import io.ktor.client.request.forms.formData
-import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.http.HttpStatusCode
@@ -154,7 +153,7 @@ class DivvyApi(private val client: HttpClient) {
     suspend fun setItemOwners(receiptId: String, itemId: String, owners: List<ItemOwnerDto>): ItemOwnersDto =
         send { client.put("receipts/$receiptId/items/$itemId/owners") { setBody(SetItemOwnersRequest(owners)) } }
 
-    suspend fun balances(householdId: String): List<BalanceDto> =
+    suspend fun balances(householdId: String): BalancesDto =
         send { client.get("households/$householdId/balances") }
 
     private suspend inline fun <reified T> send(request: () -> HttpResponse): T {

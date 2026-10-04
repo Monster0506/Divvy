@@ -4,7 +4,7 @@ import com.monster0506.divvy.data.api.ApiException
 import com.monster0506.divvy.data.api.ApiResult
 import com.monster0506.divvy.data.api.DivvyApi
 import com.monster0506.divvy.data.dto.AcceptedPredictionsDto
-import com.monster0506.divvy.data.dto.BalanceDto
+import com.monster0506.divvy.data.dto.BalancesDto
 import com.monster0506.divvy.data.dto.ConfirmedReceiptDto
 import com.monster0506.divvy.data.dto.EditedReceiptDto
 import com.monster0506.divvy.data.dto.ItemEditRequest
@@ -106,5 +106,5 @@ class ReceiptRepository(private val api: DivvyApi) {
 }
 
 class BalanceRepository(private val api: DivvyApi) {
-    suspend fun balances(householdId: String): ApiResult<List<BalanceDto>> = apiCall { api.balances(householdId) }
+    suspend fun balances(householdId: String): ApiResult<BalancesDto> = apiCall { api.balances(householdId) }
 }
