@@ -187,9 +187,9 @@ The service keeps a copy of each household's confirmed items so it can predict f
 
 | Method | Path | Purpose |
 |---|---|---|
-| PUT | `/ownership/households/{id}/observations` | Add or update observations by `observation_id` (idempotent); `?replace=true` replaces the whole history |
+| PUT | `/ownership/households/{id}/observations` | Add or update observations by `observation_id` (idempotent); `?replace=true` replaces the whole history (an empty list is allowed only with `replace=true`, to clear a household) |
 | DELETE | `/ownership/households/{id}/observations/{observation_id}` | Remove one |
-| GET | `/ownership/households/{id}/history` | History size and whether there is enough to predict |
+| GET | `/ownership/households/{id}/history` | History size, whether there is enough to predict, and a `digest` of the stored labels the backend compares with its own |
 
 An observation has a `purchased_on` date, a `description`, `member_ids` (who was in the household then) and `owner_ids`.
 A correction resends the same `observation_id` with the original date. Each household is one JSONL file under
