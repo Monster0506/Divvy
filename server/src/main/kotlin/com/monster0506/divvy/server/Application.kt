@@ -4,11 +4,13 @@ import com.monster0506.divvy.server.db.DatabaseFactory
 import com.monster0506.divvy.server.db.DivyDatabase
 import com.monster0506.divvy.server.ml.LabelSync
 import com.monster0506.divvy.server.ml.MlIntegration
+import com.monster0506.divvy.server.ml.MlResync
 import com.monster0506.divvy.server.ml.SyncingReceiptRepository
 import com.monster0506.divvy.server.ml.createMlClient
 import com.monster0506.divvy.server.repository.ExposedPersonRepository
 import com.monster0506.divvy.server.repository.ExposedRepositories
 import com.monster0506.divvy.server.routes.householdRoutes
+import com.monster0506.divvy.server.routes.mlRoutes
 import com.monster0506.divvy.server.routes.personRoutes
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.auth.HttpAuthHeader
@@ -106,6 +108,7 @@ fun Application.module(connectDatabase: Boolean = true) {
         authenticate(API_KEY_AUTH) {
             householdRoutes { repositories.households }
             personRoutes({ repositories.households }, { repositories.people })
+            mlRoutes({ repositories.households }, { ml.resync })
         }
     }
 
@@ -136,8 +139,9 @@ fun Application.configureDatabase(config: AppConfig): DivyDatabase {
         (mlClient as? AutoCloseable)?.close()
         database.close()
     }
-    attributes.put(MlKey, MlIntegration(mlClient, labelSync))
-    attributes.put(RepositoriesKey, ExposedRepositories(database.database) { SyncingReceiptRepository(it, labelSync) })
+    val repos = ExposedRepositories(database.database) { SyncingReceiptRepository(it, labelSync) }
+    attributes.put(MlKey, MlIntegration(mlClient, labelSync, MlResync(mlClient, repos.receipts, repos.people, labelSync)))
+    attributes.put(RepositoriesKey, repos)
     return database
 }
 

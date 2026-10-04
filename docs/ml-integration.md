@@ -56,3 +56,22 @@ calling the ML service themselves.
 `LabelSyncDatabaseTest` drives the real repositories on a real Postgres with a fake ML client. `LabelSyncLiveTest` does
 the same against a real ML service when `ML_SERVICE_URL` is set: confirming receipts grows the ML history and voiding
 one shrinks it.
+
+## Self-healing: checking and rebuilding the ML copy
+
+A push can be missed (the ML service was down), and the ML volume can be lost or restored from an old backup. The
+database is the source of truth, so the ML copy is checked against it and rebuilt when they differ.
+
+- **How they are compared.** `GET /ownership/households/{id}/history` returns a `digest`: a SHA-256 over one line per
+  label, sorted by id, as `id|date|description|owner ids|member ids` with the ids sorted and comma-joined. The backend
+  builds the same text from its database (`historyDigest`), so a missed push, a missed delete **and a missed correction**
+  all show up, including when the counts still match. Both sides pin the same fixture value in their tests, and
+  `MlResyncLiveTest` checks they agree on real data.
+- **When.** `MlResync.ensureSynced` runs before a prediction. It does nothing unless the household is marked dirty (a
+  push failed) or has not been checked in the last five minutes, then compares digests and rebuilds with
+  `PUT .../observations?replace=true` if they differ. An unreachable ML service counts as not checked, so it is tried again
+  on the next call. It shares the household's lock with pushes, so a rebuild never interleaves with one.
+- **Forcing it.** `GET /households/{id}/ml/status` shows the database and ML label counts, whether they match, whether the
+  household is dirty and whether the ML service is reachable. `POST /households/{id}/ml/resync` rebuilds now and answers
+  503 if the ML service is down or 502 if it refuses the history. A household with no labels is rebuilt as empty, which is
+  why the ML service accepts an empty `replace`.

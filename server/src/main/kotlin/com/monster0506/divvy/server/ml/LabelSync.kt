@@ -49,6 +49,10 @@ class LabelSync(
     /** Removes a voided receipt's labels in the background. */
     fun scheduleVoided(receipt: Receipt): Job = launchFor(receipt.householdId) { removeVoided(receipt) }
 
+    /** Runs [block] while no push or resync for the same household is running. */
+    suspend fun <T> withHousehold(householdId: Uuid, block: suspend () -> T): T =
+        locks.computeIfAbsent(householdId) { Mutex() }.withLock { block() }
+
     /** Waits for every push that has been scheduled so far. For tests and shutdown. */
     suspend fun awaitIdle() {
         scope.coroutineContext[Job]?.children?.toList()?.forEach { it.join() }
@@ -76,7 +80,7 @@ class LabelSync(
 
     private fun launchFor(householdId: Uuid, block: suspend () -> Unit): Job = scope.launch {
         // one household's changes reach the ML service in the order they were made
-        locks.computeIfAbsent(householdId) { Mutex() }.withLock {
+        withHousehold(householdId) {
             try {
                 block()
             } catch (e: CancellationException) {
