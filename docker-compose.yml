@@ -26,6 +26,8 @@ services:
     build:
       context: ./ml
     restart: unless-stopped
+    volumes:
+      - mldata:/data
     networks: [internal]
     deploy:
       resources:
@@ -72,3 +74,4 @@ networks:
 volumes:
   pgdata:
   receipts:
+  mldata:
