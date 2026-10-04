@@ -3,6 +3,7 @@ package com.monster0506.divvy.ui.state
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.monster0506.divvy.domain.DebouncedSaver
 import com.monster0506.divvy.domain.editLine
 import com.monster0506.divvy.domain.mergeLines
 import com.monster0506.divvy.domain.nextLineId
@@ -20,7 +21,7 @@ import com.monster0506.divvy.ui.model.initialsFor
 import com.monster0506.divvy.ui.preview.SampleData
 
 /** In-memory stand-in for the repository layer (#6) so the screens can be driven live. */
-class DivvyState {
+class DivvyState (private val ownerSaver: DebouncedSaver<Int, Set<String>>? = null,) {
     /** The household's members. Every other person shown in the UI is resolved against this list by id. */
     var people by mutableStateOf(SampleData.people)
         private set
@@ -91,6 +92,7 @@ class DivvyState {
             },
         )
         reviewed = reviewed + lineId
+        rawDraft.lines.find { it.id == lineId }?.let { ownerSaver?.submit(lineId, it.owners) }
     }
 
     fun confirmLine(lineId: Int) {
