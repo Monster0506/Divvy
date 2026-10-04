@@ -59,6 +59,8 @@ data class ReceiptDraft(
     val people: List<Person>,
     val lines: List<ReceiptLine>,
     val taxCents: Int,
+    /** False while nobody has been picked as the payer; [payer] is then only a placeholder. */
+    val payerChosen: Boolean = true,
 ) {
     val subtotalCents get() = lines.sumOf { it.priceCents }
     val totalCents get() = subtotalCents + taxCents

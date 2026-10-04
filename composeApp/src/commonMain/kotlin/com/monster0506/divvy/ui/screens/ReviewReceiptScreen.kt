@@ -79,7 +79,9 @@ fun ReviewReceiptScreen(
     canUndo: Boolean = false,
     onUndo: () -> Unit = {},
     notice: String? = null,
+    onChoosePayer: ((personId: String) -> Unit)? = null,
 ) {
+    var choosingPayer by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<ReceiptLine?>(null) }
     var adding by remember { mutableStateOf(false) }
     var merging by remember { mutableStateOf(false) }
@@ -96,9 +98,14 @@ fun ReviewReceiptScreen(
             metaStart = draft.date,
             metaEnd = buildAnnotatedString {
                 append("Paid by ")
-                withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = DivvyColors.Ink)) { append(draft.payer.name) }
+                withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = DivvyColors.Ink)) {
+                    append(if (draft.payerChosen) draft.payer.name else "nobody yet")
+                }
             },
         )
+        if (onChoosePayer != null) {
+            PayerRow(draft, onClick = { choosingPayer = true })
+        }
         if (notice != null) SectionHeader(notice, warn = true)
         EditBar(
             merging = merging,
@@ -127,7 +134,14 @@ fun ReviewReceiptScreen(
                 }
             }
         }
-        Totals(draft, pendingCount, onConfirmSplit)
+        Totals(draft, pendingCount, onConfirmSplit, needsPayer = onChoosePayer != null && !draft.payerChosen)
+    }
+    if (choosingPayer && onChoosePayer != null) {
+        PayerDialog(
+            draft = draft,
+            onDismiss = { choosingPayer = false },
+            onPick = { onChoosePayer(it); choosingPayer = false },
+        )
     }
     editing?.let { line ->
         LineDialog(
@@ -149,6 +163,47 @@ fun ReviewReceiptScreen(
             onDelete = null,
         )
     }
+}
+
+@Composable
+private fun PayerRow(draft: ReceiptDraft, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("Who paid?", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = DivvyColors.Dim)
+        if (draft.payerChosen) {
+            Text("${draft.payer.name} - change", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = DivvyColors.Accent)
+        } else {
+            Text("Choose", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = DivvyColors.Warn)
+        }
+    }
+    RowDivider()
+}
+
+@Composable
+private fun PayerDialog(draft: ReceiptDraft, onDismiss: () -> Unit, onPick: (String) -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Who paid?") },
+        text = {
+            Column {
+                draft.people.forEach { person ->
+                    val current = draft.payerChosen && person.id == draft.payer.id
+                    Text(
+                        if (current) "${person.name} (selected)" else person.name,
+                        fontSize = 16.sp,
+                        fontWeight = if (current) FontWeight.SemiBold else FontWeight.Normal,
+                        color = DivvyColors.Ink,
+                        modifier = Modifier.fillMaxWidth().clickable { onPick(person.id) }.padding(vertical = 12.dp),
+                    )
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable
@@ -282,15 +337,19 @@ private fun LineRow(
 }
 
 @Composable
-private fun Totals(draft: ReceiptDraft, pendingCount: Int, onConfirmSplit: () -> Unit) {
+private fun Totals(draft: ReceiptDraft, pendingCount: Int, onConfirmSplit: () -> Unit, needsPayer: Boolean) {
     Column(Modifier.fillMaxWidth().animateContentSize().padding(20.dp)) {
         TotalLine("Subtotal", draft.subtotalCents.toMoney(), strong = false)
         TotalLine("Tax", draft.taxCents.toMoney(), strong = false)
         TotalLine("Total", draft.totalCents.toMoney(), strong = true)
         Spacer(Modifier.height(14.dp))
         PrimaryButton(
-            label = if (pendingCount == 0) "Confirm and split" else "$pendingCount left to confirm",
-            enabled = pendingCount == 0,
+            label = when {
+                needsPayer -> "Choose who paid"
+                pendingCount == 0 -> "Confirm and split"
+                else -> "$pendingCount left to confirm"
+            },
+            enabled = pendingCount == 0 && !needsPayer,
             onClick = onConfirmSplit,
         )
     }
