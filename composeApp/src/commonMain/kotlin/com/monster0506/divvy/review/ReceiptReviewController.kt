@@ -74,6 +74,10 @@ class ReceiptReviewController(
     private var preferredPayerId: String? = null
     private var people: List<Person> = emptyList()
     private var itemIds: Map<Int, String> = emptyMap()
+    private var savedOwners: Map<String, Set<String>> = emptyMap()
+    private var savedConfirmed: Map<String, Boolean> = emptyMap()
+    private var savedConfidence: Map<String, Float> = emptyMap()
+    private val confirmingLines = mutableSetOf<String>()
     private var payerSaved = false
     private var lastDeleted: ItemEditRequest? = null
     private var job: Job? = null
@@ -91,6 +95,7 @@ class ReceiptReviewController(
 
     fun close() {
         job?.cancel()
+        confirmingLines.clear()
         mutableState.value = ReviewState()
     }
 
@@ -139,28 +144,45 @@ class ReceiptReviewController(
         setOwners(lineId, if (personId in line.owners) line.owners - personId else line.owners + personId)
     }
 
+    /** Keeps owner choices visible until the person confirms the whole selection. */
     fun setOwners(lineId: Int, owners: Set<String>) {
         val itemId = itemIds[lineId] ?: return
-        val before = mutableState.value.draft?.lines?.find { it.id == lineId } ?: return
-        updateLine(lineId) { it.copy(owners = owners, confirmed = owners.isNotEmpty(), confidence = if (owners.isEmpty()) 0f else 1f) }
-        scope.launch {
-            val result = writes.withLock { api.setOwners(receiptId, itemId, owners.map { ItemOwnerDto(it) }) }
-            if (result is ApiResult.Failure) {
-                updateLine(lineId) { before }
-                mutableState.update { it.copy(message = "Could not save that change. ${describe(result.failure)}") }
-            }
+        if (itemId in confirmingLines || mutableState.value.phase != ReviewPhase.Ready) return
+        updateLine(lineId) {
+            it.copy(
+                owners = owners,
+                confirmed = owners.isNotEmpty() && owners == savedOwners[itemId] && savedConfirmed[itemId] == true,
+                confidence = if (owners.isEmpty()) 0f else if (owners == savedOwners[itemId]) savedConfidence[itemId] ?: it.confidence else 1f,
+            )
         }
     }
 
-    /** Keeps the model's guess for a line as it is. */
+    /** Locks in the selected owners, or accepts an unchanged model guess. */
     fun accept(lineId: Int) {
         val itemId = itemIds[lineId] ?: return
-        updateLine(lineId) { it.copy(confirmed = true) }
+        val line = mutableState.value.draft?.lines?.find { it.id == lineId } ?: return
+        if (line.owners.isEmpty() || line.confirmed || mutableState.value.phase != ReviewPhase.Ready || !confirmingLines.add(itemId)) return
+        val owners = line.owners
         scope.launch {
-            val result = writes.withLock { api.accept(householdId, receiptId, listOf(itemId)) }
-            if (result is ApiResult.Failure) {
-                updateLine(lineId) { it.copy(confirmed = false) }
-                mutableState.update { it.copy(message = "Could not confirm that item. ${describe(result.failure)}") }
+            try {
+                val result = writes.withLock {
+                    if (owners == savedOwners[itemId]) api.accept(householdId, receiptId, listOf(itemId))
+                    else api.setOwners(receiptId, itemId, owners.map { ItemOwnerDto(it) })
+                }
+                when (result) {
+                    is ApiResult.Success -> {
+                        savedOwners = savedOwners + (itemId to owners)
+                        savedConfirmed = savedConfirmed + (itemId to true)
+                        savedConfidence = savedConfidence + (itemId to 1f)
+                        updateLine(lineId) { if (it.owners == owners) it.copy(confirmed = true, confidence = 1f) else it }
+                        mutableState.update { it.copy(message = null) }
+                    }
+                    is ApiResult.Failure -> mutableState.update {
+                        it.copy(message = "Could not confirm that item. ${describe(result.failure)}")
+                    }
+                }
+            } finally {
+                confirmingLines.remove(itemId)
             }
         }
     }
@@ -258,21 +280,33 @@ class ReceiptReviewController(
     private fun applyEdited(edited: EditedReceiptDto) {
         mutableState.update { state ->
             val draft = state.draft ?: return@update state
+            val previousOwners = savedOwners
+            val previousConfirmed = savedConfirmed
+            val previousConfidence = savedConfidence
             val before = itemIds.entries.associate { (lineId, itemId) -> itemId to draft.lines.find { it.id == lineId } }
             val ordered = edited.items.sortedBy { it.lineNumber }
             val ids = ordered.mapIndexed { index, item -> (if (item.lineNumber > 0) item.lineNumber else index + 1) to item.id }.toMap()
             val lines = ordered.mapIndexed { index, item ->
                 val old = before[item.id]
+                val persistedOwners = item.owners.map { it.personId }.toSet()
+                val chosenOwners = if (old != null && old.owners != previousOwners[item.id]) old.owners else persistedOwners
                 ReceiptLine(
                     id = if (item.lineNumber > 0) item.lineNumber else index + 1,
                     name = item.description,
                     priceCents = item.totalMinor.toInt(),
-                    owners = item.owners.map { it.personId }.toSet(),
+                    owners = chosenOwners,
                     confidence = old?.confidence ?: 0f,
-                    confirmed = item.owners.isNotEmpty() && old?.confirmed == true,
+                    confirmed = chosenOwners.isNotEmpty() && chosenOwners == persistedOwners &&
+                        previousOwners[item.id] == persistedOwners && previousConfirmed[item.id] == true,
                 )
             }
             itemIds = ids
+            savedOwners = ordered.associate { it.id to it.owners.map { owner -> owner.personId }.toSet() }
+            savedConfirmed = ordered.associate { item ->
+                item.id to (savedOwners[item.id]?.isNotEmpty() == true &&
+                    previousOwners[item.id] == savedOwners[item.id] && previousConfirmed[item.id] == true)
+            }
+            savedConfidence = ordered.associate { item -> item.id to (previousConfidence[item.id] ?: 0f) }
             state.copy(
                 draft = draft.copy(
                     lines = lines,
@@ -342,6 +376,10 @@ class ReceiptReviewController(
             it.copy(draft = it.draft.copy(payerChosen = payerId != null))
         }
         itemIds = lines.itemIds
+        savedOwners = receipt.items.associate { it.id to it.owners.map { owner -> owner.personId }.toSet() }
+        savedConfirmed = lines.draft.lines.associate { line -> lines.itemIds.getValue(line.id) to line.confirmed }
+        savedConfidence = lines.draft.lines.associate { line -> lines.itemIds.getValue(line.id) to line.confidence }
+        confirmingLines.clear()
         lastDeleted = null
         mutableState.value = ReviewState(
             ReviewPhase.Ready, message, lines.draft, receiptId, reconciliationWarning(reconcile(receipt)),
