@@ -202,6 +202,27 @@ data class NewReceiptItem(
     }
 }
 
+/** Fields to change on a draft receipt; null leaves a field as it is. */
+data class ReceiptPatch(
+    val paidByPersonId: Uuid? = null,
+    val merchantName: String? = null,
+    val purchasedAt: Instant? = null,
+    val taxMinor: Long? = null,
+    val totalMinor: Long? = null,
+)
+
+/** Fields to change on a receipt item; null leaves a field as it is. */
+data class ReceiptItemPatch(
+    val description: String? = null,
+    val quantity: BigDecimal? = null,
+    val unitPriceMinor: Long? = null,
+    val discountMinor: Long? = null,
+    val totalMinor: Long? = null,
+) {
+    val isEmpty: Boolean
+        get() = listOf(description, quantity, unitPriceMinor, discountMinor, totalMinor).all { it == null }
+}
+
 /** A payment from one member to another that reduces what [fromPersonId] owes [toPersonId]. */
 data class Settlement(
     val id: Uuid,

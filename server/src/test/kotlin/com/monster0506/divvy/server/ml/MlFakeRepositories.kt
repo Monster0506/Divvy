@@ -3,7 +3,10 @@ package com.monster0506.divvy.server.ml
 import com.monster0506.divvy.server.domain.CurrencyCode
 import com.monster0506.divvy.server.domain.Household
 import com.monster0506.divvy.server.domain.NewReceipt
+import com.monster0506.divvy.server.domain.NewReceiptItem
 import com.monster0506.divvy.server.domain.Receipt
+import com.monster0506.divvy.server.domain.ReceiptItemPatch
+import com.monster0506.divvy.server.domain.ReceiptPatch
 import com.monster0506.divvy.server.repository.HouseholdRepository
 import com.monster0506.divvy.server.repository.ReceiptRepository
 import kotlin.uuid.Uuid
@@ -18,6 +21,16 @@ class FakeReceipts(var all: List<Receipt>) : ReceiptRepository {
 
     override suspend fun listByHousehold(householdId: Uuid, limit: Int): List<Receipt> =
         all.filter { it.householdId == householdId }.take(limit)
+
+    override suspend fun update(id: Uuid, patch: ReceiptPatch): Receipt? = error("not used")
+
+    override suspend fun addItem(receiptId: Uuid, item: NewReceiptItem): Receipt? = error("not used")
+
+    override suspend fun updateItem(receiptId: Uuid, itemId: Uuid, patch: ReceiptItemPatch): Receipt? = error("not used")
+
+    override suspend fun deleteItem(receiptId: Uuid, itemId: Uuid): Receipt? = error("not used")
+
+    override suspend fun mergeItems(receiptId: Uuid, itemIds: List<Uuid>, description: String?): Receipt? = error("not used")
 
     override suspend fun confirm(id: Uuid): Receipt? = error("not used")
 

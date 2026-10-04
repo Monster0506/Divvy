@@ -20,6 +20,7 @@ import com.monster0506.divvy.server.domain.LedgerEntry
 import com.monster0506.divvy.server.domain.LedgerSourceType
 import com.monster0506.divvy.server.domain.NewLedgerEntry
 import com.monster0506.divvy.server.domain.NewReceipt
+import com.monster0506.divvy.server.domain.NewReceiptItem
 import com.monster0506.divvy.server.domain.NewSettlement
 import com.monster0506.divvy.server.domain.OwnerShare
 import com.monster0506.divvy.server.domain.OwnershipChange
@@ -27,6 +28,8 @@ import com.monster0506.divvy.server.domain.OwnershipSource
 import com.monster0506.divvy.server.domain.Person
 import com.monster0506.divvy.server.domain.Receipt
 import com.monster0506.divvy.server.domain.ReceiptItem
+import com.monster0506.divvy.server.domain.ReceiptItemPatch
+import com.monster0506.divvy.server.domain.ReceiptPatch
 import com.monster0506.divvy.server.domain.ReceiptStatus
 import com.monster0506.divvy.server.domain.Settlement
 import org.jetbrains.exposed.v1.core.ResultRow
@@ -47,8 +50,10 @@ import org.jetbrains.exposed.v1.jdbc.insertReturning
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.update
 import org.jetbrains.exposed.v1.jdbc.selectAll
+import org.jetbrains.exposed.v1.jdbc.update
 import org.jetbrains.exposed.v1.jdbc.updateReturning
 import org.jetbrains.exposed.v1.jdbc.upsert
+import java.math.BigDecimal
 import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
@@ -226,6 +231,105 @@ class ExposedReceiptRepository(private val db: Database) : ReceiptRepository {
         if (reopened) reverseReceiptLedger(id)
         loadReceipts(listOf(id)).singleOrNull()
     }
+
+    override suspend fun update(id: Uuid, patch: ReceiptPatch): Receipt? = db.dbQuery {
+        lockDraft(id) ?: return@dbQuery null
+        if (patch != ReceiptPatch()) {
+            ReceiptTable.update({ ReceiptTable.id eq id }) {
+                patch.paidByPersonId?.let { v -> it[paidByPersonId] = v }
+                patch.merchantName?.let { v -> it[merchantName] = v }
+                patch.purchasedAt?.let { v -> it[purchasedAt] = v.toUtc() }
+                patch.taxMinor?.let { v -> it[taxMinor] = v }
+                patch.totalMinor?.let { v -> it[totalMinor] = v }
+            }
+        }
+        loadReceipts(listOf(id)).singleOrNull()
+    }
+
+    override suspend fun addItem(receiptId: Uuid, item: NewReceiptItem): Receipt? = db.dbQuery {
+        val householdId = lockDraft(receiptId) ?: return@dbQuery null
+        val nextLine = (ReceiptItemTable.select(ReceiptItemTable.lineNumber)
+            .where { ReceiptItemTable.receiptId eq receiptId }
+            .maxOfOrNull { it[ReceiptItemTable.lineNumber] } ?: 0) + 1
+        val itemId = ReceiptItemTable.insertReturning(listOf(ReceiptItemTable.id)) {
+            it[ReceiptItemTable.householdId] = householdId
+            it[ReceiptItemTable.receiptId] = receiptId
+            it[lineNumber] = nextLine
+            it[rawText] = item.rawText
+            it[description] = item.description
+            it[quantity] = item.quantity
+            it[unitPriceMinor] = item.unitPriceMinor
+            it[discountMinor] = item.discountMinor
+            it[totalMinor] = item.totalMinor
+        }.single()[ReceiptItemTable.id]
+        item.owners.forEach { owner ->
+            ItemOwnerTable.insert {
+                it[ItemOwnerTable.householdId] = householdId
+                it[receiptItemId] = itemId
+                it[personId] = owner.personId
+                it[shareWeight] = owner.shareWeight
+                it[ownershipSource] = owner.source.dbValue
+                it[confidence] = owner.confidence
+            }
+        }
+        loadReceipts(listOf(receiptId)).single()
+    }
+
+    override suspend fun updateItem(receiptId: Uuid, itemId: Uuid, patch: ReceiptItemPatch): Receipt? = db.dbQuery {
+        lockDraft(receiptId) ?: return@dbQuery null
+        if (!itemExists(receiptId, itemId)) return@dbQuery null
+        if (!patch.isEmpty) {
+            ReceiptItemTable.update({ ReceiptItemTable.id eq itemId }) {
+                patch.description?.let { v -> it[description] = v }
+                patch.quantity?.let { v -> it[quantity] = v }
+                patch.unitPriceMinor?.let { v -> it[unitPriceMinor] = v }
+                patch.discountMinor?.let { v -> it[discountMinor] = v }
+                patch.totalMinor?.let { v -> it[totalMinor] = v }
+            }
+        }
+        loadReceipts(listOf(receiptId)).single()
+    }
+
+    override suspend fun deleteItem(receiptId: Uuid, itemId: Uuid): Receipt? = db.dbQuery {
+        lockDraft(receiptId) ?: return@dbQuery null
+        if (!itemExists(receiptId, itemId)) return@dbQuery null
+        ReceiptItemTable.deleteWhere { ReceiptItemTable.id eq itemId }
+        loadReceipts(listOf(receiptId)).single()
+    }
+
+    override suspend fun mergeItems(receiptId: Uuid, itemIds: List<Uuid>, description: String?): Receipt? = db.dbQuery {
+        lockDraft(receiptId) ?: return@dbQuery null
+        val rows = ReceiptItemTable.selectAll()
+            .where { (ReceiptItemTable.receiptId eq receiptId) and (ReceiptItemTable.id inList itemIds) }
+            .orderBy(ReceiptItemTable.lineNumber)
+            .toList()
+        if (rows.size != itemIds.distinct().size || rows.size < 2) return@dbQuery null
+        val target = rows.first()
+        ReceiptItemTable.update({ ReceiptItemTable.id eq target[ReceiptItemTable.id] }) {
+            it[ReceiptItemTable.description] = description ?: target[ReceiptItemTable.description]
+            it[quantity] = rows.fold(BigDecimal.ZERO) { sum, row -> sum + row[ReceiptItemTable.quantity] }
+            it[unitPriceMinor] = null
+            it[discountMinor] = rows.sumOf { row -> row[ReceiptItemTable.discountMinor] }
+            it[totalMinor] = rows.sumOf { row -> row[ReceiptItemTable.totalMinor] }
+        }
+        val others = rows.drop(1).map { it[ReceiptItemTable.id] }
+        ReceiptItemTable.deleteWhere { ReceiptItemTable.id inList others }
+        loadReceipts(listOf(receiptId)).single()
+    }
+
+    /** Locks a receipt row and returns its household, null if missing; throws if it is not a draft. */
+    private fun lockDraft(id: Uuid): Uuid? {
+        val row = ReceiptTable.selectAll().where { ReceiptTable.id eq id }.forUpdate().singleOrNull() ?: return null
+        if (ReceiptStatus.fromDb(row[ReceiptTable.status]) != ReceiptStatus.DRAFT) {
+            throw ReceiptLockedException("Receipt $id is ${row[ReceiptTable.status]} and can no longer be edited")
+        }
+        return row[ReceiptTable.householdId]
+    }
+
+    private fun itemExists(receiptId: Uuid, itemId: Uuid): Boolean =
+        !ReceiptItemTable.select(ReceiptItemTable.id)
+            .where { (ReceiptItemTable.id eq itemId) and (ReceiptItemTable.receiptId eq receiptId) }
+            .empty()
 
     override suspend fun correctionRate(householdId: Uuid): Double? = db.dbQuery {
         val predictedSources = listOf(LabelSource.PREDICTED_ACCEPTED.dbValue, LabelSource.PREDICTED_CORRECTED.dbValue)
