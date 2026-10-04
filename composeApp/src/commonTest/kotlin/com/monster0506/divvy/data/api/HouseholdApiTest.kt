@@ -21,13 +21,13 @@ class HouseholdApiTest {
         HouseholdApi(createHttpClient(ApiConfig("http://test", "key"), MockEngine(handler)))
 
     @Test
-    fun postsNameAndReturnsId() = runTest {
+    fun postsNameAndTheNameIsTheId() = runTest {
         var seen: HttpRequestData? = null
         val result = api { request ->
             seen = request
             respond("""{"id":"abc","name":"Home","defaultCurrency":"USD"}""", HttpStatusCode.Created, json)
         }.create("Home")
-        assertEquals(CreateHouseholdResult.Created("abc"), result)
+        assertEquals(CreateHouseholdResult.Created("Home"), result)
         assertEquals(HttpMethod.Post, seen!!.method)
         assertEquals("/households", seen!!.url.encodedPath)
         assertEquals("key", seen!!.headers[API_KEY_HEADER])

@@ -1,492 +1,22 @@
-package com.monster0506.divvy.review
-
-import com.monster0506.divvy.data.api.ApiFailure
-import com.monster0506.divvy.data.api.ApiResult
-import com.monster0506.divvy.data.dto.AcceptedPredictionsDto
-import com.monster0506.divvy.data.dto.ApiError
-import com.monster0506.divvy.data.dto.ConfirmedReceiptDto
-import com.monster0506.divvy.data.dto.EditedItemDto
-import com.monster0506.divvy.data.dto.EditedOwnerDto
-import com.monster0506.divvy.data.dto.EditedReceiptDto
-import com.monster0506.divvy.data.dto.ItemEditRequest
-import com.monster0506.divvy.data.dto.ReconciliationDto
-import com.monster0506.divvy.data.dto.ItemOwnerDto
-import com.monster0506.divvy.data.dto.ItemOwnerReadDto
-import com.monster0506.divvy.data.dto.ItemOwnersDto
-import com.monster0506.divvy.data.dto.ItemPredictionDto
-import com.monster0506.divvy.data.dto.MoneyDto
-import com.monster0506.divvy.data.dto.PersonDto
-import com.monster0506.divvy.data.dto.PredictionsDto
-import com.monster0506.divvy.data.dto.ReceiptDto
-import com.monster0506.divvy.data.dto.ReceiptItemDto
-import com.monster0506.divvy.data.dto.ReceiptStatusDto
-import com.monster0506.divvy.data.dto.ReceiptUploadDto
-import kotlinx.coroutines.test.TestScope
-import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.runTest
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertNotNull
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
-
-private fun person(id: String, name: String, archived: Boolean = false) =
-    PersonDto(id, "h1", name, archivedAt = if (archived) "2026-10-01T00:00:00Z" else null)
-
-private fun item(id: String, line: Int, name: String, cents: Long, vararg owners: ItemOwnerReadDto) =
-    ReceiptItemDto(id, name, MoneyDto(cents), lineNumber = line, rawText = name.uppercase(), owners = owners.toList())
-
-private fun guess(person: String, confidence: Double) =
-    ItemOwnerReadDto(person, source = "model", confidence = confidence)
-
-private fun receipt(
-    status: ReceiptStatusDto = ReceiptStatusDto.Draft,
-    payer: String? = null,
-    reason: String? = null,
-    items: List<ReceiptItemDto> = listOf(
-        item("i1", 1, "bananas", 188, guess("p1", 0.95)),
-        item("i2", 2, "great value milk", 398, guess("p2", 0.6)),
-        item("i3", 3, "mystery thing", 250),
-    ),
-) = ReceiptDto(
-    id = "r1",
-    householdId = "h1",
-    status = status,
-    paidByPersonId = payer,
-    merchantName = "Walmart",
-    purchasedAt = "2026-09-18T12:00:00Z",
-    tax = MoneyDto(41),
-    total = MoneyDto(877),
-    items = items,
-    failureReason = reason,
-)
-
-private class FakeApi : ReviewApi {
-    var polls = mutableListOf<ApiResult<ReceiptDto>>()
-    var lastPoll: ApiResult<ReceiptDto> = ApiResult.Success(receipt())
-    var people: ApiResult<List<PersonDto>> = ApiResult.Success(listOf(person("p1", "TJ"), person("p2", "Sumedh")))
-    var predictions: ApiResult<PredictionsDto> = ApiResult.Success(
-        PredictionsDto(
-            "r1",
-            items = listOf(
-                ItemPredictionDto("i1", "predicted", listOf("p1"), 0.95),
-                ItemPredictionDto("i2", "predicted", listOf("p2"), 0.6, needsConfirmation = true),
-                ItemPredictionDto("i3", "unknown"),
-            ),
-        ),
-    )
-    var payerResult: ApiResult<Unit> = ApiResult.Success(Unit)
-    var ownersResult: ApiResult<ItemOwnersDto> = ApiResult.Success(ItemOwnersDto("i1"))
-    var acceptResult: ApiResult<AcceptedPredictionsDto> = ApiResult.Success(AcceptedPredictionsDto())
-    var confirmResult: ApiResult<ConfirmedReceiptDto> =
-        ApiResult.Success(ConfirmedReceiptDto("r1", ReceiptStatusDto.Confirmed))
-    var retryResult: ApiResult<ReceiptUploadDto> = ApiResult.Success(ReceiptUploadDto("r1", "processing"))
-
-    val calls = mutableListOf<String>()
-    var pollCount = 0
-
-    override suspend fun receipt(id: String): ApiResult<ReceiptDto> {
-        pollCount++
-        return if (polls.isNotEmpty()) polls.removeAt(0) else lastPoll
-    }
-
-    override suspend fun people(householdId: String) = people
-
-    override suspend fun predictions(householdId: String, receiptId: String) = predictions
-
-    override suspend fun setPayer(receiptId: String, personId: String): ApiResult<Unit> {
-        calls += "payer:$personId"
-        return payerResult
-    }
-
-    override suspend fun setOwners(
-        receiptId: String,
-        itemId: String,
-        owners: List<ItemOwnerDto>
-    ): ApiResult<ItemOwnersDto> {
-        calls += "owners:$itemId:${owners.map { it.personId }}"
-        return ownersResult
-    }
-
-    override suspend fun accept(
-        householdId: String,
-        receiptId: String,
-        itemIds: List<String>?
-    ): ApiResult<AcceptedPredictionsDto> {
-        calls += "accept:$itemIds"
-        return acceptResult
-    }
-
-    override suspend fun confirm(receiptId: String): ApiResult<ConfirmedReceiptDto> {
-        calls += "confirm"
-        return confirmResult
-    }
-
-    override suspend fun retry(householdId: String, receiptId: String): ApiResult<ReceiptUploadDto> {
-        calls += "retry"
-        return retryResult
-    }
-
-    var rerunResult: ApiResult<PredictionsDto> = ApiResult.Success(PredictionsDto("r1"))
-
-    override suspend fun rerunPredictions(householdId: String, receiptId: String): ApiResult<PredictionsDto> {
-        calls += "rerun"
-        return rerunResult
-    }
-
-    var editResult: ApiResult<EditedReceiptDto> = ApiResult.Success(edited())
-
-    override suspend fun addItem(receiptId: String, item: ItemEditRequest): ApiResult<EditedReceiptDto> {
-        calls += "add:${item.description}:${item.totalMinor}"
-        return editResult
-    }
-
-    override suspend fun updateItem(
-        receiptId: String,
-        itemId: String,
-        change: ItemEditRequest
-    ): ApiResult<EditedReceiptDto> {
-        calls += "update:$itemId:${change.description}:${change.totalMinor}"
-        return editResult
-    }
-
-    override suspend fun deleteItem(receiptId: String, itemId: String): ApiResult<EditedReceiptDto> {
-        calls += "delete:$itemId"
-        return editResult
-    }
-
-    override suspend fun mergeItems(receiptId: String, itemIds: List<String>): ApiResult<EditedReceiptDto> {
-        calls += "merge:$itemIds"
-        return editResult
-    }
-}
-
-private fun edited(
-    vararg items: EditedItemDto,
-    reconciled: Boolean = true,
-    subtotalGap: Long? = null,
-) = EditedReceiptDto(
-    id = "r1",
-    householdId = "h1",
-    status = ReceiptStatusDto.Draft,
-    items = items.toList(),
-    taxMinor = 41,
-    reconciliation = ReconciliationDto(items.sumOf { it.totalMinor }, 0, subtotalGap, reconciled),
-)
-
-private fun line(id: String, number: Int, name: String, cents: Long, vararg owners: String) =
-    EditedItemDto(id, name, cents, lineNumber = number, owners = owners.map { EditedOwnerDto(it) })
-
-private fun failure(f: ApiFailure) = ApiResult.Failure(f)
-
-class ReceiptReviewControllerTest {
-    private val remembered = mutableListOf<String>()
-
-    private fun TestScope.controller(api: FakeApi, readTimeout: Long = 60_000) =
-        ReceiptReviewController(
-            api, this, pollMillis = 1_000, readTimeoutMillis = readTimeout, maxMissedPolls = 3,
-            onPayerChosen = { remembered += it },
-        )
-
-    private suspend fun TestScope.ready(api: FakeApi): ReceiptReviewController =
-        controller(api).also {
-            it.open("h1", "r1", payerId = "p1")
-            advanceUntilIdle()
-            assertEquals(ReviewPhase.Ready, it.state.value.phase, it.state.value.toString())
-        }
-
-    // --- waiting for the read -------------------------------------------------------------------
-
-    @Test
-    fun it_waits_while_the_server_reads_the_photo_then_shows_the_draft() = runTest {
-        val api = FakeApi().apply {
-            polls = mutableListOf(
-                ApiResult.Success(receipt(ReceiptStatusDto.Processing, items = emptyList())),
-                ApiResult.Success(receipt(ReceiptStatusDto.Processing, items = emptyList())),
-            )
-        }
-        val c = controller(api)
-
-        c.open("h1", "r1")
-        assertEquals(ReviewPhase.Reading, c.state.value.phase)
-        advanceUntilIdle()
-
-        assertEquals(ReviewPhase.Ready, c.state.value.phase)
-        assertEquals(3, api.pollCount)
-        assertEquals("Walmart", c.state.value.draft?.store)
-        assertEquals("Sep 18, 2026", c.state.value.draft?.date)
-        assertEquals(41, c.state.value.draft?.taxCents)
-        assertEquals(
-            listOf("bananas", "great value milk", "mystery thing"),
-            c.state.value.draft?.lines?.map { it.name })
-        assertEquals(listOf(188, 398, 250), c.state.value.draft?.lines?.map { it.priceCents })
-    }
-
-    @Test
-    fun the_servers_confidence_decides_which_lines_need_confirming() = runTest {
-        val c = ready(FakeApi())
-
-        val lines = c.state.value.draft!!.lines
-        assertEquals(listOf(true, false, false), lines.map { it.confirmed })
-        assertEquals(0.95f, lines[0].confidence)
-        assertEquals(0.6f, lines[1].confidence)
-        assertEquals(0f, lines[2].confidence)
-        assertEquals(setOf("p2"), lines[1].owners)
-    }
-
-    @Test
-    fun without_predictions_every_guessed_line_is_still_shown_with_its_owners() = runTest {
-        val api = FakeApi().apply { predictions = failure(ApiFailure.Offline) }
-
-        val c = ready(api)
-
-        assertEquals(listOf(true, true, false), c.state.value.draft!!.lines.map { it.confirmed })
-    }
-
-    @Test
-    fun a_failed_read_shows_the_servers_reason() = runTest {
-        val api = FakeApi().apply {
-            lastPoll = ApiResult.Success(
-                receipt(
-                    ReceiptStatusDto.Failed,
-                    reason = "No items could be read from the photo.",
-                    items = emptyList()
-                )
-            )
-        }
-        val c = controller(api)
-
-        c.open("h1", "r1")
-        advanceUntilIdle()
-
-        assertEquals(ReviewPhase.Failed, c.state.value.phase)
-        assertEquals("No items could be read from the photo.", c.state.value.message)
-    }
-
-    @Test
-    fun retry_asks_the_server_to_read_again_and_follows_it() = runTest {
-        val api = FakeApi().apply {
-            lastPoll = ApiResult.Success(receipt(ReceiptStatusDto.Failed, reason = "x", items = emptyList()))
-        }
-        val c = controller(api)
-        c.open("h1", "r1")
-        advanceUntilIdle()
-
-        api.lastPoll = ApiResult.Success(receipt())
-        c.retry()
-        advanceUntilIdle()
-
-        assertTrue("retry" in api.calls)
-        assertEquals(ReviewPhase.Ready, c.state.value.phase)
-        assertNull(c.state.value.message)
-    }
-
-    @Test
-    fun a_server_that_cannot_be_reached_is_tried_a_few_times_then_reported() = runTest {
-        val api = FakeApi().apply { lastPoll = failure(ApiFailure.Offline) }
-        val c = controller(api)
-
-        c.open("h1", "r1")
-        advanceUntilIdle()
-
-        assertEquals(ReviewPhase.Unreachable, c.state.value.phase)
-        assertEquals(3, api.pollCount)
-        assertEquals("Could not reach the server.", c.state.value.message)
-    }
-
-    @Test
-    fun a_blip_in_the_connection_does_not_stop_the_wait() = runTest {
-        val api = FakeApi().apply { polls = mutableListOf(failure(ApiFailure.Offline), failure(ApiFailure.Offline)) }
-        val c = controller(api)
-
-        c.open("h1", "r1")
-        advanceUntilIdle()
-
-        assertEquals(ReviewPhase.Ready, c.state.value.phase)
-    }
-
-    @Test
-    fun a_rejected_key_or_a_missing_receipt_stops_at_once() = runTest {
-        val api = FakeApi().apply { lastPoll = failure(ApiFailure.Unauthorised) }
-        val c = controller(api)
-        c.open("h1", "r1")
-        advanceUntilIdle()
-        assertEquals(1, api.pollCount)
-        assertEquals(ReviewPhase.Unreachable, c.state.value.phase)
-
-        val missing =
-            FakeApi().apply { lastPoll = failure(ApiFailure.Validation(ApiError("not_found", "receipt not found"))) }
-        val d = controller(missing)
-        d.open("h1", "r1")
-        advanceUntilIdle()
-        assertEquals(1, missing.pollCount)
-        assertEquals("receipt not found", d.state.value.message)
-    }
-
-    @Test
-    fun a_read_that_never_finishes_gives_up_with_a_message() = runTest {
-        val api =
-            FakeApi().apply { lastPoll = ApiResult.Success(receipt(ReceiptStatusDto.Processing, items = emptyList())) }
-        val c = controller(api, readTimeout = 5_000)
-
-        c.open("h1", "r1")
-        advanceUntilIdle()
-
-        assertEquals(ReviewPhase.Failed, c.state.value.phase)
-        assertEquals(5, api.pollCount)
-        assertTrue(c.state.value.message!!.contains("taking longer"))
-    }
-
-    @Test
-    fun an_already_confirmed_receipt_is_shown_as_confirmed() = runTest {
-        val api = FakeApi().apply { lastPoll = ApiResult.Success(receipt(ReceiptStatusDto.Confirmed, payer = "p1")) }
-        val c = controller(api)
-
-        c.open("h1", "r1")
-        advanceUntilIdle()
-
-        assertEquals(ReviewPhase.Confirmed, c.state.value.phase)
-    }
-
-    @Test
-    fun a_household_with_nobody_in_it_cannot_be_reviewed() = runTest {
-        val api = FakeApi().apply { people = ApiResult.Success(listOf(person("p1", "TJ", archived = true))) }
-        val c = controller(api)
-
-        c.open("h1", "r1")
-        advanceUntilIdle()
-
-        assertEquals(ReviewPhase.Unreachable, c.state.value.phase)
-        assertEquals(0, api.pollCount)
-    }
-
-    // --- who paid ---------------------------------------------------------------------------------
-
-    @Test
-    fun a_receipt_without_a_payer_gets_the_chosen_one_saved() = runTest {
-        val api = FakeApi()
-        val c = controller(api)
-
-        c.open("h1", "r1", payerId = "p2")
-        advanceUntilIdle()
-
-        assertEquals(listOf("payer:p2"), api.calls)
-        assertEquals("Sumedh", c.state.value.draft?.payer?.name)
-    }
-
-    @Test
-    fun nobody_is_saved_as_payer_until_one_is_chosen() = runTest {
-        val api = FakeApi()
-        val c = controller(api)
-
-        c.open("h1", "r1")
-        advanceUntilIdle()
-        assertTrue(api.calls.isEmpty())
-        assertFalse(c.state.value.draft!!.payerChosen)
-
-        val unknown = FakeApi()
-        controller(unknown).also { it.open("h1", "r1", payerId = "someone-else") }
-        advanceUntilIdle()
-        assertTrue(unknown.calls.isEmpty())
-    }
-
-    @Test
-    fun confirming_without_a_chosen_payer_is_refused() = runTest {
-        val api = FakeApi()
-        val c = controller(api).also { it.open("h1", "r1") }
-        advanceUntilIdle()
-
-        c.confirm()
-        advanceUntilIdle()
-
-        assertFalse("confirm" in api.calls)
-        assertEquals("Choose who paid before confirming.", c.state.value.message)
-    }
-
-    @Test
-    fun choosing_a_payer_saves_it_remembers_it_and_unblocks_confirm() = runTest {
-        val api = FakeApi()
-        val c = controller(api).also { it.open("h1", "r1") }
-        advanceUntilIdle()
-
-        c.setPayer("p2")
-        assertEquals("Sumedh", c.state.value.draft?.payer?.name)
-        assertTrue(c.state.value.draft!!.payerChosen)
-        advanceUntilIdle()
-        assertEquals(listOf("payer:p2"), api.calls)
-        assertEquals(listOf("p2"), remembered)
-
-        c.confirm()
-        advanceUntilIdle()
-        assertEquals(ReviewPhase.Confirmed, c.state.value.phase)
-    }
-
-    @Test
-    fun a_payer_the_server_refuses_is_put_back() = runTest {
-        val api = FakeApi().apply { payerResult = failure(ApiFailure.Offline) }
-        val c = controller(api).also { it.open("h1", "r1") }
-        advanceUntilIdle()
-
-        c.setPayer("p2")
-        advanceUntilIdle()
-
-        assertFalse(c.state.value.draft!!.payerChosen)
-        assertTrue(remembered.isEmpty())
-        assertTrue(c.state.value.message!!.startsWith("Could not save who paid"))
-    }
-
-    @Test
-    fun a_chosen_payer_can_be_changed() = runTest {
-        val api = FakeApi()
-        val c = ready(api)
-
-        c.setPayer("p2")
-        advanceUntilIdle()
-
-        assertEquals(listOf("payer:p1", "payer:p2"), api.calls)
-        assertEquals("Sumedh", c.state.value.draft?.payer?.name)
-    }
-
-    @Test
-    fun a_payer_the_server_already_has_is_kept_and_not_saved_again() = runTest {
-        val api = FakeApi().apply { lastPoll = ApiResult.Success(receipt(payer = "p2")) }
-        val c = controller(api)
-
-        c.open("h1", "r1", payerId = "p1")
-        advanceUntilIdle()
-
-        assertTrue(api.calls.isEmpty())
-        assertEquals("Sumedh", c.state.value.draft?.payer?.name)
-    }
-
-    @Test
-    fun confirming_is_blocked_until_the_payer_is_saved() = runTest {
-        val api = FakeApi().apply { payerResult = failure(ApiFailure.Offline) }
-        val c = ready(api)
-        assertTrue(c.state.value.message!!.startsWith("Could not save who paid"))
-
-        c.confirm()
-        advanceUntilIdle()
-
-        assertFalse("confirm" in api.calls)
-        assertEquals("Choose who paid before confirming.", c.state.value.message)
-        assertEquals(ReviewPhase.Ready, c.state.value.phase)
-    }
 
     // --- assigning ------------------------------------------------------------------------------
 
     @Test
-    fun choosing_owners_shows_at_once_and_saves_to_the_server() = runTest {
+    fun choosing_multiple_owners_keeps_the_line_pending_until_confirmed() = runTest {
         val api = FakeApi()
         val c = ready(api)
 
-        c.setOwners(3, setOf("p1", "p2"))
+        c.toggleOwner(3, "p1")
+        c.toggleOwner(3, "p2")
         assertEquals(setOf("p1", "p2"), c.state.value.draft!!.lines[2].owners)
-        assertTrue(c.state.value.draft!!.lines[2].confirmed)
+        assertFalse(c.state.value.draft!!.lines[2].confirmed)
         advanceUntilIdle()
+        assertTrue(api.calls.none { it.startsWith("owners:") })
 
+        c.accept(3)
+        advanceUntilIdle()
         assertEquals("owners:i3:[p1, p2]", api.calls.last())
+        assertTrue(c.state.value.draft!!.lines[2].confirmed)
     }
 
     @Test
@@ -501,22 +31,25 @@ class ReceiptReviewControllerTest {
         c.toggleOwner(2, "p2")
         advanceUntilIdle()
         assertEquals(setOf("p1"), c.state.value.draft!!.lines[1].owners)
+        assertFalse(c.state.value.draft!!.lines[1].confirmed)
+        assertTrue(api.calls.none { it.startsWith("owners:") })
+
+        c.accept(2)
+        advanceUntilIdle()
         assertEquals("owners:i2:[p1]", api.calls.last())
     }
 
     @Test
-    fun a_change_the_server_refuses_is_put_back_with_a_message() = runTest {
-        val api = FakeApi().apply {
-            ownersResult = failure(ApiFailure.Validation(ApiError("conflict", "receipt is confirmed")))
-        }
+    fun a_refused_confirmation_keeps_the_selection_visible_for_retry() = runTest {
+        val api = FakeApi().apply { ownersResult = failure(ApiFailure.Validation(ApiError("conflict", "receipt is confirmed"))) }
         val c = ready(api)
-        val before = c.state.value.draft!!.lines[1]
-
         c.setOwners(2, setOf("p1"))
+        c.accept(2)
         advanceUntilIdle()
 
-        assertEquals(before, c.state.value.draft!!.lines[1])
-        assertTrue(c.state.value.message!!.contains("Could not save that change"))
+        assertEquals(setOf("p1"), c.state.value.draft!!.lines[1].owners)
+        assertFalse(c.state.value.draft!!.lines[1].confirmed)
+        assertTrue(c.state.value.message!!.contains("Could not confirm that item"))
         assertTrue(c.state.value.message!!.contains("receipt is confirmed"))
     }
 
@@ -533,15 +66,49 @@ class ReceiptReviewControllerTest {
     }
 
     @Test
+    fun an_item_without_owners_cannot_be_confirmed() = runTest {
+        val api = FakeApi()
+        val c = ready(api)
+
+        c.accept(3)
+        advanceUntilIdle()
+
+        assertFalse(c.state.value.draft!!.lines[2].confirmed)
+        assertTrue(api.calls.none { it.startsWith("accept:") || it.startsWith("owners:") })
+    }
+
+    @Test
+    fun an_edit_does_not_discard_owners_chosen_before_confirmation() = runTest {
+        val api = FakeApi()
+        val c = ready(api)
+        c.setOwners(2, setOf("p1", "p2"))
+        api.editResult = ApiResult.Success(edited(
+            line("i1", 1, "bananas", 188, "p1"),
+            line("i2", 2, "milk", 398, "p2"),
+            line("i3", 3, "mystery thing", 250),
+        ))
+
+        c.editLine(2, "milk", 398)
+        advanceUntilIdle()
+
+        assertEquals(setOf("p1", "p2"), c.state.value.draft!!.lines[1].owners)
+        assertFalse(c.state.value.draft!!.lines[1].confirmed)
+        c.accept(2)
+        advanceUntilIdle()
+        assertEquals("owners:i2:[p1, p2]", api.calls.last())
+    }
+
+    @Test
     fun accepting_a_guess_confirms_that_line_on_the_server() = runTest {
         val api = FakeApi()
         val c = ready(api)
 
         c.accept(2)
-        assertTrue(c.state.value.draft!!.lines[1].confirmed)
+        assertFalse(c.state.value.draft!!.lines[1].confirmed)
         advanceUntilIdle()
 
         assertEquals("accept:[i2]", api.calls.last())
+        assertTrue(c.state.value.draft!!.lines[1].confirmed)
     }
 
     @Test
@@ -695,6 +262,49 @@ class ReceiptReviewControllerTest {
 
         assertEquals(before, c.state.value.draft)
         assertTrue(c.state.value.message!!.contains("can no longer be edited"))
+    }
+
+    @Test
+    fun details_edit_sends_only_changed_fields_and_updates_the_draft_and_warning() = runTest {
+        val api = FakeApi()
+        val c = ready(api)
+        api.detailsResult = ApiResult.Success(edited(
+            line("i1", 1, "bananas", 188, "p1"), line("i2", 2, "great value milk", 398, "p2"), line("i3", 3, "mystery thing", 250),
+            merchantName = "Target", purchasedAt = "2026-10-01T12:00:00Z", taxMinor = 50, totalMinor = 886,
+            reconciled = false, subtotalGap = -20,
+        ))
+
+        c.editDetails(ReceiptDetailsEdit("Target", "2026-10-01", 50, 886))
+        advanceUntilIdle()
+
+        assertEquals("details:Target:2026-10-01T12:00:00Z:50:886", api.calls.last())
+        assertEquals("Target", c.state.value.draft!!.store)
+        assertEquals("Oct 1, 2026", c.state.value.draft!!.date)
+        assertEquals("2026-10-01", c.state.value.draft!!.dateIso)
+        assertEquals(50, c.state.value.draft!!.taxCents)
+        assertEquals(886, c.state.value.draft!!.printedTotalCents)
+        assertNotNull(c.state.value.warning)
+
+        api.detailsResult = ApiResult.Success(edited(
+            line("i1", 1, "bananas", 188, "p1"), line("i2", 2, "great value milk", 398, "p2"), line("i3", 3, "mystery thing", 250),
+            merchantName = "Target", purchasedAt = "2026-10-01T12:00:00Z", taxMinor = 51, totalMinor = 887,
+        ))
+        c.editDetails(ReceiptDetailsEdit("Target", "2026-10-01", 51, 887))
+        advanceUntilIdle()
+        assertNull(c.state.value.warning)
+    }
+
+    @Test
+    fun a_refused_details_edit_keeps_the_draft_and_shows_the_server_message() = runTest {
+        val api = FakeApi().apply { detailsResult = failure(ApiFailure.Validation(ApiError("conflict", "receipt is confirmed and can no longer be edited"))) }
+        val c = ready(api)
+        val before = c.state.value.draft
+
+        c.editDetails(ReceiptDetailsEdit("Target", "2026-10-01", 50, 900))
+        advanceUntilIdle()
+
+        assertEquals(before, c.state.value.draft)
+        assertTrue(c.state.value.message!!.contains("receipt is confirmed"))
     }
 
     @Test
@@ -880,6 +490,126 @@ class ReceiptReviewControllerTest {
         assertNull(reconciliationWarning(reconcile(dto)))
     }
 
+    // --- guessing again -----------------------------------------------------------------------------
+
+    @Test
+    fun guessing_again_fills_in_a_line_nobody_owned() = runTest {
+        val api = FakeApi()
+        val c = ready(api)
+        api.lastPoll = ApiResult.Success(
+            receipt(
+                items = listOf(
+                    item("i1", 1, "bananas", 188, guess("p1", 0.95)),
+                    item("i2", 2, "great value milk", 398, guess("p2", 0.6)),
+                    item("i3", 3, "mystery thing", 250, guess("p2", 0.9)),
+                ),
+            ),
+        )
+        api.predictions = ApiResult.Success(
+            PredictionsDto(
+                "r1",
+                items = listOf(
+                    ItemPredictionDto("i1", "predicted", listOf("p1"), 0.95),
+                    ItemPredictionDto("i2", "predicted", listOf("p2"), 0.6, needsConfirmation = true),
+                    ItemPredictionDto("i3", "predicted", listOf("p2"), 0.9),
+                ),
+            ),
+        )
+
+        c.guessAgain()
+        assertTrue(c.state.value.guessing)
+        advanceUntilIdle()
+
+        assertTrue("rerun" in api.calls)
+        assertFalse(c.state.value.guessing)
+        val line = c.state.value.draft!!.lines[2]
+        assertEquals(setOf("p2"), line.owners)
+        assertTrue(line.confirmed)
+    }
+
+    @Test
+    fun guessing_again_never_overwrites_a_confirmed_owner() = runTest {
+        val api = FakeApi()
+        val c = ready(api)
+        c.setOwners(3, setOf("p1"))
+        c.accept(3)
+        advanceUntilIdle()
+        api.lastPoll = ApiResult.Success(
+            receipt(
+                items = listOf(
+                    item("i1", 1, "bananas", 188, guess("p1", 0.95)),
+                    item("i2", 2, "great value milk", 398, guess("p2", 0.6)),
+                    item("i3", 3, "mystery thing", 250, guess("p2", 0.9)),
+                ),
+            ),
+        )
+
+        c.guessAgain()
+        advanceUntilIdle()
+
+        val line = c.state.value.draft!!.lines[2]
+        assertEquals(setOf("p1"), line.owners)
+        assertTrue(line.confirmed)
+        assertEquals(1f, line.confidence)
+    }
+
+    @Test
+    fun guessing_again_keeps_a_selection_that_is_not_confirmed_yet() = runTest {
+        val api = FakeApi()
+        val c = ready(api)
+        c.setOwners(3, setOf("p1"))
+        api.lastPoll = ApiResult.Success(
+            receipt(
+                items = listOf(
+                    item("i1", 1, "bananas", 188, guess("p1", 0.95)),
+                    item("i2", 2, "great value milk", 398, guess("p2", 0.6)),
+                    item("i3", 3, "mystery thing", 250, guess("p2", 0.9)),
+                ),
+            ),
+        )
+
+        c.guessAgain()
+        advanceUntilIdle()
+
+        val line = c.state.value.draft!!.lines[2]
+        assertEquals(setOf("p1"), line.owners)
+        assertFalse(line.confirmed)
+    }
+
+    @Test
+    fun an_unavailable_ml_service_shows_the_servers_notice_and_changes_nothing() = runTest {
+        val api = FakeApi()
+        val c = ready(api)
+        val before = c.state.value.draft
+        val polls = api.pollCount
+        api.rerunResult = ApiResult.Success(
+            PredictionsDto("r1", mlAvailable = false, notice = "The guessing service is unavailable right now."),
+        )
+
+        c.guessAgain()
+        advanceUntilIdle()
+
+        assertEquals(before, c.state.value.draft)
+        assertEquals("The guessing service is unavailable right now.", c.state.value.message)
+        assertEquals(polls, api.pollCount)
+        assertFalse(c.state.value.guessing)
+    }
+
+    @Test
+    fun a_failed_guess_request_says_why_and_changes_nothing() = runTest {
+        val api = FakeApi()
+        val c = ready(api)
+        val before = c.state.value.draft
+        api.rerunResult = failure(ApiFailure.Offline)
+
+        c.guessAgain()
+        advanceUntilIdle()
+
+        assertEquals(before, c.state.value.draft)
+        assertEquals("Could not guess again. Could not reach the server.", c.state.value.message)
+        assertFalse(c.state.value.guessing)
+    }
+
     // --- mapping ----------------------------------------------------------------------------------
 
     @Test
@@ -888,6 +618,13 @@ class ReceiptReviewControllerTest {
         assertEquals("Jan 1, 2027", formatDate("2027-01-01"))
         assertEquals("sometime", formatDate("sometime"))
         assertEquals("2026-13-01", formatDate("2026-13-01"))
+    }
+
+    @Test
+    fun draft_mapping_keeps_the_raw_purchase_date_and_printed_total() {
+        val mapped = buildReviewLines(receipt(), listOf(person("p1", "TJ").toUiPerson(0)), person("p1", "TJ").toUiPerson(0), null).draft
+        assertEquals("2026-09-18", mapped.dateIso)
+        assertEquals(877, mapped.printedTotalCents)
     }
 
     @Test

@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.monster0506.divvy.domain.centsToInput
 import com.monster0506.divvy.domain.parsePriceCents
+import com.monster0506.divvy.domain.parseDateInput
 import com.monster0506.divvy.ui.components.AppScaffold
 import com.monster0506.divvy.ui.components.DivvyIcons
 import com.monster0506.divvy.ui.components.OwnerPicker
@@ -83,11 +84,13 @@ fun ReviewReceiptScreen(
     onChoosePayer: ((personId: String) -> Unit)? = null,
     onGuessAgain: (() -> Unit)? = null,
     guessing: Boolean = false,
+    onEditDetails: ((String, String, Int, Int) -> Unit)? = null,
 ) {
     var choosingPayer by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<ReceiptLine?>(null) }
     var adding by remember { mutableStateOf(false) }
     var merging by remember { mutableStateOf(false) }
+    var editingDetails by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf(emptySet<Int>()) }
     val onLineClick = { line: ReceiptLine ->
         if (merging) selected = if (line.id in selected) selected - line.id else selected + line.id
@@ -110,6 +113,7 @@ fun ReviewReceiptScreen(
                 withStyle(look) { append(if (named) draft.payer.name else "choose") }
             },
             onMetaEndClick = onChoosePayer?.let { { choosingPayer = true } },
+            action = if (onEditDetails != null) ({ TextButton(onClick = { editingDetails = true }) { Text("Edit") } }) else null,
         )
         if (notice != null) SectionHeader(notice, warn = true)
         EditBar(
@@ -150,6 +154,12 @@ fun ReviewReceiptScreen(
             onPick = { onChoosePayer(it); choosingPayer = false },
         )
     }
+    if (editingDetails && onEditDetails != null) {
+        ReceiptDetailsDialog(draft, onDismiss = { editingDetails = false }, onSave = { store, date, tax, total ->
+            onEditDetails(store, date, tax, total)
+            editingDetails = false
+        })
+    }
     editing?.let { line ->
         LineDialog(
             title = "Edit item",
@@ -170,6 +180,42 @@ fun ReviewReceiptScreen(
             onDelete = null,
         )
     }
+}
+
+@Composable
+private fun ReceiptDetailsDialog(draft: ReceiptDraft, onDismiss: () -> Unit, onSave: (String, String, Int, Int) -> Unit) {
+    var store by remember { mutableStateOf(draft.store) }
+    var date by remember { mutableStateOf(draft.dateIso ?: "") }
+    var tax by remember { mutableStateOf(centsToInput(draft.taxCents)) }
+    var total by remember { mutableStateOf(centsToInput(draft.printedTotalCents ?: draft.totalCents)) }
+    val parsedDate = parseDateInput(date)
+    val taxCents = parsePriceCents(tax)
+    val totalCents = parsePriceCents(total)
+    val canSave = store.isNotBlank() && parsedDate != null && taxCents != null && totalCents != null
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit receipt") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                OutlinedTextField(store, { store = it }, label = { Text("Store") }, singleLine = true,
+                    isError = store.isNotBlank().not())
+                OutlinedTextField(date, { date = it }, label = { Text("Date (M/D/YYYY)") }, singleLine = true,
+                    isError = date.isNotBlank() && parsedDate == null)
+                OutlinedTextField(tax, { tax = it }, label = { Text("Tax") }, singleLine = true,
+                    isError = tax.isNotBlank() && taxCents == null,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                OutlinedTextField(total, { total = it }, label = { Text("Total") }, singleLine = true,
+                    isError = total.isNotBlank() && totalCents == null,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                if (store.isBlank()) Text("Enter a store name.", color = DivvyColors.Warn, fontSize = 12.sp)
+                if (date.isNotBlank() && parsedDate == null) Text("Enter a real date, such as 9/18/2026.", color = DivvyColors.Warn, fontSize = 12.sp)
+                if (tax.isNotBlank() && taxCents == null) Text("Enter a valid tax amount.", color = DivvyColors.Warn, fontSize = 12.sp)
+                if (total.isNotBlank() && totalCents == null) Text("Enter a valid total amount.", color = DivvyColors.Warn, fontSize = 12.sp)
+            }
+        },
+        confirmButton = { TextButton(onClick = { onSave(store.trim(), parsedDate!!, taxCents!!, totalCents!!) }, enabled = canSave) { Text("Save") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable
@@ -328,6 +374,10 @@ private fun LineRow(
             }
             if (line.confirmed) {
                 Text(line.ownersLabel(draft.people), fontSize = 12.sp, color = DivvyColors.Dim)
+            } else if (line.owners.isEmpty()) {
+                Text("Choose who purchased this item", fontSize = 12.sp, color = DivvyColors.Warn)
+            } else if (line.confidence == 1f) {
+                Text("Selected ${line.ownersLabel(draft.people)}", fontSize = 12.sp, color = DivvyColors.Warn)
             } else {
                 val pct = (line.confidence * 100).toInt()
                 Text(
@@ -340,13 +390,8 @@ private fun LineRow(
             OwnerPicker(draft.people, line.owners, onToggle = { onToggleOwner(line.id, it) }) {
                 if (!line.confirmed) {
                     Spacer(Modifier.weight(1f))
-                    TextButton(onClick = { onConfirmLine(line.id) }) {
-                        Text(
-                            "Looks right",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = DivvyColors.Accent
-                        )
+                    TextButton(onClick = { onConfirmLine(line.id) }, enabled = line.owners.isNotEmpty()) {
+                        Text("Confirm", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = DivvyColors.Accent)
                     }
                 }
             }

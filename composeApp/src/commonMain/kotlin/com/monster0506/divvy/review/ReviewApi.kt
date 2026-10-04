@@ -5,6 +5,7 @@ import com.monster0506.divvy.data.dto.AcceptedPredictionsDto
 import com.monster0506.divvy.data.dto.ConfirmedReceiptDto
 import com.monster0506.divvy.data.dto.EditedReceiptDto
 import com.monster0506.divvy.data.dto.ItemEditRequest
+import com.monster0506.divvy.data.dto.UpdateReceiptRequest
 import com.monster0506.divvy.data.dto.ItemOwnerDto
 import com.monster0506.divvy.data.dto.ItemOwnersDto
 import com.monster0506.divvy.data.dto.PersonDto
@@ -33,6 +34,8 @@ interface ReviewApi {
     ): ApiResult<AcceptedPredictionsDto>
 
     suspend fun confirm(receiptId: String): ApiResult<ConfirmedReceiptDto>
+
+    suspend fun updateDetails(receiptId: String, change: UpdateReceiptRequest): ApiResult<EditedReceiptDto>
 
     suspend fun addItem(receiptId: String, item: ItemEditRequest): ApiResult<EditedReceiptDto>
 
@@ -67,6 +70,8 @@ class RepositoryReviewApi(
         receipts.acceptPredictions(householdId, receiptId, itemIds)
 
     override suspend fun confirm(receiptId: String) = receipts.confirm(receiptId)
+
+    override suspend fun updateDetails(receiptId: String, change: UpdateReceiptRequest) = receipts.updateReceipt(receiptId, change)
 
     override suspend fun addItem(receiptId: String, item: ItemEditRequest) = receipts.addItem(receiptId, item)
 

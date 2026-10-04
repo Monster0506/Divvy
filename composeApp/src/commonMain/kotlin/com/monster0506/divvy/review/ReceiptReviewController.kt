@@ -5,6 +5,7 @@ import com.monster0506.divvy.data.api.ApiResult
 import com.monster0506.divvy.data.dto.EditedReceiptDto
 import com.monster0506.divvy.data.dto.ItemEditRequest
 import com.monster0506.divvy.data.dto.ItemOwnerDto
+import com.monster0506.divvy.data.dto.UpdateReceiptRequest
 import com.monster0506.divvy.data.dto.PersonDto
 import com.monster0506.divvy.data.dto.ReceiptDto
 import com.monster0506.divvy.data.dto.ReceiptStatusDto
@@ -20,6 +21,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+
+/** The receipt's own fields as a person typed them. [dateIso] is `YYYY-MM-DD`. */
+data class ReceiptDetailsEdit(val store: String, val dateIso: String, val taxCents: Int, val totalCents: Int)
 
 enum class ReviewPhase {
     Idle,
@@ -72,6 +76,10 @@ class ReceiptReviewController(
     private var preferredPayerId: String? = null
     private var people: List<Person> = emptyList()
     private var itemIds: Map<Int, String> = emptyMap()
+    private var savedOwners: Map<String, Set<String>> = emptyMap()
+    private var savedConfirmed: Map<String, Boolean> = emptyMap()
+    private var savedConfidence: Map<String, Float> = emptyMap()
+    private val confirmingLines = mutableSetOf<String>()
     private var payerSaved = false
     private var lastDeleted: ItemEditRequest? = null
     private var job: Job? = null
@@ -89,6 +97,7 @@ class ReceiptReviewController(
 
     fun close() {
         job?.cancel()
+        confirmingLines.clear()
         mutableState.value = ReviewState()
     }
 
@@ -138,36 +147,64 @@ class ReceiptReviewController(
         setOwners(lineId, if (personId in line.owners) line.owners - personId else line.owners + personId)
     }
 
+    /** Keeps owner choices visible until the person confirms the whole selection. */
     fun setOwners(lineId: Int, owners: Set<String>) {
         val itemId = itemIds[lineId] ?: return
-        val before = mutableState.value.draft?.lines?.find { it.id == lineId } ?: return
+        if (itemId in confirmingLines || mutableState.value.phase != ReviewPhase.Ready) return
         updateLine(lineId) {
             it.copy(
                 owners = owners,
-                confirmed = owners.isNotEmpty(),
-                confidence = if (owners.isEmpty()) 0f else 1f
+                confirmed = owners.isNotEmpty() && owners == savedOwners[itemId] && savedConfirmed[itemId] == true,
+                confidence = if (owners.isEmpty()) 0f else if (owners == savedOwners[itemId]) savedConfidence[itemId] ?: it.confidence else 1f,
             )
         }
+    }
+
+    /** Locks in the selected owners, or accepts an unchanged model guess. */
+    fun accept(lineId: Int) {
+        val itemId = itemIds[lineId] ?: return
+        val line = mutableState.value.draft?.lines?.find { it.id == lineId } ?: return
+        if (line.owners.isEmpty() || line.confirmed || mutableState.value.phase != ReviewPhase.Ready || !confirmingLines.add(itemId)) return
+        val owners = line.owners
         scope.launch {
-            val result = writes.withLock { api.setOwners(receiptId, itemId, owners.map { ItemOwnerDto(it) }) }
-            if (result is ApiResult.Failure) {
-                updateLine(lineId) { before }
-                mutableState.update { it.copy(message = "Could not save that change. ${describe(result.failure)}") }
+            try {
+                val result = writes.withLock {
+                    if (owners == savedOwners[itemId]) api.accept(householdId, receiptId, listOf(itemId))
+                    else api.setOwners(receiptId, itemId, owners.map { ItemOwnerDto(it) })
+                }
+                when (result) {
+                    is ApiResult.Success -> {
+                        savedOwners = savedOwners + (itemId to owners)
+                        savedConfirmed = savedConfirmed + (itemId to true)
+                        savedConfidence = savedConfidence + (itemId to 1f)
+                        updateLine(lineId) { if (it.owners == owners) it.copy(confirmed = true, confidence = 1f) else it }
+                        mutableState.update { it.copy(message = null) }
+                    }
+                    is ApiResult.Failure -> mutableState.update {
+                        it.copy(message = "Could not confirm that item. ${describe(result.failure)}")
+                    }
+                }
+            } finally {
+                confirmingLines.remove(itemId)
             }
         }
     }
 
-    /** Keeps the model's guess for a line as it is. */
-    fun accept(lineId: Int) {
-        val itemId = itemIds[lineId] ?: return
-        updateLine(lineId) { it.copy(confirmed = true) }
-        scope.launch {
-            val result = writes.withLock { api.accept(householdId, receiptId, listOf(itemId)) }
-            if (result is ApiResult.Failure) {
-                updateLine(lineId) { it.copy(confirmed = false) }
-                mutableState.update { it.copy(message = "Could not confirm that item. ${describe(result.failure)}") }
-            }
-        }
+    /** Saves a changed store, date, tax or total. Only what differs from what is shown is sent. */
+    fun editDetails(details: ReceiptDetailsEdit) {
+        val draft = mutableState.value.draft ?: return
+        val store = details.store.trim().takeIf { it != draft.store }
+        val date = details.dateIso.takeIf { it != draft.dateIso }
+        val tax = details.taxCents.takeIf { it != draft.taxCents }
+        val total = details.totalCents.takeIf { it != draft.printedTotalCents }
+        if (store == null && date == null && tax == null && total == null) return
+        val change = UpdateReceiptRequest(
+            merchantName = store,
+            purchasedAt = date?.let { "${it}T12:00:00Z" },
+            taxMinor = tax?.toLong(),
+            totalMinor = total?.toLong(),
+        )
+        edit { api.updateDetails(receiptId, change) }
     }
 
     /** Renames a line and changes its price. */
@@ -214,7 +251,7 @@ class ReceiptReviewController(
         }
     }
 
-    private suspend fun refreshGuesses() {
+        private suspend fun refreshGuesses() {
         val asked = when (val result = api.rerunPredictions(householdId, receiptId)) {
             is ApiResult.Success -> result.value
             is ApiResult.Failure ->
@@ -231,16 +268,23 @@ class ReceiptReviewController(
             val rebuilt = buildReviewLines(receipt, people, draft.payer, predictions)
             val oldByItem =
                 itemIds.entries.associate { (lineId, itemId) -> itemId to draft.lines.find { it.id == lineId } }
+            // Lines a person chose or confirmed are never overwritten, saved or not.
+            val settled = oldByItem.filter { (itemId, old) ->
+                old != null && old.owners.isNotEmpty() && (old.confirmed || old.owners != savedOwners[itemId])
+            }.keys
             val lines = rebuilt.draft.lines.map { line ->
                 val old = oldByItem[rebuilt.itemIds[line.id]]
-                // Never overwrite an owner someone has chosen or confirmed.
-                if (old != null && old.confirmed && old.owners.isNotEmpty()) old.copy(id = line.id) else line
+                if (old != null && old.owners.isNotEmpty() && rebuilt.itemIds[line.id] in settled) old.copy(id = line.id) else line
             }
+            fun <T> merge(fresh: Map<String, T>, old: Map<String, T>) =
+                fresh.mapValues { (id, value) -> if (id in settled) old[id] ?: value else value }
+            savedOwners = merge(receipt.items.associate { it.id to it.owners.map { o -> o.personId }.toSet() }, savedOwners)
+            savedConfirmed = merge(rebuilt.draft.lines.associate { rebuilt.itemIds.getValue(it.id) to it.confirmed }, savedConfirmed)
+            savedConfidence = merge(rebuilt.draft.lines.associate { rebuilt.itemIds.getValue(it.id) to it.confidence }, savedConfidence)
             itemIds = rebuilt.itemIds
             state.copy(draft = draft.copy(lines = lines), message = predictions.notice)
         }
     }
-
     /** Combines lines into the first of them, adding their prices. */
     fun mergeLines(lineIds: Set<Int>) {
         val ids = lineIds.sorted().mapNotNull { itemIds[it] }
@@ -298,26 +342,44 @@ class ReceiptReviewController(
     private fun applyEdited(edited: EditedReceiptDto) {
         mutableState.update { state ->
             val draft = state.draft ?: return@update state
-            val before =
-                itemIds.entries.associate { (lineId, itemId) -> itemId to draft.lines.find { it.id == lineId } }
+            val previousOwners = savedOwners
+            val previousConfirmed = savedConfirmed
+            val previousConfidence = savedConfidence
+            val before = itemIds.entries.associate { (lineId, itemId) -> itemId to draft.lines.find { it.id == lineId } }
             val ordered = edited.items.sortedBy { it.lineNumber }
             val ids =
                 ordered.mapIndexed { index, item -> (if (item.lineNumber > 0) item.lineNumber else index + 1) to item.id }
                     .toMap()
             val lines = ordered.mapIndexed { index, item ->
                 val old = before[item.id]
+                val persistedOwners = item.owners.map { it.personId }.toSet()
+                val chosenOwners = if (old != null && old.owners != previousOwners[item.id]) old.owners else persistedOwners
                 ReceiptLine(
                     id = if (item.lineNumber > 0) item.lineNumber else index + 1,
                     name = item.description,
                     priceCents = item.totalMinor.toInt(),
-                    owners = item.owners.map { it.personId }.toSet(),
+                    owners = chosenOwners,
                     confidence = old?.confidence ?: 0f,
-                    confirmed = item.owners.isNotEmpty() && old?.confirmed == true,
+                    confirmed = chosenOwners.isNotEmpty() && chosenOwners == persistedOwners &&
+                        previousOwners[item.id] == persistedOwners && previousConfirmed[item.id] == true,
                 )
             }
             itemIds = ids
+            savedOwners = ordered.associate { it.id to it.owners.map { owner -> owner.personId }.toSet() }
+            savedConfirmed = ordered.associate { item ->
+                item.id to (savedOwners[item.id]?.isNotEmpty() == true &&
+                    previousOwners[item.id] == savedOwners[item.id] && previousConfirmed[item.id] == true)
+            }
+            savedConfidence = ordered.associate { item -> item.id to (previousConfidence[item.id] ?: 0f) }
             state.copy(
-                draft = draft.copy(lines = lines, taxCents = edited.taxMinor?.toInt() ?: draft.taxCents),
+                draft = draft.copy(
+                    lines = lines,
+                    store = edited.merchantName ?: draft.store,
+                    date = edited.purchasedAt?.let(::formatDate) ?: draft.date,
+                    dateIso = edited.purchasedAt?.take(DATE_LENGTH) ?: draft.dateIso,
+                    taxCents = edited.taxMinor?.toInt() ?: draft.taxCents,
+                    printedTotalCents = edited.totalMinor.toInt(),
+                ),
                 warning = reconciliationWarning(edited.reconciliation),
                 message = null,
             )
@@ -384,6 +446,10 @@ class ReceiptReviewController(
             it.copy(draft = it.draft.copy(payerChosen = payerId != null))
         }
         itemIds = lines.itemIds
+        savedOwners = receipt.items.associate { it.id to it.owners.map { owner -> owner.personId }.toSet() }
+        savedConfirmed = lines.draft.lines.associate { line -> lines.itemIds.getValue(line.id) to line.confirmed }
+        savedConfidence = lines.draft.lines.associate { line -> lines.itemIds.getValue(line.id) to line.confidence }
+        confirmingLines.clear()
         lastDeleted = null
         mutableState.value = ReviewState(
             ReviewPhase.Ready, message, lines.draft, receiptId, reconciliationWarning(reconcile(receipt)),

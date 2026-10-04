@@ -15,7 +15,7 @@ class HouseholdApi(client: HttpClient) {
     private val api = DivvyApi(client)
 
     suspend fun create(name: String): CreateHouseholdResult = try {
-        CreateHouseholdResult.Created(api.createHousehold(name).id)
+        CreateHouseholdResult.Created(api.createHousehold(name).name.ifBlank { name.trim() })
     } catch (e: CancellationException) {
         throw e
     } catch (e: ApiException) {
