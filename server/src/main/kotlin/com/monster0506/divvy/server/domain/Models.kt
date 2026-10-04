@@ -43,6 +43,9 @@ enum class ReceiptStatus(val dbValue: String) {
     /** Image uploaded, nothing extracted yet. */
     PROCESSING("processing"),
 
+    /** Extraction did not work; see [Receipt.failureReason]. It can be retried. */
+    FAILED("failed"),
+
     DRAFT("draft"),
     CONFIRMED("confirmed"),
 
@@ -71,6 +74,8 @@ data class Receipt(
     val items: List<ReceiptItem>,
     val createdAt: Instant,
     val updatedAt: Instant,
+    /** Why extraction failed, when [status] is [ReceiptStatus.FAILED]. */
+    val failureReason: String? = null,
 ) {
     val currency: CurrencyCode get() = total.currency
 }
@@ -180,6 +185,17 @@ data class NewReceipt(
     val merchantName: String?,
     val purchasedAt: Instant,
     val currency: CurrencyCode,
+    val subtotalMinor: Long?,
+    val taxMinor: Long?,
+    val totalMinor: Long,
+    val items: List<NewReceiptItem>,
+)
+
+/** What extraction read from an uploaded image, ready to fill a processing receipt. */
+data class ProcessedReceipt(
+    val merchantName: String?,
+    /** Null when the printed date was not recognised; the upload time is kept then. */
+    val purchasedAt: Instant?,
     val subtotalMinor: Long?,
     val taxMinor: Long?,
     val totalMinor: Long,

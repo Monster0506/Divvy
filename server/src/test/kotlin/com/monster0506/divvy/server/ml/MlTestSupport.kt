@@ -103,6 +103,15 @@ class FakeMl : MlClient {
     var predictResult: (MlPredictRequest) -> MlResult<MlPredictResponse> =
         { MlResult.Success(MlPredictResponse("fake-1", emptyList())) }
 
+    val extractRequests = CopyOnWriteArrayList<String>()
+    var extractResult: () -> MlResult<MlExtractedReceipt> = { MlResult.Success(MlExtractedReceipt()) }
+
+    override suspend fun extract(imageBase64: String): MlResult<MlExtractedReceipt> {
+        events += "extract"
+        extractRequests += imageBase64
+        return extractResult()
+    }
+
     override suspend fun predict(request: MlPredictRequest): MlResult<MlPredictResponse> {
         events += "predict"
         predictRequests += request

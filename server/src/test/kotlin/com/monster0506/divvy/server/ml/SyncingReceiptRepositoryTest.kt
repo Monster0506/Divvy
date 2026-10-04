@@ -37,6 +37,16 @@ private class StubReceipts(
 
     override suspend fun createProcessing(householdId: Uuid, imageKey: String): Receipt = error("not used")
 
+    override suspend fun completeProcessing(id: Uuid, processed: com.monster0506.divvy.server.domain.ProcessedReceipt): Receipt? =
+        error("not used")
+
+    override suspend fun failProcessing(id: Uuid, reason: String): Receipt? = error("not used")
+
+    override suspend fun retryProcessing(id: Uuid): Receipt? = error("not used")
+
+    override suspend fun idsWithStatus(status: com.monster0506.divvy.server.domain.ReceiptStatus): List<Uuid> =
+        error("not used")
+
     override suspend fun findById(id: Uuid): Receipt? {
         calls += "findById"
         return null

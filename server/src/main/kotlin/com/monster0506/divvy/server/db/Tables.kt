@@ -49,6 +49,7 @@ object ReceiptTable : TimestampedTable("receipt") {
     val status = text("status").databaseGenerated()
     val confirmedAt = timestampWithTimeZone("confirmed_at").nullable()
     val imageKey = text("image_key").nullable()
+    val failureReason = text("failure_reason").nullable()
 
     override val primaryKey = PrimaryKey(id)
 }

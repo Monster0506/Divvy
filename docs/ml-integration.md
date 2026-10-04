@@ -102,3 +102,20 @@ is pushed for a refused confirm).
 A person confirms an item by assigning it, even to the same owners, or with `POST .../predictions/accept`
 (`{"itemIds": [...]}`, or no body for every pending item), which keeps the model's owners as the person's choice.
 Either way the item is later labelled `predicted_accepted` if the owners did not change.
+
+## Reading an uploaded receipt
+
+`POST /households/{id}/receipts` stores the photo and returns 201 with a `processing` receipt straight away. In the
+background the backend sends the photo (base64) to the ML service `POST /receipts/extract`, which has its own two minute
+timeout, and `ExtractionService` then:
+
+- fills the receipt in (store, date, subtotal, tax, total, and one line per item with the printed text in `rawText` and
+  the normalised name as `description`) and moves it to `draft`, which is the review state;
+- asks for owner predictions (see Pre-assigning a draft receipt). A failed prediction never undoes a good read;
+- on failure sets the status to `failed` with a `failureReason` the app can show. A photo with no readable items also
+  fails, instead of leaving an empty draft. The reason never contains internal addresses.
+
+The app polls `GET /receipts/{id}` until the status is no longer `processing`. `POST /households/{id}/receipts/{receiptId}/retry`
+moves a `failed` receipt back to `processing` and reads it again (202; 409 if it had not failed). Receipts still
+`processing` when the server starts, for example after a restart, are picked up again. The extraction call needs the ML
+service to have `QWEN_API_KEY` set; without it receipts fail with "Reading receipts is not available right now".
