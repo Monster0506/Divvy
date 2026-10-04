@@ -23,6 +23,12 @@ Response: `{"items": [{"id", "merchantName", "purchasedAt", "paidByPersonId", "c
 
 The image is stored under `IMAGE_DIR` (default `data/images`). The receipt starts in `processing` status with no payer or amounts.
 
+## Receipt assignment
+- PUT /receipts/{id}/items/{itemId}/owners  {"owners": [{"personId": "...", "weight": 1 (optional)}]} -> 200 | 400 | 404 | 409
+- POST /receipts/{id}/confirm -> 200 | 400 | 404 | 409
+Owners replace the existing owners of the item and must be distinct, active members of the receipt household (400 otherwise). An empty list unassigns the item. Assignments are stored with source `user` and logged in the ownership history.
+Confirm returns 400 with the unassigned item ids in `details` if any item has no active owner, and moves the receipt from draft to confirmed in one transaction. Non-draft receipts return 409.
+
 ## Receipt edits
 Edits apply to draft receipts. A confirmed receipt returns 409 (`conflict`) for every edit. Unknown or malformed receipt and item ids return 404. Every response is the full receipt with its items and a `reconciliation` block: `itemsTotalMinor`, `totalDifferenceMinor` (total minus items plus tax), `subtotalDifferenceMinor` (null without a subtotal) and `reconciled`.
 - PATCH /receipts/{id}  any of `merchantName`, `purchasedAt` (ISO-8601), `paidByPersonId` (must be in the receipt's household), `taxMinor`, `totalMinor` (not negative) -> 200 | 400 | 404 | 409

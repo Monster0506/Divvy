@@ -14,6 +14,8 @@ import com.monster0506.divvy.server.domain.OwnerShare
 import com.monster0506.divvy.server.domain.OwnershipSource
 import com.monster0506.divvy.server.domain.Person
 import com.monster0506.divvy.server.domain.Receipt
+import com.monster0506.divvy.server.domain.ReceiptStatus
+
 import com.monster0506.divvy.server.domain.ReceiptCursor
 import com.monster0506.divvy.server.domain.ReceiptFilter
 import com.monster0506.divvy.server.domain.ReceiptPage
@@ -104,6 +106,12 @@ interface ReceiptRepository {
     suspend fun mergeItems(receiptId: Uuid, itemIds: List<Uuid>, description: String? = null): Receipt?
 
     /**
+     * Confirms a draft receipt in one transaction if every item has at least one active owner.
+     * Model-suggested owners become user-confirmed, which is recorded in the ownership history.
+     */
+    suspend fun confirmAssigned(id: Uuid): ConfirmResult
+
+    /**
      * Share of model-predicted items on confirmed receipts that people changed, or null if there
      * are none yet.
      */
@@ -114,6 +122,15 @@ interface ReceiptRepository {
 
     /** Moves a confirmed receipt back to draft for correction and reverses its ledger entries. */
     suspend fun reopen(id: Uuid): Receipt?
+}
+
+sealed interface ConfirmResult {
+    data object NotFound : ConfirmResult
+    data class NotDraft(val status: ReceiptStatus) : ConfirmResult
+
+    /** [itemIds] have no active owner. */
+    data class Unassigned(val itemIds: List<Uuid>) : ConfirmResult
+    data class Confirmed(val receipt: Receipt) : ConfirmResult
 }
 
 /** The receipt is no longer a draft, so its contents cannot be edited. */
