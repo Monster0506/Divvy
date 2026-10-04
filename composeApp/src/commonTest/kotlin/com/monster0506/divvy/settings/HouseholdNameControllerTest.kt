@@ -88,4 +88,23 @@ class HouseholdNameControllerTest {
         assertEquals("Apartment 4B", local)
         assertNotNull(c.message)
     }
+
+    @Test
+    fun aSavedRenameBecomesTheIdUsedFromThenOn() {
+        val ids = mutableListOf<String>()
+        val changed = mutableListOf<String>()
+        val c = HouseholdNameController(
+            scope = CoroutineScope(Dispatchers.Unconfined),
+            fetch = { "Apartment 4B" },
+            rename = { id, name -> ids += id; name },
+            setLocal = { local = it },
+            debounceMillis = 0,
+            onIdChanged = { changed += it },
+        )
+        c.open("Apartment 4B")
+        c.edit("Casa")
+        c.edit("Casa Grande")
+        assertEquals(listOf("Apartment 4B", "Casa"), ids)
+        assertEquals(listOf("Casa", "Casa Grande"), changed)
+    }
 }

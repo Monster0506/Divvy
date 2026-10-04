@@ -54,22 +54,22 @@ class DivvyApi(private val client: HttpClient) {
     suspend fun createHousehold(name: String): HouseholdDto =
         send { client.post("households") { contentType(ContentType.Application.Json); setBody(CreateHouseholdRequest(name)) } }
 
-    suspend fun getHousehold(id: String): HouseholdDto = send { client.get("households/$id") }
+    suspend fun getHousehold(id: String): HouseholdDto = send { client.get("households/${id.seg()}") }
 
     suspend fun renameHousehold(id: String, name: String): HouseholdDto =
-        send { client.patch("households/$id") { contentType(ContentType.Application.Json); setBody(RenameHouseholdRequest(name)) } }
+        send { client.patch("households/${id.seg()}") { contentType(ContentType.Application.Json); setBody(RenameHouseholdRequest(name)) } }
 
     suspend fun listPeople(householdId: String, includeArchived: Boolean = false): List<PersonDto> =
-        send { client.get("households/$householdId/people?includeArchived=$includeArchived") }
+        send { client.get("households/${householdId.seg()}/people?includeArchived=$includeArchived") }
 
     suspend fun addPerson(householdId: String, displayName: String): PersonDto =
-        send { client.post("households/$householdId/people") { contentType(ContentType.Application.Json); setBody(PersonRequest(displayName)) } }
+        send { client.post("households/${householdId.seg()}/people") { contentType(ContentType.Application.Json); setBody(PersonRequest(displayName)) } }
 
     suspend fun renamePerson(householdId: String, personId: String, displayName: String): PersonDto =
-        send { client.patch("households/$householdId/people/$personId") { contentType(ContentType.Application.Json); setBody(PersonRequest(displayName)) } }
+        send { client.patch("households/${householdId.seg()}/people/$personId") { contentType(ContentType.Application.Json); setBody(PersonRequest(displayName)) } }
 
     suspend fun archivePerson(householdId: String, personId: String): PersonDto =
-        send { client.post("households/$householdId/people/$personId/archive") }
+        send { client.post("households/${householdId.seg()}/people/$personId/archive") }
 
     suspend fun getReceipt(id: String): ReceiptDto = send { client.get("receipts/$id") }
 
@@ -78,7 +78,7 @@ class DivvyApi(private val client: HttpClient) {
         jpeg: ByteArray,
         onProgress: (sent: Long, total: Long) -> Unit = { _, _ -> },
     ): ReceiptUploadDto = send {
-        client.post("households/$householdId/receipts") {
+        client.post("households/${householdId.seg()}/receipts") {
             setBody(MultiPartFormDataContent(formData {
                 append("image", jpeg, Headers.build {
                     append(HttpHeaders.ContentType, ContentType.Image.JPEG.toString())
@@ -98,7 +98,7 @@ class DivvyApi(private val client: HttpClient) {
         cursor: String? = null,
         limit: Int = 50,
     ): ReceiptPageDto = send {
-        client.get("households/$householdId/receipts") {
+        client.get("households/${householdId.seg()}/receipts") {
             parameter("limit", limit)
             status?.let { parameter("status", it) }
             cursor?.let { parameter("cursor", it) }
@@ -119,10 +119,10 @@ class DivvyApi(private val client: HttpClient) {
         send { client.post("receipts/$receiptId/items/merge") { setBody(MergeItemsRequest(itemIds, description)) } }
 
     suspend fun getMlSettings(householdId: String): MlSettingsDto =
-        send { client.get("households/$householdId/ml/settings") }
+        send { client.get("households/${householdId.seg()}/ml/settings") }
 
     suspend fun putMlSettings(householdId: String, settings: MlSettingsDto): MlSettingsDto =
-        send { client.put("households/$householdId/ml/settings") { setBody(settings) } }
+        send { client.put("households/${householdId.seg()}/ml/settings") { setBody(settings) } }
 
     /** Moves a confirmed receipt back to a draft so it can be corrected. */
     suspend fun reopenReceipt(id: String): ReceiptDto = send { client.post("receipts/$id/reopen") }
@@ -139,15 +139,15 @@ class DivvyApi(private val client: HttpClient) {
 
     /** Reads a receipt photo again after it failed. */
     suspend fun retryReceipt(householdId: String, receiptId: String): ReceiptUploadDto =
-        send { client.post("households/$householdId/receipts/$receiptId/retry") }
+        send { client.post("households/${householdId.seg()}/receipts/$receiptId/retry") }
 
     suspend fun getPredictions(householdId: String, receiptId: String): PredictionsDto =
-        send { client.get("households/$householdId/receipts/$receiptId/predictions") }
+        send { client.get("households/${householdId.seg()}/receipts/$receiptId/predictions") }
 
     /** Keeps the model's owners as the person's choice, for [itemIds] or every item that needs it when null. */
     suspend fun acceptPredictions(householdId: String, receiptId: String, itemIds: List<String>? = null): AcceptedPredictionsDto =
         send {
-            client.post("households/$householdId/receipts/$receiptId/predictions/accept") {
+            client.post("households/${householdId.seg()}/receipts/$receiptId/predictions/accept") {
                 setBody(AcceptPredictionsRequest(itemIds))
             }
         }
@@ -157,10 +157,10 @@ class DivvyApi(private val client: HttpClient) {
 
     /** Records that [request].fromPersonId paid toPersonId, which lowers what the first owes the second. */
     suspend fun recordSettlement(householdId: String, request: CreateSettlementRequest): SettlementDto =
-        send { client.post("households/$householdId/settlements") { setBody(request) } }
+        send { client.post("households/${householdId.seg()}/settlements") { setBody(request) } }
 
     suspend fun balances(householdId: String): BalancesDto =
-        send { client.get("households/$householdId/balances") }
+        send { client.get("households/${householdId.seg()}/balances") }
 
     private suspend inline fun <reified T> send(request: () -> HttpResponse): T {
         val response = try {

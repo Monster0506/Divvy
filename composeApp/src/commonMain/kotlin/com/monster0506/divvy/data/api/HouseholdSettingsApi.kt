@@ -40,13 +40,13 @@ sealed interface SettingsResult<out T> {
 
 class HouseholdSettingsApi(private val client: HttpClient) {
     suspend fun load(householdId: String): SettingsResult<HouseholdDetails> {
-        val info = when (val r = call({ client.get("households/$householdId") }) { it.body<HouseholdInfoDto>() }) {
+        val info = when (val r = call({ client.get("households/${householdId.seg()}") }) { it.body<HouseholdInfoDto>() }) {
             is SettingsResult.Ok -> r.value
             is SettingsResult.Invalid -> return r
             is SettingsResult.Failure -> return r
         }
         val people = when (
-            val r = call({ client.get("households/$householdId/people") { parameter("includeArchived", true) } }) {
+            val r = call({ client.get("households/${householdId.seg()}/people") { parameter("includeArchived", true) } }) {
                 it.body<List<MemberDto>>()
             }
         ) {
@@ -60,10 +60,10 @@ class HouseholdSettingsApi(private val client: HttpClient) {
     }
 
     suspend fun rename(householdId: String, name: String): SettingsResult<Unit> =
-        call({ client.patch("households/$householdId") { setBody(RenameBody(name)) } }) { }
+        call({ client.patch("households/${householdId.seg()}") { setBody(RenameBody(name)) } }) { }
 
     suspend fun archive(householdId: String, personId: String): SettingsResult<Unit> =
-        call({ client.post("households/$householdId/people/$personId/archive") }) { }
+        call({ client.post("households/${householdId.seg()}/people/$personId/archive") }) { }
 
     private suspend fun <T> call(
         request: suspend () -> HttpResponse,

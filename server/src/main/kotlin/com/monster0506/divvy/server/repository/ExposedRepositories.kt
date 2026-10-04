@@ -41,6 +41,7 @@ import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.count
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.lowerCase
 import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.less
 import org.jetbrains.exposed.v1.core.lowerCase
@@ -92,6 +93,11 @@ class ExposedHouseholdRepository(private val db: Database) : HouseholdRepository
 
     override suspend fun findById(id: Uuid): Household? = db.dbQuery {
         HouseholdTable.selectAll().where { HouseholdTable.id eq id }.singleOrNull()?.toHousehold()
+    }
+
+    override suspend fun findByName(name: String): Household? = db.dbQuery {
+        HouseholdTable.selectAll().where { HouseholdTable.name.lowerCase() eq name.lowercase() }
+            .firstOrNull()?.toHousehold()
     }
 
     override suspend fun rename(id: Uuid, name: String): Household? = db.dbQuery {

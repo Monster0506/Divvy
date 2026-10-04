@@ -38,7 +38,7 @@ class HouseholdApi(private val client: HttpClient) {
         }
         return when {
             response.status.isSuccess() -> try {
-                CreateHouseholdResult.Created(response.body<HouseholdDto>().id)
+                CreateHouseholdResult.Created(response.body<HouseholdDto>().name.ifBlank { name.trim() })
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

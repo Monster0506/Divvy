@@ -89,6 +89,8 @@ class FakeHouseholds(private val known: List<Household>) : HouseholdRepository {
 
     override suspend fun findById(id: Uuid): Household? = known.firstOrNull { it.id == id }
 
+    override suspend fun findByName(name: String): Household? = known.firstOrNull { it.name.equals(name, ignoreCase = true) }
+
     override suspend fun rename(id: Uuid, name: String): Household? = error("not used")
 
     override suspend fun delete(id: Uuid): Boolean = error("not used")
