@@ -12,6 +12,7 @@ from divvy_ml.ownership.schemas import (
     HistoryStatus,
     PredictRequest,
     PredictResponse,
+    RetrainRunOut,
     UpsertObservationsRequest,
     UpsertObservationsResponse,
 )
@@ -106,3 +107,11 @@ def history_status(household_id: HouseholdPath, store: Store, manager: Manager) 
         ready=size >= MIN_HISTORY,
         model_version=manager.current_version(household_id),
     )
+
+
+@router.get("/retraining", response_model=list[RetrainRunOut])
+def retraining_runs(request: Request) -> list[RetrainRunOut]:
+    """Recent scheduled retraining runs, newest first; empty when the schedule is off."""
+    retrainer = getattr(request.app.state, "retrainer", None)
+    runs = retrainer.runs() if retrainer else []
+    return [RetrainRunOut(**run.as_dict()) for run in runs]
