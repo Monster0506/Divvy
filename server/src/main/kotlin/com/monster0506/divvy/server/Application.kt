@@ -70,6 +70,12 @@ fun Application.module() {
                 ApiError("not_found", cause.message ?: "Not found"),
             )
         }
+        exception<InvalidTransitionException> { call, cause ->
+            call.respond(
+                HttpStatusCode.Conflict,
+                ApiError("invalid_transition", cause.message ?: "Invalid status transition"),
+            )
+        }
         exception<Throwable> { call, cause ->
             call.application.environment.log.error("Unhandled exception", cause)
             call.respond(
