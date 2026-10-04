@@ -213,6 +213,10 @@ fun Application.configureDatabase(config: AppConfig): DivyDatabase {
     attributes.put(RepositoriesKey, repos)
     attributes.put(ImageStorageKey, storage)
     syncScope.launch { extraction.resumePending() }
+    syncScope.launch {
+        val repaired = repos.repairConfirmedReceipts()
+        if (repaired > 0) environment.log.info("Gave {} confirmed receipts the balances and labels they were missing", repaired)
+    }
     return database
 }
 
