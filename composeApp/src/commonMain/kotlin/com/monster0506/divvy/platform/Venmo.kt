@@ -16,8 +16,8 @@ private fun formatAmount(amountCents: Long): String {
     return "${amountCents / 100}.${(amountCents % 100).toString().padStart(2, '0')}"
 }
 
-private fun query(recipient: String?, amountCents: Long, note: String): String = buildList {
-    add("txn=pay")
+private fun query(recipient: String?, amountCents: Long, note: String, txn: String = "pay"): String = buildList {
+    add("txn=$txn")
     if (recipient != null) add("recipients=${recipient.encodeURLParameter()}")
     add("amount=${formatAmount(amountCents)}")
     add("note=${note.encodeURLParameter()}")
@@ -59,9 +59,20 @@ fun venmoWebUrl(username: String, amountCents: Long, note: String): String =
 fun venmoPayUrl(username: String, amountCents: Long, note: String): String =
     "https://account.venmo.com/pay?" + query(cleanUsername(username), amountCents, note)
 
+/** Venmo's pay page set to request [amountCents] from [username], with [note]. */
+fun venmoRequestUrl(username: String, amountCents: Long, note: String): String =
+    "https://account.venmo.com/pay?" + query(cleanUsername(username), amountCents, note, txn = "charge")
+
 /** Opens Venmo's pay page for [username], falling back to their profile page if that cannot be opened. */
 fun UrlOpener.payWithVenmo(username: String, amountCents: Long, note: String) {
     open(venmoPayUrl(username, amountCents, note)) {
         open(venmoWebUrl(username, amountCents, note))
+    }
+}
+
+/** Opens Venmo's pay page on a request from [username], falling back to their profile page if that cannot be opened. */
+fun UrlOpener.requestWithVenmo(username: String, amountCents: Long, note: String) {
+    open(venmoRequestUrl(username, amountCents, note)) {
+        open("https://venmo.com/${cleanUsername(username).encodeURLParameter()}?" + query(null, amountCents, note, txn = "charge"))
     }
 }

@@ -144,6 +144,42 @@ class SettleUpTest {
     }
 
     @Test
+    fun payments_carry_the_payers_venmo_username_for_requests() = runTest {
+        server.balances = usd(
+            person("tj", "TJ", 2000),
+            person("sam", "Sam", -1200).copy(venmoUsername = "sam-v"),
+            person("ana", "Ana", -800),
+        )
+
+        val transfers = open(controller()).state.value.transfers
+
+        assertEquals(mapOf("Sam" to "sam-v", "Ana" to null), transfers.associate { it.from.name to it.fromVenmo })
+    }
+
+    @Test
+    fun requests_are_offered_only_on_payments_this_devices_person_receives() = runTest {
+        val transfers = open(controller()).state.value.transfers
+
+        assertTrue(transfers.isNotEmpty() && transfers.all { it.isPaidTo("tj") })
+        assertTrue(transfers.none { it.isPaidTo("ana") })
+        assertTrue(transfers.none { it.isPaidTo(null) })
+    }
+
+    @Test
+    fun a_venmo_username_typed_for_a_payer_is_used_for_requests() = runTest {
+        val c = open(controller())
+        val payer = c.state.value.transfers.first().from
+
+        c.setVenmo(payer, "payer-v")
+        advanceUntilIdle()
+
+        val transfers = c.state.value.transfers
+        assertEquals("payer-v", transfers.first().fromVenmo)
+        assertTrue(transfers.drop(1).all { it.fromVenmo == null })
+        assertTrue(transfers.all { it.toVenmo == null })
+    }
+
+    @Test
     fun a_venmo_username_typed_on_settle_up_is_saved_and_used_for_their_payments() = runTest {
         val c = open(controller())
         val tj = c.state.value.transfers.first().to

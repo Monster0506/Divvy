@@ -44,6 +44,7 @@ import com.monster0506.divvy.balances.BalancesState
 import com.monster0506.divvy.balances.Payment
 import com.monster0506.divvy.balances.SettleTransfer
 import com.monster0506.divvy.balances.isPaidBy
+import com.monster0506.divvy.balances.isPaidTo
 import com.monster0506.divvy.domain.centsToInput
 import com.monster0506.divvy.domain.parsePriceCents
 import com.monster0506.divvy.ui.components.AppScaffold
@@ -85,9 +86,10 @@ fun LiveBalancesScreen(
     onSettle: (SettleTransfer, amountCents: Int) -> Unit = { _, _ -> },
     onUndo: () -> Unit = {},
     onPayWithVenmo: (SettleTransfer) -> Unit = {},
+    onRequestWithVenmo: (SettleTransfer) -> Unit = {},
     onSaveVenmo: (person: Person, username: String, onSaved: () -> Unit) -> Unit = { _, _, _ -> },
     onEditVenmo: () -> Unit = {},
-    /** This device's person; Venmo is offered only on payments they make. */
+    /** This device's person; Venmo is offered only on payments they make or receive. */
     meId: String? = null,
 ) {
     var paying by remember { mutableStateOf<SettleTransfer?>(null) }
@@ -143,6 +145,7 @@ fun LiveBalancesScreen(
                                 enabled = !state.recording,
                                 onPay = { paying = it },
                                 onVenmo = { if (it.toVenmo != null) onPayWithVenmo(it) else askingVenmo = it.to },
+                                onRequest = { if (it.fromVenmo != null) onRequestWithVenmo(it) else askingVenmo = it.from },
                             )
                         }
                     }
@@ -157,13 +160,22 @@ fun LiveBalancesScreen(
 }
 
 /**
- * "A pays B $X" with a Mark paid button and, when this device's person is A, a Venmo button. Venmo opens a payment to
- * B, or asks for B's Venmo username first if nobody has added it yet. Payments involving this device's person stand out.
+ * "A pays B $X" with a Mark paid button. When this device's person is A, a Venmo button opens a payment to B; when
+ * they are B, a Request button opens a Venmo request from A. Either asks for the other person's Venmo username first
+ * if nobody has added it yet. Payments involving this device's person stand out.
  */
 @Composable
-private fun SettleRow(transfer: SettleTransfer, meId: String?, enabled: Boolean, onPay: () -> Unit, onVenmo: () -> Unit) {
+private fun SettleRow(
+    transfer: SettleTransfer,
+    meId: String?,
+    enabled: Boolean,
+    onPay: () -> Unit,
+    onVenmo: () -> Unit,
+    onRequest: () -> Unit,
+) {
     val iPay = transfer.isPaidBy(meId)
-    val involvesMe = transfer.involvesMe || iPay || (meId != null && transfer.to.id == meId)
+    val iAmPaid = transfer.isPaidTo(meId)
+    val involvesMe = transfer.involvesMe || iPay || iAmPaid
     val weight = if (involvesMe) FontWeight.SemiBold else FontWeight.Normal
     val tint = if (involvesMe) DivvyColors.Accent else DivvyColors.Ink
     Row(
@@ -172,15 +184,16 @@ private fun SettleRow(transfer: SettleTransfer, meId: String?, enabled: Boolean,
     ) {
         Text("${transfer.from.name} pays ${transfer.to.name}", Modifier.weight(1f), fontSize = 14.sp, fontWeight = weight, color = tint)
         Text(transfer.amountCents.toMoney(), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = tint)
-        if (iPay) {
-            SettleButton("Venmo", enabled = true, tint = tint, onClick = onVenmo, modifier = Modifier.padding(start = 10.dp))
+        when {
+            iPay -> SettleButton("Venmo", enabled = true, tint = tint, onClick = onVenmo, modifier = Modifier.padding(start = 10.dp))
+            iAmPaid -> SettleButton("Request", enabled = true, tint = tint, onClick = onRequest, modifier = Modifier.padding(start = 10.dp))
         }
         SettleButton(
             "Mark paid",
             enabled = enabled,
             tint = tint,
             onClick = onPay,
-            modifier = Modifier.padding(start = if (iPay) 6.dp else 10.dp),
+            modifier = Modifier.padding(start = if (iPay || iAmPaid) 6.dp else 10.dp),
         )
     }
     RowDivider()
@@ -215,7 +228,7 @@ private fun VenmoUsernameDialog(
                 singleLine = true,
                 enabled = !saving,
                 isError = message != null,
-                supportingText = { Text(message ?: "Saved for the household, so anyone can pay ${person.name} with Venmo.") },
+                supportingText = { Text(message ?: "Saved for the household, so housemates can pay or request from ${person.name} with Venmo.") },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { if (canSave) onSave(text) }),
             )
