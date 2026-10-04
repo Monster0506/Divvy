@@ -60,6 +60,7 @@ fun receipt(
     id = id,
     householdId = household,
     paidByPersonId = Uuid.random(),
+    imageKey = null,
     merchantName = "Trader Joe's",
     purchasedAt = purchasedAt,
     subtotal = null,
