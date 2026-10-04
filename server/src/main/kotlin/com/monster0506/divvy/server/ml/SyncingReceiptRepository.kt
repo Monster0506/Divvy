@@ -3,6 +3,7 @@ package com.monster0506.divvy.server.ml
 import com.monster0506.divvy.server.domain.LabelSource
 import com.monster0506.divvy.server.domain.Receipt
 import com.monster0506.divvy.server.domain.ReceiptStatus
+import com.monster0506.divvy.server.repository.ConfirmResult
 import com.monster0506.divvy.server.repository.ReceiptRepository
 import org.slf4j.LoggerFactory
 import kotlin.uuid.Uuid
@@ -23,6 +24,14 @@ class SyncingReceiptRepository(
             if (receipt.status == ReceiptStatus.CONFIRMED) {
                 logLabelSources(receipt)
                 sync.scheduleConfirmed(receipt)
+            }
+        }
+
+    override suspend fun confirmAssigned(id: Uuid): ConfirmResult =
+        delegate.confirmAssigned(id).also { result ->
+            if (result is ConfirmResult.Confirmed) {
+                logLabelSources(result.receipt)
+                sync.scheduleConfirmed(result.receipt)
             }
         }
 
