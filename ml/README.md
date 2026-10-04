@@ -85,6 +85,15 @@ household at that time. Someone missing from a line (not yet joined, or archived
   because items bought on one trip belong together.
 - `check_no_leakage(dates, split)` raises unless every later period is strictly after every earlier one.
 
+Export a household's confirmed items from Postgres (needs `pip install -e ".[export]"`):
+
+```
+DATABASE_URL=postgresql://... python -m divvy_ml.eval.export --household <uuid> --out data/real/observations.jsonl
+```
+
+Each item appears once with its final owners and its original purchase date. People who had not joined yet, or were
+already archived, when the receipt was confirmed are left out of `owners`. `meta.label_source` keeps how the owners were set.
+
 ## Evaluation report
 
 ```

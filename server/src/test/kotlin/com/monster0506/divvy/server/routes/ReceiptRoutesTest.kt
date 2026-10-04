@@ -2,21 +2,19 @@ package com.monster0506.divvy.server.routes
 
 import com.monster0506.divvy.server.db.TestDatabase
 import com.monster0506.divvy.server.domain.CurrencyCode
-import com.monster0506.divvy.server.domain.NewReceipt
-import com.monster0506.divvy.server.domain.NewReceiptItem
-import com.monster0506.divvy.server.domain.OwnerShare
-import com.monster0506.divvy.server.domain.Person
-import com.monster0506.divvy.server.domain.Receipt
+import com.monster0506.divvy.server.domain.ReceiptStatus
 import com.monster0506.divvy.server.repository.ExposedRepositories
-import io.ktor.client.request.delete
-import io.ktor.client.request.patch
+import com.monster0506.divvy.server.storage.LocalFileImageStorage
+import io.ktor.client.request.forms.MultiPartFormDataContent
+import io.ktor.client.request.forms.formData
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
+import io.ktor.http.Headers
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.install
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
@@ -25,22 +23,27 @@ import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.boolean
-import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.long
-import java.math.BigDecimal
-import java.time.Instant
+import java.nio.file.Files
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
 
+@OptIn(ExperimentalUuidApi::class)
 class ReceiptRoutesTest {
-    private val repos = ExposedRepositories(TestDatabase.db.database)
+    private val maxBytes = 1024L
+    private val jpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte()) + ByteArray(100)
+    private val png = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A) + ByteArray(100)
+    private val heic = byteArrayOf(0, 0, 0, 0x18) + "ftypheic".toByteArray() + ByteArray(100)
+
+    private val repos by lazy { ExposedRepositories(TestDatabase.db.database) }
+    private val storage = LocalFileImageStorage(Files.createTempDirectory("divvy-receipts"))
 
     @BeforeTest
     fun reset() = TestDatabase.reset()
@@ -48,223 +51,91 @@ class ReceiptRoutesTest {
     private fun withApp(block: suspend ApplicationTestBuilder.() -> Unit) = testApplication {
         application {
             install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true; explicitNulls = false }) }
-            routing { receiptRoutes({ repos.receipts }, { repos.people }) }
+            routing { receiptRoutes({ repos.households }, { repos.receipts }, { storage }, maxBytes) }
         }
         block()
     }
 
-    private class Fixture(val receipt: Receipt, val people: List<Person>)
+    private fun createHousehold(currency: String = "USD"): Uuid =
+        runBlocking { repos.households.create("Home", CurrencyCode(currency)).id }
 
-    /** Milk 400, Bread 250 and Eggs 300 with $10.00 subtotal, $0.50 tax, $10.50 total. */
-    private fun fixture(): Fixture = runBlocking {
-        val household = repos.households.create("Flat", CurrencyCode("USD"))
-        val people = listOf("Ann", "Bo").map { repos.people.add(household.id, it) }
-        val receipt = repos.receipts.create(
-            NewReceipt(
-                householdId = household.id,
-                paidByPersonId = people[0].id,
-                merchantName = "Corner Shop",
-                purchasedAt = Instant.parse("2026-09-30T17:45:00Z"),
-                currency = CurrencyCode("USD"),
-                subtotalMinor = 950,
-                taxMinor = 50,
-                totalMinor = 1000,
-                items = listOf(
-                    NewReceiptItem("Milk", 400, BigDecimal.ONE, 400, owners = listOf(OwnerShare(people[0].id))),
-                    NewReceiptItem("Bread", 250, BigDecimal.ONE, 250),
-                    NewReceiptItem("Eggs", 300, BigDecimal.ONE, 300),
+    private suspend fun ApplicationTestBuilder.upload(householdId: String, bytes: ByteArray, part: String = "image"): HttpResponse =
+        client.post("/households/$householdId/receipts") {
+            setBody(
+                MultiPartFormDataContent(
+                    formData {
+                        append(part, bytes, Headers.build {
+                            append(HttpHeaders.ContentType, ContentType.Application.OctetStream.toString())
+                            append(HttpHeaders.ContentDisposition, "filename=\"r.bin\"")
+                        })
+                    },
                 ),
-            ),
-        )
-        Fixture(receipt, people)
-    }
+            )
+        }
 
-    private suspend fun ApplicationTestBuilder.patch(path: String, json: String): HttpResponse =
-        client.patch(path) { contentType(ContentType.Application.Json); setBody(json) }
-
-    private suspend fun ApplicationTestBuilder.post(path: String, json: String): HttpResponse =
-        client.post(path) { contentType(ContentType.Application.Json); setBody(json) }
-
-    private suspend fun HttpResponse.json(): JsonObject = Json.parseToJsonElement(bodyAsText()).jsonObject
-
-    private fun JsonObject.reconciliation() = getValue("reconciliation").jsonObject
-
-    private fun JsonObject.itemDescriptions() =
-        getValue("items").jsonArray.map { it.jsonObject.getValue("description").jsonPrimitive.content }
+    private suspend fun HttpResponse.field(name: String) =
+        Json.parseToJsonElement(bodyAsText()).jsonObject.getValue(name).jsonPrimitive.content
 
     @Test
-    fun `patching the receipt persists the fields and reports reconciliation`() = withApp {
-        val f = fixture()
-        val res = patch(
-            "/receipts/${f.receipt.id}",
-            """{"merchantName":" Big Market ","purchasedAt":"2026-10-01T10:00:00Z",
-                "paidByPersonId":"${f.people[1].id}","taxMinor":100,"totalMinor":1050}""",
-        )
-        assertEquals(HttpStatusCode.OK, res.status)
-        val body = res.json()
-        assertEquals("Big Market", body.getValue("merchantName").jsonPrimitive.content)
-        assertEquals("2026-10-01T10:00:00Z", body.getValue("purchasedAt").jsonPrimitive.content)
-        assertEquals(f.people[1].id.toString(), body.getValue("paidByPersonId").jsonPrimitive.content)
-        assertEquals(100, body.getValue("taxMinor").jsonPrimitive.long)
-        assertEquals(1050, body.getValue("totalMinor").jsonPrimitive.long)
-        assertTrue(body.reconciliation().getValue("reconciled").jsonPrimitive.boolean)
-
-        val stored = repos.receipts.findById(f.receipt.id)!!
-        assertEquals("Big Market", stored.merchantName)
-        assertEquals(f.people[1].id, stored.paidByPersonId)
-        assertEquals(1050, stored.total.amountMinor)
+    fun `valid uploads return 201 with a processing receipt`() = withApp {
+        val household = createHousehold("EUR")
+        for (bytes in listOf(jpeg, png, heic)) {
+            val res = upload(household.toString(), bytes)
+            assertEquals(HttpStatusCode.Created, res.status)
+            assertEquals("processing", res.field("status"))
+        }
+        val receipts = repos.receipts.listByHousehold(household)
+        assertEquals(3, receipts.size)
+        assertEquals(CurrencyCode("EUR"), receipts.first().currency)
     }
 
     @Test
-    fun `reconciliation reflects items, tax and total`() = withApp {
-        val f = fixture()
-        // Items sum to 950 and tax is 50, so a total of 1000 reconciles.
-        val res = patch("/receipts/${f.receipt.id}", """{"totalMinor":1000}""")
-        val rec = res.json().reconciliation()
-        assertEquals(950, rec.getValue("itemsTotalMinor").jsonPrimitive.long)
-        assertEquals(0, rec.getValue("totalDifferenceMinor").jsonPrimitive.long)
-        assertEquals(0, rec.getValue("subtotalDifferenceMinor").jsonPrimitive.long)
-        assertTrue(rec.getValue("reconciled").jsonPrimitive.boolean)
+    fun `the image is stored and linked to the receipt`() = withApp {
+        val household = createHousehold()
+        val id = Uuid.parse(upload(household.toString(), jpeg).field("id"))
+        val receipt = assertNotNull(repos.receipts.findById(id))
+        assertEquals(ReceiptStatus.PROCESSING, receipt.status)
+        assertNull(receipt.paidByPersonId)
+        assertContentEquals(jpeg, storage.get(assertNotNull(receipt.imageKey)))
     }
 
     @Test
-    fun `patch validates input`() = withApp {
-        val f = fixture()
-        val path = "/receipts/${f.receipt.id}"
-        assertEquals(HttpStatusCode.BadRequest, patch(path, "{}").status)
-        assertEquals(HttpStatusCode.BadRequest, patch(path, "nope").status)
-        assertEquals(HttpStatusCode.BadRequest, patch(path, """{"merchantName":"  "}""").status)
-        assertEquals(HttpStatusCode.BadRequest, patch(path, """{"purchasedAt":"yesterday"}""").status)
-        assertEquals(HttpStatusCode.BadRequest, patch(path, """{"totalMinor":-1}""").status)
-        assertEquals(HttpStatusCode.BadRequest, patch(path, """{"taxMinor":-5}""").status)
-        assertEquals(HttpStatusCode.BadRequest, patch(path, """{"paidByPersonId":"x"}""").status)
+    fun `a file that is not an image returns 415`() = withApp {
+        val res = upload(createHousehold().toString(), "just some text".toByteArray())
+        assertEquals(HttpStatusCode.UnsupportedMediaType, res.status)
+        assertEquals("unsupported_media_type", res.field("code"))
     }
 
     @Test
-    fun `payer from another household is rejected`() = withApp {
-        val f = fixture()
-        val other = repos.households.create("Other", CurrencyCode("USD"))
-        val stranger = repos.people.add(other.id, "Zed")
-        val res = patch("/receipts/${f.receipt.id}", """{"paidByPersonId":"${stranger.id}"}""")
-        assertEquals(HttpStatusCode.BadRequest, res.status)
-        assertEquals(f.people[0].id, repos.receipts.findById(f.receipt.id)!!.paidByPersonId)
+    fun `an oversize image returns 413 and nothing is created`() = withApp {
+        val household = createHousehold()
+        val res = upload(household.toString(), jpeg + ByteArray(maxBytes.toInt()))
+        assertEquals(HttpStatusCode.PayloadTooLarge, res.status)
+        assertEquals("payload_too_large", res.field("code"))
+        assertEquals(0, repos.receipts.listByHousehold(household).size)
     }
 
     @Test
-    fun `unknown receipts and items return 404`() = withApp {
-        val f = fixture()
-        val unknown = "00000000-0000-0000-0000-000000000001"
-        assertEquals(HttpStatusCode.NotFound, patch("/receipts/$unknown", """{"totalMinor":1}""").status)
-        assertEquals(HttpStatusCode.NotFound, patch("/receipts/not-a-uuid", """{"totalMinor":1}""").status)
-        assertEquals(HttpStatusCode.NotFound, post("/receipts/$unknown/items", """{"description":"A","totalMinor":1}""").status)
-        assertEquals(HttpStatusCode.NotFound, patch("/receipts/${f.receipt.id}/items/$unknown", """{"totalMinor":1}""").status)
-        assertEquals(HttpStatusCode.NotFound, client.delete("/receipts/${f.receipt.id}/items/$unknown").status)
-    }
-
-    @Test
-    fun `adding an item appends a line and updates reconciliation`() = withApp {
-        val f = fixture()
-        val res = post(
-            "/receipts/${f.receipt.id}/items",
-            """{"description":" Apples ","totalMinor":150,"quantity":1.5,"unitPriceMinor":100}""",
-        )
+    fun `an image of exactly the limit is accepted`() = withApp {
+        val res = upload(createHousehold().toString(), jpeg + ByteArray(maxBytes.toInt() - jpeg.size))
         assertEquals(HttpStatusCode.Created, res.status)
-        val body = res.json()
-        val items = body.getValue("items").jsonArray.map { it.jsonObject }
-        assertEquals(listOf("Milk", "Bread", "Eggs", "Apples"), body.itemDescriptions())
-        assertEquals(4, items.last().getValue("lineNumber").jsonPrimitive.long)
-        assertEquals(1.5, items.last().getValue("quantity").jsonPrimitive.content.toDouble())
-        assertEquals(1100, body.reconciliation().getValue("itemsTotalMinor").jsonPrimitive.long)
-        assertFalse(body.reconciliation().getValue("reconciled").jsonPrimitive.boolean)
-        assertEquals(4, repos.receipts.findById(f.receipt.id)!!.items.size)
     }
 
     @Test
-    fun `item creation is validated`() = withApp {
-        val f = fixture()
-        val path = "/receipts/${f.receipt.id}/items"
-        assertEquals(HttpStatusCode.BadRequest, post(path, """{"totalMinor":100}""").status)
-        assertEquals(HttpStatusCode.BadRequest, post(path, """{"description":"A"}""").status)
-        assertEquals(HttpStatusCode.BadRequest, post(path, """{"description":"A","totalMinor":1,"quantity":0}""").status)
-        assertEquals(HttpStatusCode.BadRequest, post(path, """{"description":"A","totalMinor":1,"discountMinor":-1}""").status)
-        assertEquals(HttpStatusCode.Created, post(path, """{"description":"Coupon","totalMinor":-100}""").status)
+    fun `a missing image part returns 400`() = withApp {
+        val res = upload(createHousehold().toString(), jpeg, part = "photo")
+        assertEquals(HttpStatusCode.BadRequest, res.status)
     }
 
     @Test
-    fun `patching an item changes it and keeps its owners`() = withApp {
-        val f = fixture()
-        val milk = f.receipt.items.first()
-        val res = patch(
-            "/receipts/${f.receipt.id}/items/${milk.id}",
-            """{"description":"Oat milk","totalMinor":450,"discountMinor":50,"quantity":2}""",
-        )
-        assertEquals(HttpStatusCode.OK, res.status)
-        val stored = repos.receipts.findById(f.receipt.id)!!.items.first { it.id == milk.id }
-        assertEquals("Oat milk", stored.description)
-        assertEquals(450, stored.total.amountMinor)
-        assertEquals(50, stored.discount.amountMinor)
-        assertEquals(0, BigDecimal(2).compareTo(stored.quantity))
-        assertEquals(listOf(f.people[0].id), stored.owners.map { it.personId })
-        assertEquals(1000, res.json().reconciliation().getValue("itemsTotalMinor").jsonPrimitive.long)
-        assertEquals(HttpStatusCode.BadRequest, patch("/receipts/${f.receipt.id}/items/${milk.id}", "{}").status)
+    fun `a non multipart body returns 400`() = withApp {
+        val res = client.post("/households/${createHousehold()}/receipts") { setBody("hello") }
+        assertEquals(HttpStatusCode.BadRequest, res.status)
     }
 
     @Test
-    fun `deleting an item removes it`() = withApp {
-        val f = fixture()
-        val bread = f.receipt.items[1]
-        val res = client.delete("/receipts/${f.receipt.id}/items/${bread.id}")
-        assertEquals(HttpStatusCode.OK, res.status)
-        assertEquals(listOf("Milk", "Eggs"), res.json().itemDescriptions())
-        assertEquals(700, res.json().reconciliation().getValue("itemsTotalMinor").jsonPrimitive.long)
-        assertEquals(2, repos.receipts.findById(f.receipt.id)!!.items.size)
-    }
-
-    @Test
-    fun `merging items sums them into the first and keeps its owners`() = withApp {
-        val f = fixture()
-        val (milk, bread, eggs) = f.receipt.items
-        val res = post(
-            "/receipts/${f.receipt.id}/items/merge",
-            """{"itemIds":["${eggs.id}","${milk.id}"],"description":"Dairy"}""",
-        )
-        assertEquals(HttpStatusCode.OK, res.status)
-        assertEquals(listOf("Dairy", "Bread"), res.json().itemDescriptions())
-        val merged = repos.receipts.findById(f.receipt.id)!!.items.first()
-        assertEquals(milk.id, merged.id)
-        assertEquals(700, merged.total.amountMinor)
-        assertEquals(0, BigDecimal(2).compareTo(merged.quantity))
-        assertEquals(listOf(f.people[0].id), merged.owners.map { it.personId })
-        assertEquals(950, res.json().reconciliation().getValue("itemsTotalMinor").jsonPrimitive.long)
-        assertEquals(bread.id, repos.receipts.findById(f.receipt.id)!!.items.last().id)
-    }
-
-    @Test
-    fun `merge rejects bad item lists`() = withApp {
-        val f = fixture()
-        val path = "/receipts/${f.receipt.id}/items/merge"
-        val milk = f.receipt.items.first().id
-        assertEquals(HttpStatusCode.BadRequest, post(path, """{"itemIds":["$milk"]}""").status)
-        assertEquals(HttpStatusCode.BadRequest, post(path, """{"itemIds":["$milk","$milk"]}""").status)
-        assertEquals(HttpStatusCode.BadRequest, post(path, """{"itemIds":["$milk","nope"]}""").status)
-        assertEquals(HttpStatusCode.NotFound, post(path, """{"itemIds":["$milk","00000000-0000-0000-0000-000000000001"]}""").status)
-        assertEquals(3, repos.receipts.findById(f.receipt.id)!!.items.size)
-    }
-
-    @Test
-    fun `confirmed receipts reject every edit with 409`() = withApp {
-        val f = fixture()
-        repos.receipts.confirm(f.receipt.id)
-        val id = f.receipt.id
-        val milk = f.receipt.items.first().id
-        val bread = f.receipt.items[1].id
-        assertEquals(HttpStatusCode.Conflict, patch("/receipts/$id", """{"totalMinor":1}""").status)
-        assertEquals(HttpStatusCode.Conflict, post("/receipts/$id/items", """{"description":"A","totalMinor":1}""").status)
-        assertEquals(HttpStatusCode.Conflict, patch("/receipts/$id/items/$milk", """{"totalMinor":1}""").status)
-        assertEquals(HttpStatusCode.Conflict, client.delete("/receipts/$id/items/$milk").status)
-        assertEquals(HttpStatusCode.Conflict, post("/receipts/$id/items/merge", """{"itemIds":["$milk","$bread"]}""").status)
-        val stored = repos.receipts.findById(id)!!
-        assertEquals(1000, stored.total.amountMinor)
-        assertEquals(3, stored.items.size)
+    fun `unknown or malformed household returns 404`() = withApp {
+        assertEquals(HttpStatusCode.NotFound, upload(Uuid.random().toString(), jpeg).status)
+        assertEquals(HttpStatusCode.NotFound, upload("nope", jpeg).status)
     }
 }

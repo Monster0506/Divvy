@@ -13,6 +13,9 @@ data class AppConfig(
     val version: String = DEFAULT_VERSION,
     val mlServiceUrl: String? = null,
     val apiKey: String? = null,
+    /** Directory receipt images are stored in. */
+    val imageDir: String = DEFAULT_IMAGE_DIR,
+    val maxUploadBytes: Long = DEFAULT_MAX_UPLOAD_BYTES,
 ) {
     data class DatabaseSettings(
         /** JDBC URL, e.g. `jdbc:postgresql://db:5432/divvy`. */
@@ -39,6 +42,8 @@ data class AppConfig(
         const val DEFAULT_PORT = 8080
         const val DEFAULT_POOL_SIZE = 10
         const val DEFAULT_VERSION = "dev"
+        const val DEFAULT_IMAGE_DIR = "data/images"
+        const val DEFAULT_MAX_UPLOAD_BYTES = 10L * 1024 * 1024
 
         /** `divvy.*` config keys and the environment variables that fill them in `application.conf`. */
         private val requiredSettings = mapOf(
@@ -69,6 +74,8 @@ data class AppConfig(
                 version = value("divvy.version") ?: DEFAULT_VERSION,
                 mlServiceUrl = value("divvy.ml.url")!!,
                 apiKey = value("divvy.apiKey")!!,
+                imageDir = value("divvy.images.dir") ?: DEFAULT_IMAGE_DIR,
+                maxUploadBytes = value("divvy.images.maxUploadBytes")?.toLongOrNull() ?: DEFAULT_MAX_UPLOAD_BYTES,
             )
         }
 
@@ -91,6 +98,8 @@ data class AppConfig(
                 version = env["APP_VERSION"] ?: DEFAULT_VERSION,
                 mlServiceUrl = env["ML_SERVICE_URL"],
                 apiKey = env["API_KEY"],
+                imageDir = env["IMAGE_DIR"] ?: DEFAULT_IMAGE_DIR,
+                maxUploadBytes = env["MAX_UPLOAD_BYTES"]?.toLongOrNull() ?: DEFAULT_MAX_UPLOAD_BYTES,
             )
         }
     }
