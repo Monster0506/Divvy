@@ -26,6 +26,14 @@ object TestDatabase {
 
     val db: DivyDatabase by lazy { DatabaseFactory.connect(appConfig) }
 
+    /** The versions of the `V<n>__*.sql` migrations on the classpath, so tests need no hard-coded list. */
+    fun migrationVersions(): List<Int> {
+        val folder = checkNotNull(TestDatabase::class.java.classLoader.getResource("db/migration")) { "no migrations" }
+        return java.io.File(folder.toURI()).listFiles().orEmpty()
+            .mapNotNull { Regex("""^V(\d+)__""").find(it.name)?.groupValues?.get(1)?.toInt() }
+            .sorted()
+    }
+
     /** Removes all rows so each test starts from an empty, fully migrated schema. */
     fun reset() {
         transaction(db.database) {

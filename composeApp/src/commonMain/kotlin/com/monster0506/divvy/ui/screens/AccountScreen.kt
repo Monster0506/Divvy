@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -18,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.monster0506.divvy.ui.components.AppScaffold
 import com.monster0506.divvy.ui.components.Avatar
+import com.monster0506.divvy.ui.components.DivvyIcons
 import com.monster0506.divvy.ui.components.RowDivider
 import com.monster0506.divvy.ui.components.ScreenHeader
 import com.monster0506.divvy.ui.components.SectionHeader
@@ -79,7 +81,7 @@ fun AccountScreen(
                     fontWeight = FontWeight.Medium,
                     color = DivvyColors.Ink,
                 )
-                Text("›", fontSize = 20.sp, color = DivvyColors.Dim)
+                Icon(DivvyIcons.ChevronRight, contentDescription = null, tint = DivvyColors.Dim)
             }
             RowDivider()
         }
