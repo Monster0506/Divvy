@@ -53,7 +53,15 @@ class ApiException(val failure: ApiFailure) : Exception(failure.toString())
 /** Typed wrappers over the raw HTTP calls. */
 class DivvyApi(private val client: HttpClient) {
     suspend fun createHousehold(name: String): HouseholdDto =
-        send { client.post("households") { contentType(ContentType.Application.Json); setBody(CreateHouseholdRequest(name)) } }
+        send {
+            client.post("households") {
+                contentType(ContentType.Application.Json); setBody(
+                CreateHouseholdRequest(
+                    name
+                )
+            )
+            }
+        }
 
     suspend fun getHousehold(id: String): HouseholdDto = send { client.get("households/${id.seg()}") }
 
@@ -149,8 +157,15 @@ class DivvyApi(private val client: HttpClient) {
     suspend fun getPredictions(householdId: String, receiptId: String): PredictionsDto =
         send { client.get("households/${householdId.seg()}/receipts/$receiptId/predictions") }
 
+    suspend fun rerunPredictions(householdId: String, receiptId: String): PredictionsDto =
+        send { client.post("households/${householdId.seg()}/receipts/$receiptId/predictions") }
+
     /** Keeps the model's owners as the person's choice, for [itemIds] or every item that needs it when null. */
-    suspend fun acceptPredictions(householdId: String, receiptId: String, itemIds: List<String>? = null): AcceptedPredictionsDto =
+    suspend fun acceptPredictions(
+        householdId: String,
+        receiptId: String,
+        itemIds: List<String>? = null
+    ): AcceptedPredictionsDto =
         send {
             client.post("households/${householdId.seg()}/receipts/$receiptId/predictions/accept") {
                 setBody(AcceptPredictionsRequest(itemIds))

@@ -73,7 +73,12 @@ class ReceiptRepository(private val api: DivvyApi) {
 
     suspend fun confirm(id: String): ApiResult<ConfirmedReceiptDto> = apiCall { api.confirmReceipt(id) }
 
-    suspend fun list(householdId: String, status: String? = null, cursor: String? = null, limit: Int = 50): ApiResult<ReceiptPageDto> =
+    suspend fun list(
+        householdId: String,
+        status: String? = null,
+        cursor: String? = null,
+        limit: Int = 50
+    ): ApiResult<ReceiptPageDto> =
         apiCall { api.listReceipts(householdId, status, cursor, limit) }
 
     suspend fun addItem(receiptId: String, item: ItemEditRequest): ApiResult<EditedReceiptDto> =
@@ -85,7 +90,11 @@ class ReceiptRepository(private val api: DivvyApi) {
     suspend fun deleteItem(receiptId: String, itemId: String): ApiResult<EditedReceiptDto> =
         apiCall { api.deleteItem(receiptId, itemId) }
 
-    suspend fun mergeItems(receiptId: String, itemIds: List<String>, description: String? = null): ApiResult<EditedReceiptDto> =
+    suspend fun mergeItems(
+        receiptId: String,
+        itemIds: List<String>,
+        description: String? = null
+    ): ApiResult<EditedReceiptDto> =
         apiCall { api.mergeItems(receiptId, itemIds, description) }
 
     suspend fun reopen(id: String): ApiResult<ReceiptDto> = apiCall { api.reopenReceipt(id) }
@@ -103,6 +112,9 @@ class ReceiptRepository(private val api: DivvyApi) {
 
     suspend fun predictions(householdId: String, receiptId: String): ApiResult<PredictionsDto> =
         apiCall { api.getPredictions(householdId, receiptId) }
+
+    suspend fun rerunPredictions(householdId: String, receiptId: String): ApiResult<PredictionsDto> =
+        apiCall { api.rerunPredictions(householdId, receiptId) }
 
     suspend fun acceptPredictions(
         householdId: String,

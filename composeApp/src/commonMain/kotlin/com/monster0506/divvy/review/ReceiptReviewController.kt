@@ -51,6 +51,8 @@ data class ReviewState(
     val warning: String? = null,
     /** True when the last deleted line can be put back. */
     val canUndo: Boolean = false,
+    /** True while the server is guessing owners again. */
+    val guessing: Boolean = false,
 )
 
 /**
@@ -128,6 +130,7 @@ class ReceiptReviewController(
                     payerSaved = true
                     onPayerChosen(personId)
                 }
+
                 is ApiResult.Failure -> {
                     payerSaved = wasSaved
                     mutableState.update { state ->
@@ -207,7 +210,13 @@ class ReceiptReviewController(
     /** Renames a line and changes its price. */
     fun editLine(lineId: Int, name: String, priceCents: Int) {
         val itemId = itemIds[lineId] ?: return
-        edit { api.updateItem(receiptId, itemId, ItemEditRequest(description = name.trim(), totalMinor = priceCents.toLong())) }
+        edit {
+            api.updateItem(
+                receiptId,
+                itemId,
+                ItemEditRequest(description = name.trim(), totalMinor = priceCents.toLong())
+            )
+        }
     }
 
     fun addLine(name: String, priceCents: Int) {
@@ -231,6 +240,51 @@ class ReceiptReviewController(
         }
     }
 
+    /** Asks the server to guess owners again. Lines someone has already settled keep their owners. */
+    fun guessAgain() {
+        val current = mutableState.value
+        if (current.phase != ReviewPhase.Ready || current.guessing) return
+        mutableState.update { it.copy(guessing = true, message = null) }
+        scope.launch {
+            writes.withLock { refreshGuesses() }
+            mutableState.update { it.copy(guessing = false) }
+        }
+    }
+
+        private suspend fun refreshGuesses() {
+        val asked = when (val result = api.rerunPredictions(householdId, receiptId)) {
+            is ApiResult.Success -> result.value
+            is ApiResult.Failure ->
+                return mutableState.update { it.copy(message = "Could not guess again. ${describe(result.failure)}") }
+        }
+        if (!asked.mlAvailable) {
+            return mutableState.update { it.copy(message = asked.notice ?: "Guessing is not available right now.") }
+        }
+        val receipt = (api.receipt(receiptId) as? ApiResult.Success)?.value
+            ?: return mutableState.update { it.copy(message = "Could not load the new guesses.") }
+        val predictions = (api.predictions(householdId, receiptId) as? ApiResult.Success)?.value ?: asked
+        mutableState.update { state ->
+            val draft = state.draft ?: return@update state
+            val rebuilt = buildReviewLines(receipt, people, draft.payer, predictions)
+            val oldByItem =
+                itemIds.entries.associate { (lineId, itemId) -> itemId to draft.lines.find { it.id == lineId } }
+            // Lines a person chose or confirmed are never overwritten, saved or not.
+            val settled = oldByItem.filter { (itemId, old) ->
+                old != null && old.owners.isNotEmpty() && (old.confirmed || old.owners != savedOwners[itemId])
+            }.keys
+            val lines = rebuilt.draft.lines.map { line ->
+                val old = oldByItem[rebuilt.itemIds[line.id]]
+                if (old != null && old.owners.isNotEmpty() && rebuilt.itemIds[line.id] in settled) old.copy(id = line.id) else line
+            }
+            fun <T> merge(fresh: Map<String, T>, old: Map<String, T>) =
+                fresh.mapValues { (id, value) -> if (id in settled) old[id] ?: value else value }
+            savedOwners = merge(receipt.items.associate { it.id to it.owners.map { o -> o.personId }.toSet() }, savedOwners)
+            savedConfirmed = merge(rebuilt.draft.lines.associate { rebuilt.itemIds.getValue(it.id) to it.confirmed }, savedConfirmed)
+            savedConfidence = merge(rebuilt.draft.lines.associate { rebuilt.itemIds.getValue(it.id) to it.confidence }, savedConfidence)
+            itemIds = rebuilt.itemIds
+            state.copy(draft = draft.copy(lines = lines), message = predictions.notice)
+        }
+    }
     /** Combines lines into the first of them, adding their prices. */
     fun mergeLines(lineIds: Set<Int>) {
         val ids = lineIds.sorted().mapNotNull { itemIds[it] }
@@ -251,10 +305,17 @@ class ReceiptReviewController(
                 is ApiResult.Success -> mutableState.update { it.copy(phase = ReviewPhase.Confirmed) }
                 is ApiResult.Failure -> {
                     val failure = result.failure
-                    val pending = (failure as? ApiFailure.Validation)?.error?.takeIf { it.code == "unconfirmed_items" }?.details.orEmpty()
+                    val pending =
+                        (failure as? ApiFailure.Validation)?.error?.takeIf { it.code == "unconfirmed_items" }?.details.orEmpty()
                     mutableState.update { it.copy(phase = ReviewPhase.Ready, message = describe(failure)) }
                     pending.forEach { itemId ->
-                        itemIds.entries.find { it.value == itemId }?.key?.let { id -> updateLine(id) { line -> line.copy(confirmed = false) } }
+                        itemIds.entries.find { it.value == itemId }?.key?.let { id ->
+                            updateLine(id) { line ->
+                                line.copy(
+                                    confirmed = false
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -270,6 +331,7 @@ class ReceiptReviewController(
                     onSuccess()
                     applyEdited(result.value)
                 }
+
                 is ApiResult.Failure ->
                     mutableState.update { it.copy(message = "Could not save that change. ${describe(result.failure)}") }
             }
@@ -285,7 +347,9 @@ class ReceiptReviewController(
             val previousConfidence = savedConfidence
             val before = itemIds.entries.associate { (lineId, itemId) -> itemId to draft.lines.find { it.id == lineId } }
             val ordered = edited.items.sortedBy { it.lineNumber }
-            val ids = ordered.mapIndexed { index, item -> (if (item.lineNumber > 0) item.lineNumber else index + 1) to item.id }.toMap()
+            val ids =
+                ordered.mapIndexed { index, item -> (if (item.lineNumber > 0) item.lineNumber else index + 1) to item.id }
+                    .toMap()
             val lines = ordered.mapIndexed { index, item ->
                 val old = before[item.id]
                 val persistedOwners = item.owners.map { it.personId }.toSet()
@@ -339,13 +403,19 @@ class ReceiptReviewController(
                     val receipt = result.value
                     when (receipt.status) {
                         ReceiptStatusDto.Processing -> Unit
-                        ReceiptStatusDto.Failed -> return fail(ReviewPhase.Failed, receipt.failureReason ?: "The photo could not be read.")
+                        ReceiptStatusDto.Failed -> return fail(
+                            ReviewPhase.Failed,
+                            receipt.failureReason ?: "The photo could not be read."
+                        )
+
                         ReceiptStatusDto.Draft -> return showDraft(receipt, loaded)
                         ReceiptStatusDto.Confirmed ->
                             return mutableState.update { it.copy(phase = ReviewPhase.Confirmed, message = null) }
+
                         ReceiptStatusDto.Void -> return fail(ReviewPhase.Failed, "This receipt was voided.")
                     }
                 }
+
                 is ApiResult.Failure -> {
                     val failure = result.failure
                     missed++
@@ -401,7 +471,10 @@ class ReceiptReviewController(
         mutableState.update { it.copy(phase = phase, message = message) }
     }
 
-    private fun updateLine(lineId: Int, change: (com.monster0506.divvy.ui.model.ReceiptLine) -> com.monster0506.divvy.ui.model.ReceiptLine) {
+    private fun updateLine(
+        lineId: Int,
+        change: (com.monster0506.divvy.ui.model.ReceiptLine) -> com.monster0506.divvy.ui.model.ReceiptLine
+    ) {
         mutableState.update { state ->
             val draft = state.draft ?: return@update state
             state.copy(draft = draft.copy(lines = draft.lines.map { if (it.id == lineId) change(it) else it }))

@@ -27,7 +27,11 @@ interface ReviewApi {
 
     suspend fun setOwners(receiptId: String, itemId: String, owners: List<ItemOwnerDto>): ApiResult<ItemOwnersDto>
 
-    suspend fun accept(householdId: String, receiptId: String, itemIds: List<String>?): ApiResult<AcceptedPredictionsDto>
+    suspend fun accept(
+        householdId: String,
+        receiptId: String,
+        itemIds: List<String>?
+    ): ApiResult<AcceptedPredictionsDto>
 
     suspend fun confirm(receiptId: String): ApiResult<ConfirmedReceiptDto>
 
@@ -42,6 +46,7 @@ interface ReviewApi {
     suspend fun mergeItems(receiptId: String, itemIds: List<String>): ApiResult<EditedReceiptDto>
 
     suspend fun retry(householdId: String, receiptId: String): ApiResult<ReceiptUploadDto>
+    suspend fun rerunPredictions(householdId: String, receiptId: String): ApiResult<PredictionsDto>
 }
 
 class RepositoryReviewApi(
@@ -78,4 +83,7 @@ class RepositoryReviewApi(
     override suspend fun mergeItems(receiptId: String, itemIds: List<String>) = receipts.mergeItems(receiptId, itemIds)
 
     override suspend fun retry(householdId: String, receiptId: String) = receipts.retry(householdId, receiptId)
+    
+        override suspend fun rerunPredictions(householdId: String, receiptId: String) =
+        receipts.rerunPredictions(householdId, receiptId)
 }
