@@ -42,7 +42,6 @@ data class SettlementResponse(
     val createdAt: String,
 )
 
-
 private fun Settlement.toResponse() = SettlementResponse(
     id = id.toString(),
     householdId = householdId.toString(),
