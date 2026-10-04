@@ -1028,7 +1028,7 @@
     },
     "/ownership/predict": {
       "post": {
-        "description": "Predict who owns each item from the household's stored history.\n\nItems come back as `unknown` while the household has too little history, or when nothing in it\nresembles the item.",
+        "description": "Predict who owns each item from the household's stored history.\n\nItems come back as `unknown` while the household has too little history, or when nothing in it\nresembles the item. With DIVVY_DEMO_MODEL on, a household with too little history is answered by\nthe built-in demo model instead.",
         "operationId": "predict_ownership_predict_post",
         "requestBody": {
           "content": {
