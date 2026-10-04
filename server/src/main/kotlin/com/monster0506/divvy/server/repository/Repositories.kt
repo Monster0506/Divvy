@@ -5,11 +5,14 @@ import com.monster0506.divvy.server.domain.Household
 import com.monster0506.divvy.server.domain.ItemOwner
 import com.monster0506.divvy.server.domain.ItemOwnerHistoryEntry
 import com.monster0506.divvy.server.domain.NewReceipt
+import com.monster0506.divvy.server.domain.NewReceiptItem
 import com.monster0506.divvy.server.domain.NewSettlement
 import com.monster0506.divvy.server.domain.OwnerShare
 import com.monster0506.divvy.server.domain.OwnershipSource
 import com.monster0506.divvy.server.domain.Person
 import com.monster0506.divvy.server.domain.Receipt
+import com.monster0506.divvy.server.domain.ReceiptItemPatch
+import com.monster0506.divvy.server.domain.ReceiptPatch
 import com.monster0506.divvy.server.domain.Settlement
 import kotlin.uuid.Uuid
 
@@ -59,9 +62,27 @@ interface ReceiptRepository {
 
     suspend fun confirm(id: Uuid): Receipt?
 
+    /*
+     * Edits below apply to draft receipts only and throw [ReceiptLockedException] otherwise.
+     * They return the updated receipt, or null if the receipt (or the item) does not exist.
+     */
+    suspend fun update(id: Uuid, patch: ReceiptPatch): Receipt?
+    suspend fun addItem(receiptId: Uuid, item: NewReceiptItem): Receipt?
+    suspend fun updateItem(receiptId: Uuid, itemId: Uuid, patch: ReceiptItemPatch): Receipt?
+    suspend fun deleteItem(receiptId: Uuid, itemId: Uuid): Receipt?
+
+    /**
+     * Combines two or more items into the first (lowest line number): totals, discounts and
+     * quantities are summed and the first item's owners are kept. The others are removed.
+     */
+    suspend fun mergeItems(receiptId: Uuid, itemIds: List<Uuid>, description: String? = null): Receipt?
+
     /** Marks a receipt void. Receipts are never deleted, so their history stays available. */
     suspend fun void(id: Uuid): Receipt?
 }
+
+/** The receipt is no longer a draft, so its contents cannot be edited. */
+class ReceiptLockedException(message: String) : RuntimeException(message)
 
 interface ItemOwnerRepository {
     /**
