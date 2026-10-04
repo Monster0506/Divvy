@@ -51,9 +51,17 @@ fun venmoDeepLink(username: String, amountCents: Long, note: String): String =
 fun venmoWebUrl(username: String, amountCents: Long, note: String): String =
     "https://venmo.com/${cleanUsername(username).encodeURLParameter()}?" + query(null, amountCents, note)
 
-/** Opens Venmo pre-filled with recipient, amount and note, falling back to the web page. */
+/**
+ * Venmo's pay page, pre-filled with recipient, amount and note. Venmo's app opens it where it claims the link, and the
+ * browser otherwise. Since 2024 the app no longer finds recipients passed through [venmoDeepLink], so this is what
+ * settle-up opens.
+ */
+fun venmoPayUrl(username: String, amountCents: Long, note: String): String =
+    "https://account.venmo.com/pay?" + query(cleanUsername(username), amountCents, note)
+
+/** Opens Venmo's pay page for [username], falling back to their profile page if that cannot be opened. */
 fun UrlOpener.payWithVenmo(username: String, amountCents: Long, note: String) {
-    open(venmoDeepLink(username, amountCents, note)) {
+    open(venmoPayUrl(username, amountCents, note)) {
         open(venmoWebUrl(username, amountCents, note))
     }
 }
