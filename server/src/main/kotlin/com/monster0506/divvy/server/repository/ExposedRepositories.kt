@@ -96,6 +96,12 @@ class ExposedPersonRepository(private val db: Database) : PersonRepository {
         peopleOf(householdId, includeArchived)
     }
 
+    override suspend fun rename(id: Uuid, displayName: String): Person? = db.dbQuery {
+        PersonTable.updateReturning(where = { PersonTable.id eq id }) {
+            it[PersonTable.displayName] = displayName
+        }.singleOrNull()?.toPerson()
+    }
+
     override suspend fun archive(id: Uuid): Person? = db.dbQuery {
         PersonTable.updateReturning(where = { (PersonTable.id eq id) and PersonTable.archivedAt.isNull() }) {
             it[PersonTable.archivedAt] = CurrentTimestampWithTimeZone

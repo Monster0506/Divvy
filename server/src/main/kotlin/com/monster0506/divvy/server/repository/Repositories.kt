@@ -40,6 +40,8 @@ interface PersonRepository {
     /** Members of a household in the order they were added. */
     suspend fun listByHousehold(householdId: Uuid, includeArchived: Boolean = false): List<Person>
 
+    suspend fun rename(id: Uuid, displayName: String): Person?
+
     /** Removes a person from the active household while keeping their history. */
     suspend fun archive(id: Uuid): Person?
 }
