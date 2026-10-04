@@ -8,6 +8,7 @@ import com.monster0506.divvy.server.domain.ReceiptStatus
 import com.monster0506.divvy.server.repository.PersonRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -30,6 +31,7 @@ class LabelSync(
 ) {
     private val log = LoggerFactory.getLogger(LabelSync::class.java)
     private val locks = ConcurrentHashMap<Uuid, Mutex>()
+    private val tails = ConcurrentHashMap<Uuid, Job>()
     private val dirtyHouseholds: MutableSet<Uuid> = ConcurrentHashMap.newKeySet()
 
     /** Households whose ML copy may be behind the database. */
@@ -78,18 +80,30 @@ class LabelSync(
         }
     }
 
-    private fun launchFor(householdId: Uuid, block: suspend () -> Unit): Job = scope.launch {
-        // one household's changes reach the ML service in the order they were made
-        withHousehold(householdId) {
-            try {
-                block()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                log.warn("ML label sync failed for household {}", householdId, e)
-                markDirty(householdId)
+    /**
+     * Each household's pushes form a chain: a push starts only after the one scheduled before it has finished, so they
+     * reach the ML service in the order they were made. The mutex alone could not promise that, because two coroutines
+     * started together may reach it in either order.
+     */
+    private fun launchFor(householdId: Uuid, block: suspend () -> Unit): Job = synchronized(tails) {
+        val previous = tails[householdId]
+        val job = scope.launch(start = CoroutineStart.LAZY) {
+            previous?.join()
+            withHousehold(householdId) {
+                try {
+                    block()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    log.warn("ML label sync failed for household {}", householdId, e)
+                    markDirty(householdId)
+                }
             }
         }
+        tails[householdId] = job
+        job.invokeOnCompletion { tails.remove(householdId, job) }
+        job.start()
+        job
     }
 
     private suspend fun report(
