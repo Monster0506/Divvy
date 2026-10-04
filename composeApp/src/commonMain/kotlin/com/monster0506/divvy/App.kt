@@ -62,6 +62,7 @@ import com.monster0506.divvy.history.ReceiptDetailController
 import com.monster0506.divvy.history.ReceiptHistoryController
 import com.monster0506.divvy.history.RepositoryBrowseApi
 import com.monster0506.divvy.settings.AutoAssignController
+import com.monster0506.divvy.settings.HouseholdNameController
 import com.monster0506.divvy.settings.RepositorySettingsApi
 import com.monster0506.divvy.data.repository.SettingsRepository
 import com.monster0506.divvy.data.dto.ReceiptStatusDto
@@ -185,6 +186,14 @@ fun DivvyApp(
     val history = remember(browse) { ReceiptHistoryController(browse, scope) }
     val detail = remember(browse) { ReceiptDetailController(browse, scope) }
     val autoAssign = remember(api) { AutoAssignController(RepositorySettingsApi(SettingsRepository(api)), scope) }
+    val nameSync = remember(api) {
+        HouseholdNameController(
+            scope = scope,
+            fetch = { id -> api.getHousehold(id).name },
+            rename = { id, name -> api.renameHousehold(id, name).name },
+            setLocal = { state.householdName = it },
+        )
+    }
     val historyState by history.state.collectAsState()
     val detailState by detail.state.collectAsState()
     val autoState by autoAssign.state.collectAsState()
@@ -193,8 +202,14 @@ fun DivvyApp(
     LaunchedEffect(route) {
         val household = activeHousehold() ?: return@LaunchedEffect
         when (route) {
-            Route.History -> history.load(household)
-            Route.Account -> autoAssign.load(household)
+            Route.History -> {
+                history.load(household)
+                nameSync.open(household)
+            }
+            Route.Account -> {
+                autoAssign.load(household)
+                nameSync.open(household)
+            }
             else -> Unit
         }
     }
@@ -528,7 +543,8 @@ fun DivvyApp(
                 householdName = state.householdName,
                 people = state.people,
                 settings = state.settings,
-                onHouseholdNameChange = { state.householdName = it },
+                onHouseholdNameChange = nameSync::edit,
+                householdNameMessage = nameSync.message,
                 onEditPerson = {
                     editingId = it
                     route = Route.EditPerson
