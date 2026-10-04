@@ -3,7 +3,10 @@ package com.monster0506.divvy.data.repository
 import com.monster0506.divvy.data.api.ApiException
 import com.monster0506.divvy.data.api.ApiResult
 import com.monster0506.divvy.data.api.DivvyApi
+import com.monster0506.divvy.data.dto.AcceptedPredictionsDto
 import com.monster0506.divvy.data.dto.BalanceDto
+import com.monster0506.divvy.data.dto.ConfirmedReceiptDto
+import com.monster0506.divvy.data.dto.PredictionsDto
 import com.monster0506.divvy.data.dto.HouseholdDto
 import com.monster0506.divvy.data.dto.ItemOwnerDto
 import com.monster0506.divvy.data.dto.ItemOwnersDto
@@ -54,7 +57,19 @@ class ReceiptRepository(private val api: DivvyApi) {
         onProgress: (sent: Long, total: Long) -> Unit = { _, _ -> },
     ): ApiResult<ReceiptUploadDto> = apiCall { api.uploadReceipt(householdId, jpeg, onProgress) }
 
-    suspend fun confirm(id: String): ApiResult<ReceiptDto> = apiCall { api.confirmReceipt(id) }
+    suspend fun confirm(id: String): ApiResult<ConfirmedReceiptDto> = apiCall { api.confirmReceipt(id) }
+
+    suspend fun retry(householdId: String, receiptId: String): ApiResult<ReceiptUploadDto> =
+        apiCall { api.retryReceipt(householdId, receiptId) }
+
+    suspend fun predictions(householdId: String, receiptId: String): ApiResult<PredictionsDto> =
+        apiCall { api.getPredictions(householdId, receiptId) }
+
+    suspend fun acceptPredictions(
+        householdId: String,
+        receiptId: String,
+        itemIds: List<String>? = null,
+    ): ApiResult<AcceptedPredictionsDto> = apiCall { api.acceptPredictions(householdId, receiptId, itemIds) }
 }
 
 class BalanceRepository(private val api: DivvyApi) {
