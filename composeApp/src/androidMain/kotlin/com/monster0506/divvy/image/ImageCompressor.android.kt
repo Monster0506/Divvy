@@ -5,8 +5,10 @@ import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.media.ExifInterface
 import java.io.ByteArrayOutputStream
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
-actual suspend fun compressImage(bytes: ByteArray, maxLongEdge: Int, quality: Int): ByteArray {
+actual suspend fun compressImage(bytes: ByteArray, maxLongEdge: Int, quality: Int): ByteArray = withContext(Dispatchers.Default) {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
     require(bounds.outWidth > 0 && bounds.outHeight > 0) { "Unsupported image data" }
@@ -31,7 +33,7 @@ actual suspend fun compressImage(bytes: ByteArray, maxLongEdge: Int, quality: In
     result.compress(Bitmap.CompressFormat.JPEG, quality.coerceIn(1, 100), out)
     if (result !== decoded) result.recycle()
     decoded.recycle()
-    return out.toByteArray()
+    out.toByteArray()
 }
 
 private fun exifRotation(bytes: ByteArray): Float =

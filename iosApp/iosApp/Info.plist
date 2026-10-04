@@ -20,6 +20,11 @@
 	<string>1</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Take a photo of a receipt to add it to your household.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>CADisableMinimumFrameDurationOnPhone</key>

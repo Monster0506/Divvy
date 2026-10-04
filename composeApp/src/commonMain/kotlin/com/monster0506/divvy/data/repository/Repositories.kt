@@ -7,6 +7,7 @@ import com.monster0506.divvy.data.dto.BalanceDto
 import com.monster0506.divvy.data.dto.HouseholdDto
 import com.monster0506.divvy.data.dto.PersonDto
 import com.monster0506.divvy.data.dto.ReceiptDto
+import com.monster0506.divvy.data.dto.ReceiptUploadDto
 import kotlinx.coroutines.CancellationException
 
 internal suspend inline fun <T> apiCall(block: () -> T): ApiResult<T> =
@@ -40,6 +41,12 @@ class HouseholdRepository(private val api: DivvyApi) {
 
 class ReceiptRepository(private val api: DivvyApi) {
     suspend fun get(id: String): ApiResult<ReceiptDto> = apiCall { api.getReceipt(id) }
+
+    suspend fun upload(
+        householdId: String,
+        jpeg: ByteArray,
+        onProgress: (sent: Long, total: Long) -> Unit = { _, _ -> },
+    ): ApiResult<ReceiptUploadDto> = apiCall { api.uploadReceipt(householdId, jpeg, onProgress) }
 
     suspend fun confirm(id: String): ApiResult<ReceiptDto> = apiCall { api.confirmReceipt(id) }
 }

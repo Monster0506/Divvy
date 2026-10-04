@@ -100,7 +100,9 @@ See JetBrains' guide on [running on a real iOS device](https://kotlinlang.org/do
 
 ### Taking a receipt photo
 
-From Receipts, tap Scan receipt, then the shutter button to open the device camera on Android or iOS. Camera failures show guidance on the screen. Handling or uploading the captured photo comes later; the receipt review screen still uses sample data.
+From Receipts, tap Scan receipt, then take a photo or choose one from Gallery. Review the prepared image and tap Upload photo. The app shows upload progress, keeps the image for retry after a failure, and displays the new receipt ID in `processing` state when the server saves it. Images are converted to a legible JPEG before upload. Receipt extraction and the review screen are still separate work; the review screen uses sample data.
+
+Start the Ktor server before uploading. The Android emulator uses `http://10.0.2.2:8080` by default; the iOS simulator uses `http://localhost:8080`. For a physical device or deployed server, set `-Pdivvy.apiBaseUrl=https://your-host` and `-Pdivvy.apiKey=your-key` when building. The app creates a server household on the first upload when onboarding has only stored a local placeholder ID.
 
 ## ML service
 
@@ -116,9 +118,7 @@ The backend runs as a Docker Compose stack on a single host (target: 4 vCPU / 8 
 | `ml` | built from `ml/` | 3 GB | 2.0 | none |
 | `server` | built from `server/Dockerfile` | 1.5 GB | 1.5 | `receipts` volume |
 
-The `receipts` volume is mounted at `/data/receipts` for uploaded receipt images. Receipt upload is not implemented yet, so the volume is currently empty.
-
-The `receipts` volume is mounted at `/data/receipts` for uploaded receipt images. Receipt upload is not implemented yet, so the volume is currently empty.
+The `receipts` volume is mounted at `/data/receipts` for uploaded receipt images.
 
 ### Prerequisites
 
