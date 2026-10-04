@@ -61,10 +61,10 @@ data class UpdateReceiptItemRequest(
 data class MergeItemsRequest(val itemIds: List<String>? = null, val description: String? = null)
 
 @Serializable
-data class ItemOwnerResponse(val personId: String, val shareWeight: Int)
+data class EditItemOwnerResponse(val personId: String, val shareWeight: Int)
 
 @Serializable
-data class ReceiptItemResponse(
+data class EditReceiptItemResponse(
     val id: String,
     val lineNumber: Int,
     val rawText: String?,
@@ -73,7 +73,7 @@ data class ReceiptItemResponse(
     val unitPriceMinor: Long?,
     val discountMinor: Long,
     val totalMinor: Long,
-    val owners: List<ItemOwnerResponse>,
+    val owners: List<EditItemOwnerResponse>,
 )
 
 @Serializable
@@ -96,11 +96,11 @@ data class ReceiptResponse(
     val taxMinor: Long?,
     val totalMinor: Long,
     val status: String,
-    val items: List<ReceiptItemResponse>,
+    val items: List<EditReceiptItemResponse>,
     val reconciliation: ReconciliationResponse,
 )
 
-private fun ReceiptItem.toResponse() = ReceiptItemResponse(
+private fun ReceiptItem.toResponse() = EditReceiptItemResponse(
     id = id.toString(),
     lineNumber = lineNumber,
     rawText = rawText,
@@ -109,7 +109,7 @@ private fun ReceiptItem.toResponse() = ReceiptItemResponse(
     unitPriceMinor = unitPrice?.amountMinor,
     discountMinor = discount.amountMinor,
     totalMinor = total.amountMinor,
-    owners = owners.map { ItemOwnerResponse(it.personId.toString(), it.shareWeight) },
+    owners = owners.map { EditItemOwnerResponse(it.personId.toString(), it.shareWeight) },
 )
 
 internal fun Receipt.toResponse(): ReceiptResponse {
