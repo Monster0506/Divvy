@@ -2,6 +2,7 @@
 
 import base64
 import binascii
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -67,3 +68,9 @@ def from_stored_id(image_id: str, directory: Path | None) -> ReceiptImage:
     if not path.is_file():
         raise ImageError("no image with that id")
     return from_bytes(path.read_bytes())
+
+
+def image_dir() -> Path | None:
+    """Where uploaded receipt images are kept, shared with the backend, or None if not set."""
+    raw = os.environ.get("DIVVY_IMAGE_DIR")
+    return Path(raw) if raw else None
