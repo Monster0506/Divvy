@@ -15,6 +15,7 @@ import com.monster0506.divvy.server.ml.SyncingReceiptRepository
 import com.monster0506.divvy.server.ml.createMlClient
 import com.monster0506.divvy.server.repository.ExposedPersonRepository
 import com.monster0506.divvy.server.repository.ExposedRepositories
+import com.monster0506.divvy.server.routes.HouseholdNameAsId
 import com.monster0506.divvy.server.routes.householdRoutes
 import com.monster0506.divvy.server.routes.mlRoutes
 import com.monster0506.divvy.server.routes.mlSettingsRoutes
@@ -31,11 +32,11 @@ import com.monster0506.divvy.server.routes.receiptReopenRoutes
 import com.monster0506.divvy.server.routes.receiptRetryRoutes
 import com.monster0506.divvy.server.routes.receiptRoutes
 import com.monster0506.divvy.server.routes.settlementRoutes
+import com.monster0506.divvy.server.routes.settlementRoutes
 import com.monster0506.divvy.server.routes.balanceRoutes
 import com.monster0506.divvy.server.storage.ImageStorage
 import com.monster0506.divvy.server.storage.LazyImageStorage
 import com.monster0506.divvy.server.storage.LocalFileImageStorage
-import com.monster0506.divvy.server.routes.settlementRoutes
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.auth.HttpAuthHeader
 import io.ktor.serialization.kotlinx.json.json
@@ -135,6 +136,7 @@ fun Application.module(connectDatabase: Boolean = true) {
         }
     }
 
+    install(HouseholdNameAsId) { households = { repositories.households } }
     routing {
         get("/health") { call.respond(HealthResponse("ok", config.version)) }
         authenticate(API_KEY_AUTH) {
