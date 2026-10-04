@@ -412,6 +412,9 @@ fun DivvyApp(
                         scope.launch {
                             if (!form.finish()) return@launch
                             val personId = form.meId ?: return@launch
+                            state.loadMembers(form.rows.map { row ->
+                                HouseholdMember(row.id!!, row.name)
+                            })
                             memberStore.save(householdId.orEmpty(), personId)
                             state.setMe(personId)
                             router?.onboardingCompleted(householdId.orEmpty())
@@ -430,6 +433,7 @@ fun DivvyApp(
                     onRetry = { scope.launch { form.load() } },
                     onContinue = {
                         val personId = form.selectedId ?: return@JoinHouseholdScreen
+                        state.loadMembers(form.members)
                         memberStore.save(id, personId)
                         state.setMe(personId)
                         router?.onboardingCompleted(id)
