@@ -3,6 +3,7 @@ package com.monster0506.divvy.server.repository
 import com.monster0506.divvy.server.db.HouseholdTable
 import com.monster0506.divvy.server.db.ItemOwnerHistoryTable
 import com.monster0506.divvy.server.db.ItemOwnerTable
+import com.monster0506.divvy.server.db.LedgerEntryTable
 import com.monster0506.divvy.server.db.PersonTable
 import com.monster0506.divvy.server.db.ReceiptItemTable
 import com.monster0506.divvy.server.db.ReceiptTable
@@ -14,6 +15,9 @@ import com.monster0506.divvy.server.domain.ItemOwner
 import com.monster0506.divvy.server.domain.ItemOwnerHistoryEntry
 import com.monster0506.divvy.server.domain.LabelSource
 import com.monster0506.divvy.server.domain.Money
+import com.monster0506.divvy.server.domain.LedgerEntry
+import com.monster0506.divvy.server.domain.LedgerSourceType
+import com.monster0506.divvy.server.domain.NewLedgerEntry
 import com.monster0506.divvy.server.domain.NewReceipt
 import com.monster0506.divvy.server.domain.NewSettlement
 import com.monster0506.divvy.server.domain.OwnerShare
@@ -31,6 +35,7 @@ import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNull
+import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.notInList
 import org.jetbrains.exposed.v1.javatime.CurrentTimestampWithTimeZone
 import org.jetbrains.exposed.v1.jdbc.Database
@@ -49,12 +54,17 @@ import java.time.ZoneOffset
 import kotlin.uuid.Uuid
 
 /** Exposed-backed implementations of the repository interfaces, sharing one [Database]. */
-class ExposedRepositories(db: Database) {
+class ExposedRepositories(
+    db: Database,
+    /** Lets the app wrap receipts, for example to push confirmed labels to the ML service. */
+    wrapReceipts: (ReceiptRepository) -> ReceiptRepository = { it },
+) {
     val households: HouseholdRepository = ExposedHouseholdRepository(db)
     val people: PersonRepository = ExposedPersonRepository(db)
-    val receipts: ReceiptRepository = ExposedReceiptRepository(db)
+    val receipts: ReceiptRepository = wrapReceipts(ExposedReceiptRepository(db))
     val itemOwners: ItemOwnerRepository = ExposedItemOwnerRepository(db)
     val settlements: SettlementRepository = ExposedSettlementRepository(db)
+    val ledger: LedgerRepository = ExposedLedgerRepository(db)
 }
 
 class ExposedHouseholdRepository(private val db: Database) : HouseholdRepository {
@@ -115,6 +125,7 @@ class ExposedPersonRepository(private val db: Database) : PersonRepository {
 
 class ExposedReceiptRepository(private val db: Database) : ReceiptRepository {
     override suspend fun create(receipt: NewReceipt): Receipt = db.dbQuery {
+        rejectArchivedPeople(receipt.items.flatMap { item -> item.owners.map { it.personId } })
         val receiptId = ReceiptTable.insertReturning(listOf(ReceiptTable.id)) {
             it[householdId] = receipt.householdId
             it[paidByPersonId] = receipt.paidByPersonId
@@ -202,8 +213,8 @@ class ExposedReceiptRepository(private val db: Database) : ReceiptRepository {
         val predicted = ItemOwnerHistoryTable.selectAll()
             .where {
                 (ItemOwnerHistoryTable.receiptItemId inList items) and
-                    (ItemOwnerHistoryTable.operation eq OwnershipChange.ASSIGNED.dbValue) and
-                    (ItemOwnerHistoryTable.ownershipSource eq OwnershipSource.MODEL.dbValue)
+                        (ItemOwnerHistoryTable.operation eq OwnershipChange.ASSIGNED.dbValue) and
+                        (ItemOwnerHistoryTable.ownershipSource eq OwnershipSource.MODEL.dbValue)
             }
             .orderBy(ItemOwnerHistoryTable.id)
             .toList()
@@ -231,7 +242,8 @@ class ExposedReceiptRepository(private val db: Database) : ReceiptRepository {
     /** Loads receipts with their items and owners in three queries, preserving the order of [ids]. */
     private fun loadReceipts(ids: List<Uuid>): List<Receipt> {
         if (ids.isEmpty()) return emptyList()
-        val receiptRows = ReceiptTable.selectAll().where { ReceiptTable.id inList ids }.associateBy { it[ReceiptTable.id] }
+        val receiptRows =
+            ReceiptTable.selectAll().where { ReceiptTable.id inList ids }.associateBy { it[ReceiptTable.id] }
         val itemRows = ReceiptItemTable.selectAll()
             .where { ReceiptItemTable.receiptId inList ids }
             .orderBy(ReceiptItemTable.lineNumber)
@@ -276,7 +288,11 @@ class ExposedItemOwnerRepository(private val db: Database) : ItemOwnerRepository
         require(owners.map { it.personId }.toSet().size == owners.size) { "Each person may own an item only once" }
         val householdId = householdOfItem(receiptItemId)
         val keep = owners.map { it.personId }
-
+        val existing = ItemOwnerTable.select(ItemOwnerTable.personId)
+            .where { ItemOwnerTable.receiptItemId eq receiptItemId }
+            .map { it[ItemOwnerTable.personId] }
+            .toSet()
+        rejectArchivedPeople(keep, alreadyOwners = existing)
         ItemOwnerTable.deleteWhere {
             (ItemOwnerTable.receiptItemId eq receiptItemId) and (ItemOwnerTable.personId notInList keep)
         }
@@ -330,7 +346,67 @@ class ExposedSettlementRepository(private val db: Database) : SettlementReposito
     }
 }
 
+class ExposedLedgerRepository(private val db: Database) : LedgerRepository {
+    override suspend fun append(entry: NewLedgerEntry): LedgerEntry = db.dbQuery { insertEntry(entry, null) }
+
+    override suspend fun reverse(entryId: Uuid): LedgerEntry? = db.dbQuery {
+        val original = LedgerEntryTable.selectAll().where { LedgerEntryTable.id eq entryId }
+            .singleOrNull()?.toLedgerEntry() ?: return@dbQuery null
+        insertEntry(
+            NewLedgerEntry(
+                householdId = original.householdId,
+                debtorPersonId = original.creditorPersonId,
+                creditorPersonId = original.debtorPersonId,
+                amount = original.amount,
+                sourceType = original.sourceType,
+                sourceId = original.sourceId,
+            ),
+            reverses = original.id,
+        )
+    }
+
+    override suspend fun findById(id: Uuid): LedgerEntry? = db.dbQuery {
+        LedgerEntryTable.selectAll().where { LedgerEntryTable.id eq id }.singleOrNull()?.toLedgerEntry()
+    }
+
+    override suspend fun listByHousehold(householdId: Uuid): List<LedgerEntry> = db.dbQuery {
+        LedgerEntryTable.selectAll()
+            .where { LedgerEntryTable.householdId eq householdId }
+            .orderBy(LedgerEntryTable.createdAt to SortOrder.ASC, LedgerEntryTable.id to SortOrder.ASC)
+            .map { it.toLedgerEntry() }
+    }
+
+    override suspend fun listBySource(sourceType: LedgerSourceType, sourceId: Uuid): List<LedgerEntry> = db.dbQuery {
+        LedgerEntryTable.selectAll()
+            .where { (LedgerEntryTable.sourceType eq sourceType.dbValue) and (LedgerEntryTable.sourceId eq sourceId) }
+            .orderBy(LedgerEntryTable.createdAt to SortOrder.ASC, LedgerEntryTable.id to SortOrder.ASC)
+            .map { it.toLedgerEntry() }
+    }
+
+    private fun insertEntry(entry: NewLedgerEntry, reverses: Uuid?): LedgerEntry =
+        LedgerEntryTable.insertReturning {
+            it[householdId] = entry.householdId
+            it[debtorPersonId] = entry.debtorPersonId
+            it[creditorPersonId] = entry.creditorPersonId
+            it[amountMinor] = entry.amount.amountMinor
+            it[currency] = entry.amount.currency.code
+            it[sourceType] = entry.sourceType.dbValue
+            it[sourceId] = entry.sourceId
+            it[reversesEntryId] = reverses
+        }.single().toLedgerEntry()
+}
+
 // --- shared queries (must run inside a transaction) ------------------------------------------
+
+/** Rejects archived people, except those in [alreadyOwners] who keep their existing ownership. */
+private fun rejectArchivedPeople(personIds: Collection<Uuid>, alreadyOwners: Set<Uuid> = emptySet()) {
+    val candidates = personIds.toSet() - alreadyOwners
+    if (candidates.isEmpty()) return
+    val archived = PersonTable.select(PersonTable.id)
+        .where { (PersonTable.id inList candidates) and PersonTable.archivedAt.isNotNull() }
+        .map { it[PersonTable.id] }
+    if (archived.isNotEmpty()) throw ArchivedPersonException(archived)
+}
 
 private fun peopleOf(householdId: Uuid, includeArchived: Boolean): List<Person> =
     PersonTable.selectAll()
@@ -422,6 +498,18 @@ private fun ResultRow.toHistoryEntry() = ItemOwnerHistoryEntry(
     source = OwnershipSource.fromDb(this[ItemOwnerHistoryTable.ownershipSource]),
     confidence = this[ItemOwnerHistoryTable.confidence],
     changedAt = this[ItemOwnerHistoryTable.changedAt].toInstant(),
+)
+
+private fun ResultRow.toLedgerEntry() = LedgerEntry(
+    id = this[LedgerEntryTable.id],
+    householdId = this[LedgerEntryTable.householdId],
+    debtorPersonId = this[LedgerEntryTable.debtorPersonId],
+    creditorPersonId = this[LedgerEntryTable.creditorPersonId],
+    amount = Money(this[LedgerEntryTable.amountMinor], CurrencyCode(this[LedgerEntryTable.currency])),
+    sourceType = LedgerSourceType.fromDb(this[LedgerEntryTable.sourceType]),
+    sourceId = this[LedgerEntryTable.sourceId],
+    reversesEntryId = this[LedgerEntryTable.reversesEntryId],
+    createdAt = this[LedgerEntryTable.createdAt].toInstant(),
 )
 
 private fun ResultRow.toSettlement() = Settlement(

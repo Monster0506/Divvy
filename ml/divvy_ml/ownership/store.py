@@ -4,6 +4,7 @@ Files use the format `python -m divvy_ml.eval` reads, so a household can be eval
 The store is the ML service's derived copy; the backend is the source of truth (ADR 0002).
 """
 
+import hashlib
 import json
 import os
 import re
@@ -22,6 +23,20 @@ ASSIGNMENT_KEY = "assignment"
 
 class InvalidHouseholdId(ValueError):
     pass
+
+
+def history_digest(records: list[dict[str, Any]]) -> str:
+    """SHA-256 over one line per observation, sorted by observation id:
+    id|date|description|owner ids|member ids, with ids sorted and comma-joined.
+    The backend builds the same text from its database, so a missed push or correction shows up."""
+    lines = []
+    for record in sorted(records, key=lambda r: r["meta"][OBSERVATION_KEY]):
+        owners = sorted(person for person, owns in record["owners"].items() if owns)
+        members = sorted(record["owners"])
+        fields = [record["meta"][OBSERVATION_KEY], record["date"], record["item"]]
+        lines.append("|".join([*fields, ",".join(owners), ",".join(members)]))
+
+    return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
 
 
 def check_household_id(household_id: str) -> str:
@@ -91,6 +106,10 @@ class HistoryStore:
     def records(self, household_id: str) -> list[dict[str, Any]]:
         with self._lock:
             return self._read(household_id)
+
+    def digest(self, household_id: str) -> str:
+        """Fingerprint of the stored history; equal to the backend's for the same labels."""
+        return history_digest(self.records(household_id))
 
     def dataset(self, household_id: str) -> Dataset | None:
         """The household's history in chronological order, or None when it has none."""

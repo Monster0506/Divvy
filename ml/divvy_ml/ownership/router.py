@@ -79,6 +79,11 @@ def upsert_observations(
     replace: bool = False,
 ) -> UpsertObservationsResponse:
     """Add or update confirmed observations by id; `replace=true` swaps the whole history."""
+    if not body.observations and not replace:
+        raise HTTPException(
+            status_code=422, detail="observations must not be empty unless replace=true"
+        )
+
     size = store.upsert(household_id, body.observations, replace=replace)
     manager.notify_write(household_id)
     return UpsertObservationsResponse(
@@ -106,6 +111,7 @@ def history_status(household_id: HouseholdPath, store: Store, manager: Manager) 
         min_history=MIN_HISTORY,
         ready=size >= MIN_HISTORY,
         model_version=manager.current_version(household_id),
+        digest=store.digest(household_id),
     )
 
 

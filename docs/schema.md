@@ -10,6 +10,7 @@ Ktor server applies on startup before it accepts requests.
 | `V1__enable_pgvector.sql` | Enables `pgvector` (used from M2; no vector columns yet). |
 | `V2__core_domain.sql` | Households, people, receipts, line items, item ownership, settlements. |
 | `V3__item_owner_history.sql` | Append-only log of ownership changes, kept for learning. |
+| `V4__ledger_entry.sql` | Append-only ledger of who owes whom. Updates are rejected by a trigger; mistakes are undone with a reversing entry (`reverses_entry_id`). |
 
 ## Entity-relationship diagram
 
@@ -184,7 +185,7 @@ Besides primary keys and the unique keys above:
 
 The Ktor module reads and writes through repository interfaces in
 `com.monster0506.divvy.server.repository` (`HouseholdRepository`, `PersonRepository`,
-`ReceiptRepository`, `ItemOwnerRepository`, `SettlementRepository`), implemented with Exposed DSL
+`ReceiptRepository`, `ItemOwnerRepository`, `SettlementRepository`, `LedgerRepository`), implemented with Exposed DSL
 in `ExposedRepositories`. `configureDatabase` builds them once at startup and routes reach them
 through `application.repositories`. `ReceiptRepository.create` writes a receipt, its items and
 their owners in one transaction. The Exposed table objects in `com.monster0506.divvy.server.db`
