@@ -38,3 +38,9 @@ class FakePredictions : PredictionRepository {
 
     override suspend fun countForHousehold(householdId: Uuid): Int = saved.size
 }
+
+class FakeSettings(var current: MlSettings = MlSettings()) : MlSettingsRepository {
+    override suspend fun get(householdId: Uuid): MlSettings = current
+
+    override suspend fun save(householdId: Uuid, settings: MlSettings): MlSettings = settings.also { current = it }
+}

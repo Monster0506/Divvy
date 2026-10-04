@@ -1,11 +1,15 @@
 package com.monster0506.divvy.server.routes
 
+import com.monster0506.divvy.server.ApiError
+import com.monster0506.divvy.server.ValidationException
 import com.monster0506.divvy.server.domain.CurrencyCode
 import com.monster0506.divvy.server.domain.Household
 import com.monster0506.divvy.server.domain.Receipt
 import com.monster0506.divvy.server.domain.ReceiptStatus
 import com.monster0506.divvy.server.ml.FakeHouseholds
 import com.monster0506.divvy.server.ml.FakeItemOwners
+import com.monster0506.divvy.server.ml.FakeSettings
+import com.monster0506.divvy.server.ml.MlSettings
 import com.monster0506.divvy.server.ml.FakeMl
 import com.monster0506.divvy.server.ml.FakePeople
 import com.monster0506.divvy.server.ml.FakePredictions
@@ -26,11 +30,17 @@ import com.monster0506.divvy.server.ml.receipt
 import com.monster0506.divvy.server.ml.t0
 import io.ktor.client.request.get
 import io.ktor.client.request.post
+import io.ktor.client.request.put
+import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.install
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.server.plugins.statuspages.StatusPages
+import io.ktor.server.response.respond
 import io.ktor.server.routing.routing
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
@@ -40,6 +50,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.double
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -54,6 +65,7 @@ class PredictionRoutesTest {
     private val tj = person(household.id, "TJ")
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val ml = FakeMl()
+    private val settings = FakeSettings()
     private val draft: Receipt = receipt(household.id, ReceiptStatus.DRAFT, confirmedAt = null) {
         listOf(item(it, "Eggs", emptyList(), null, 1))
     }
@@ -64,14 +76,18 @@ class PredictionRoutesTest {
 
     private fun withApp(block: suspend ApplicationTestBuilder.() -> Unit) = testApplication {
         application {
+            install(StatusPages) {
+                exception<ValidationException> { call, cause -> call.respond(HttpStatusCode.BadRequest, ApiError("validation_error", cause.message.orEmpty())) }
+            }
             install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true; explicitNulls = false }) }
             val people = FakePeople(listOf(tj))
             val receipts = FakeReceipts(listOf(draft, confirmed))
             val resync = MlResync(ml, receipts, people, LabelSync(ml, people, scope))
             val predictions = FakePredictions()
-            val service = PredictionService(ml, resync, receipts, people, FakeItemOwners(), predictions, now = { t0 })
+            val service = PredictionService(ml, resync, receipts, people, FakeItemOwners(), predictions, settings, now = { t0 })
             routing {
                 predictionRoutes({ receipts }, { service })
+                mlSettingsRoutes({ FakeHouseholds(listOf(household)) }, { settings })
                 mlStatsRoutes({ FakeHouseholds(listOf(household)) }, { MlStats(receipts, predictions) })
             }
         }
@@ -160,5 +176,50 @@ class PredictionRoutesTest {
     @Test
     fun `stats for an unknown household is a 404`() = withApp {
         assertEquals(HttpStatusCode.NotFound, client.get("/households/${Uuid.random()}/ml/stats").status)
+    }
+
+    @Test
+    fun `settings default on and can be changed`() = withApp {
+        val before = json(client.get("/households/${household.id}/ml/settings").bodyAsText())
+        assertEquals(true, before["autoAssign"]!!.jsonPrimitive.boolean)
+        assertEquals(0.85, before["autoAssignThreshold"]!!.jsonPrimitive.double)
+
+        val response = client.put("/households/${household.id}/ml/settings") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"autoAssign":false,"autoAssignThreshold":0.7}""")
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals(MlSettings(false, 0.7), settings.current)
+    }
+
+    @Test
+    fun `a threshold outside zero to one is a 400`() = withApp {
+        val response = client.put("/households/${household.id}/ml/settings") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"autoAssign":true,"autoAssignThreshold":1.5}""")
+        }
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+        assertEquals(MlSettings(), settings.current)
+    }
+
+    @Test
+    fun `settings for an unknown household is a 404`() = withApp {
+        assertEquals(HttpStatusCode.NotFound, client.get("/households/${Uuid.random()}/ml/settings").status)
+    }
+
+    @Test
+    fun `accept on a confirmed receipt is a 409 and on an unknown one a 404`() = withApp {
+        assertEquals(HttpStatusCode.Conflict, client.post(path(confirmed) + "/accept").status)
+        assertEquals(HttpStatusCode.NotFound, client.post("/households/${household.id}/receipts/${Uuid.random()}/predictions/accept").status)
+    }
+
+    @Test
+    fun `accept with nothing pending confirms nothing`() = withApp {
+        val response = client.post(path(draft) + "/accept")
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals(0, json(response.bodyAsText())["confirmedItemIds"]!!.jsonArray.size)
     }
 }
