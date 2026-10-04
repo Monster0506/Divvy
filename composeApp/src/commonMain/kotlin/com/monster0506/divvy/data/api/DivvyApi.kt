@@ -4,15 +4,19 @@ import com.monster0506.divvy.data.dto.ApiError
 import com.monster0506.divvy.data.dto.BalanceDto
 import com.monster0506.divvy.data.dto.CreateHouseholdRequest
 import com.monster0506.divvy.data.dto.HouseholdDto
+import com.monster0506.divvy.data.dto.ItemOwnerDto
+import com.monster0506.divvy.data.dto.ItemOwnersDto
 import com.monster0506.divvy.data.dto.PersonDto
 import com.monster0506.divvy.data.dto.PersonRequest
 import com.monster0506.divvy.data.dto.ReceiptDto
 import com.monster0506.divvy.data.dto.RenameHouseholdRequest
+import com.monster0506.divvy.data.dto.SetItemOwnersRequest
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.patch
 import io.ktor.client.request.post
+import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.http.HttpStatusCode
@@ -48,6 +52,9 @@ class DivvyApi(private val client: HttpClient) {
     suspend fun getReceipt(id: String): ReceiptDto = send { client.get("receipts/$id") }
 
     suspend fun confirmReceipt(id: String): ReceiptDto = send { client.post("receipts/$id/confirm") }
+
+    suspend fun setItemOwners(receiptId: String, itemId: String, owners: List<ItemOwnerDto>): ItemOwnersDto =
+        send { client.put("receipts/$receiptId/items/$itemId/owners") { setBody(SetItemOwnersRequest(owners)) } }
 
     suspend fun balances(householdId: String): List<BalanceDto> =
         send { client.get("households/$householdId/balances") }

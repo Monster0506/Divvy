@@ -10,3 +10,6 @@ data class RenameHouseholdRequest(val name: String)
 
 @Serializable
 data class PersonRequest(val displayName: String)
+
+@Serializable
+data class SetItemOwnersRequest(val owners: List<ItemOwnerDto>)

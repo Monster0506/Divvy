@@ -4,6 +4,8 @@ import com.monster0506.divvy.data.dto.BalanceDto
 import com.monster0506.divvy.data.dto.HouseholdDto
 import com.monster0506.divvy.data.repository.BalanceRepository
 import com.monster0506.divvy.data.repository.HouseholdRepository
+import com.monster0506.divvy.data.dto.ItemOwnerDto
+import com.monster0506.divvy.data.dto.ItemOwnersDto
 import com.monster0506.divvy.data.repository.ReceiptRepository
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandleScope
@@ -19,6 +21,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 
 class DivvyApiTest {
     private val json = headersOf(HttpHeaders.ContentType, "application/json")
@@ -118,5 +121,28 @@ class DivvyApiTest {
 
         val balances = assertIs<ApiResult.Success<List<BalanceDto>>>(repo.balances("h1"))
         assertEquals(250L, balances.value.single().netCents)
+    }
+
+    @Test
+    fun setting_item_owners_puts_the_owner_list() = runTest {
+        var method: HttpMethod? = null
+        var path = ""
+        var body = ""
+        val repo = ReceiptRepository(
+            api { request ->
+                method = request.method
+                path = request.url.encodedPath
+                body = request.body.toByteArray().decodeToString()
+                respond("""{"itemId":"i1","owners":[{"personId":"p1","weight":1},{"personId":"p2","weight":2}]}""", headers = json)
+            },
+        )
+
+        val result = repo.setItemOwners("r1", "i1", listOf(ItemOwnerDto("p1"), ItemOwnerDto("p2", 2)))
+
+        val saved = assertIs<ApiResult.Success<ItemOwnersDto>>(result).value
+        assertEquals(HttpMethod.Put, method)
+        assertEquals("/receipts/r1/items/i1/owners", path)
+        assertTrue(""""personId":"p2"""" in body)
+        assertEquals(listOf("p1", "p2"), saved.owners.map { it.personId })
     }
 }
