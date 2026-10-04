@@ -2,6 +2,9 @@ package com.monster0506.divvy.server.routes
 
 import com.monster0506.divvy.server.db.TestDatabase
 import com.monster0506.divvy.server.domain.CurrencyCode
+import com.monster0506.divvy.server.domain.LedgerSourceType
+import com.monster0506.divvy.server.domain.Money
+import com.monster0506.divvy.server.domain.NewLedgerEntry
 import com.monster0506.divvy.server.repository.ExposedRepositories
 import io.ktor.client.request.get
 import io.ktor.client.request.post
@@ -19,17 +22,22 @@ import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
+import kotlinx.serialization.json.put
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
 
+@OptIn(ExperimentalUuidApi::class)
 class SettlementRoutesTest {
-    private class Setup(val home: String, val ann: String, val ben: String, val outsider: String)
-
-    private val repos get() = ExposedRepositories(TestDatabase.db.database)
+    private val repos by lazy { ExposedRepositories(TestDatabase.db.database) }
 
     @BeforeTest
     fun reset() = TestDatabase.reset()
@@ -37,72 +45,158 @@ class SettlementRoutesTest {
     private fun withApp(block: suspend ApplicationTestBuilder.() -> Unit) = testApplication {
         application {
             install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true; explicitNulls = false }) }
-            val r = repos
-            routing { settlementRoutes({ r.households }, { r.people }, { r.settlements }) }
+            routing { settlementRoutes({ repos.households }, { repos.people }, { repos.settlements }) }
         }
         block()
     }
 
-    private fun setup(): Setup = runBlocking {
-        val home = repos.households.create("Home", CurrencyCode("USD"))
-        val other = repos.households.create("Other", CurrencyCode("USD"))
-        Setup(
-            home.id.toString(),
-            repos.people.add(home.id, "Ann").id.toString(),
-            repos.people.add(home.id, "Ben").id.toString(),
-            repos.people.add(other.id, "Zed").id.toString(),
+    private class Home(val id: Uuid, val savar: Uuid, val sumedh: Uuid)
+
+    private fun home(currency: String = "USD"): Home = runBlocking {
+        val id = repos.households.create("Home", CurrencyCode(currency)).id
+        Home(id, repos.people.add(id, "Savar").id, repos.people.add(id, "Sumedh").id)
+    }
+
+    private fun body(from: Any?, to: Any?, amount: Any?, note: String? = null): String = buildJsonObject {
+        from?.let { put("fromPersonId", it.toString()) }
+        to?.let { put("toPersonId", it.toString()) }
+        when (amount) {
+            is Long -> put("amountMinor", amount)
+            is String -> put("amountMinor", amount)
+        }
+        note?.let { put("note", it) }
+    }.toString()
+
+    private suspend fun ApplicationTestBuilder.post(householdId: Any, json: String): HttpResponse =
+        client.post("/households/$householdId/settlements") {
+            contentType(ContentType.Application.Json)
+            setBody(json)
+        }
+
+    private suspend fun HttpResponse.obj() = Json.parseToJsonElement(bodyAsText()).jsonObject
+
+    /** What each person is owed (positive) or owes (negative) according to the ledger. */
+    private suspend fun net(householdId: Uuid): Map<Uuid, Long> {
+        val result = mutableMapOf<Uuid, Long>()
+        repos.ledger.listByHousehold(householdId).forEach {
+            result.merge(it.creditorPersonId, it.amount.amountMinor, Long::plus)
+            result.merge(it.debtorPersonId, -it.amount.amountMinor, Long::plus)
+        }
+        return result
+    }
+
+    private suspend fun owe(h: Home, debtor: Uuid, creditor: Uuid, cents: Long) {
+        repos.ledger.append(
+            NewLedgerEntry(h.id, debtor, creditor, Money(cents, CurrencyCode("USD")), LedgerSourceType.RECEIPT, Uuid.random()),
         )
     }
 
-    private suspend fun ApplicationTestBuilder.post(path: String, json: String): HttpResponse =
-        client.post(path) { contentType(ContentType.Application.Json); setBody(json) }
-
-    private fun body(from: String, to: String, amount: String, note: String? = null): String {
-        val noteField = note?.let { ""","note":"$it"""" } ?: ""
-        return """{"fromPersonId":"$from","toPersonId":"$to","amountMinor":$amount$noteField}"""
-    }
-
     @Test
-    fun `records a settlement in the household currency and lists it`() = withApp {
-        val s = setup()
-        val res = post("/households/${s.home}/settlements", body(s.ann, s.ben, "1250", " venmo "))
+    fun `recording a settlement returns 201 and writes a reversing ledger entry`() = withApp {
+        val h = home("EUR")
+        val res = post(h.id, body(h.sumedh, h.savar, 2500L, note = "Venmo"))
+
         assertEquals(HttpStatusCode.Created, res.status)
-        val json = Json.parseToJsonElement(res.bodyAsText()).jsonObject
-        assertEquals("1250", json.getValue("amountMinor").jsonPrimitive.content)
-        assertEquals("USD", json.getValue("currency").jsonPrimitive.content)
-        assertEquals("venmo", json.getValue("note").jsonPrimitive.content)
+        val json = res.obj()
+        assertEquals(h.sumedh.toString(), json.getValue("fromPersonId").jsonPrimitive.content)
+        assertEquals(h.savar.toString(), json.getValue("toPersonId").jsonPrimitive.content)
+        assertEquals(2500L, json.getValue("amountMinor").jsonPrimitive.long)
+        assertEquals("EUR", json.getValue("currency").jsonPrimitive.content)
+        assertEquals("Venmo", json.getValue("note").jsonPrimitive.content)
 
-        val list = Json.parseToJsonElement(client.get("/households/${s.home}/settlements").bodyAsText()).jsonArray
-        assertEquals(1, list.size)
+        val settlementId = Uuid.parse(json.getValue("id").jsonPrimitive.content)
+        val entry = repos.ledger.listBySource(LedgerSourceType.SETTLEMENT, settlementId).single()
+        assertEquals(h.savar, entry.debtorPersonId) // the receiver is now "owed back" in reverse
+        assertEquals(h.sumedh, entry.creditorPersonId)
+        assertEquals(2500L, entry.amount.amountMinor)
     }
 
     @Test
-    fun `invalid requests return 400`() = withApp {
-        val s = setup()
-        val path = "/households/${s.home}/settlements"
-        assertEquals(HttpStatusCode.BadRequest, post(path, body(s.ann, s.ben, "0")).status)
-        assertEquals(HttpStatusCode.BadRequest, post(path, body(s.ann, s.ben, "-5")).status)
-        assertEquals(HttpStatusCode.BadRequest, post(path, body(s.ann, s.ann, "100")).status)
-        assertEquals(HttpStatusCode.BadRequest, post(path, body("nope", s.ben, "100")).status)
-        assertEquals(HttpStatusCode.BadRequest, post(path, """{"fromPersonId":"${s.ann}","toPersonId":"${s.ben}"}""").status)
-        assertEquals(HttpStatusCode.BadRequest, post(path, "not json").status)
-        assertEquals(HttpStatusCode.BadRequest, post(path, body(s.ann, s.ben, "100", "a".repeat(501))).status)
+    fun `a settlement cancels the debt it pays`() = withApp {
+        val h = home()
+        owe(h, debtor = h.sumedh, creditor = h.savar, cents = 2500)
+
+        assertEquals(HttpStatusCode.Created, post(h.id, body(h.sumedh, h.savar, 2500L)).status)
+
+        assertTrue(net(h.id).values.all { it == 0L }, "balances were ${net(h.id)}")
     }
 
     @Test
-    fun `people from another household are rejected`() = withApp {
-        val s = setup()
-        val path = "/households/${s.home}/settlements"
-        assertEquals(HttpStatusCode.BadRequest, post(path, body(s.ann, s.outsider, "100")).status)
-        assertEquals(HttpStatusCode.BadRequest, post(path, body(s.ann, "00000000-0000-0000-0000-000000000001", "100")).status)
+    fun `a partial settlement leaves the remainder owed`() = withApp {
+        val h = home()
+        owe(h, debtor = h.sumedh, creditor = h.savar, cents = 2500)
+
+        post(h.id, body(h.sumedh, h.savar, 1000L))
+
+        val balances = net(h.id)
+        assertEquals(1500L, balances[h.savar])
+        assertEquals(-1500L, balances[h.sumedh])
     }
 
     @Test
-    fun `unknown households return 404`() = withApp {
-        val s = setup()
-        val unknown = "00000000-0000-0000-0000-000000000001"
-        assertEquals(HttpStatusCode.NotFound, post("/households/$unknown/settlements", body(s.ann, s.ben, "100")).status)
-        assertEquals(HttpStatusCode.NotFound, client.get("/households/$unknown/settlements").status)
+    fun `invalid requests return 400 and write nothing`() = withApp {
+        val h = home()
+        val other = home()
+        val bad = listOf(
+            "zero amount" to body(h.sumedh, h.savar, 0L),
+            "negative amount" to body(h.sumedh, h.savar, -5L),
+            "same person" to body(h.savar, h.savar, 100L),
+            "person from another household" to body(h.sumedh, other.savar, 100L),
+            "unknown person" to body(h.sumedh, Uuid.random(), 100L),
+            "malformed id" to body(h.sumedh, "not-a-uuid", 100L),
+            "missing amount" to body(h.sumedh, h.savar, null),
+            "missing people" to body(null, null, 100L),
+            "non numeric amount" to body(h.sumedh, h.savar, "abc"),
+            "malformed json" to "{not json",
+        )
+        for ((label, json) in bad) {
+            val res = post(h.id, json)
+            assertEquals(HttpStatusCode.BadRequest, res.status, label)
+            assertEquals("validation_error", res.obj().getValue("code").jsonPrimitive.content, label)
+        }
+        assertEquals(0, repos.settlements.listByHousehold(h.id).size)
+        assertEquals(0, repos.ledger.listByHousehold(h.id).size)
+    }
+
+    @Test
+    fun `unknown or malformed household returns 404`() = withApp {
+        val h = home()
+        assertEquals(HttpStatusCode.NotFound, post(Uuid.random(), body(h.sumedh, h.savar, 100L)).status)
+        assertEquals(HttpStatusCode.NotFound, post("nope", body(h.sumedh, h.savar, 100L)).status)
+        assertEquals(HttpStatusCode.NotFound, client.get("/households/${Uuid.random()}/settlements").status)
         assertEquals(HttpStatusCode.NotFound, client.get("/households/nope/settlements").status)
+    }
+
+    @Test
+    fun `listing returns settlements newest first`() = withApp {
+        val h = home()
+        post(h.id, body(h.sumedh, h.savar, 100L))
+        post(h.id, body(h.savar, h.sumedh, 200L))
+
+        val res = client.get("/households/${h.id}/settlements")
+
+        assertEquals(HttpStatusCode.OK, res.status)
+        val amounts = Json.parseToJsonElement(res.bodyAsText()).jsonArray
+            .map { it.jsonObject.getValue("amountMinor").jsonPrimitive.long }
+        assertEquals(listOf(200L, 100L), amounts)
+    }
+
+    @Test
+    fun `listing an empty household returns an empty array`() = withApp {
+        val res = client.get("/households/${home().id}/settlements")
+        assertEquals(HttpStatusCode.OK, res.status)
+        assertEquals(0, Json.parseToJsonElement(res.bodyAsText()).jsonArray.size)
+    }
+
+    @Test
+    fun `listing only shows the household's own settlements`() = withApp {
+        val a = home()
+        val b = home()
+        post(a.id, body(a.sumedh, a.savar, 100L))
+        post(b.id, body(b.sumedh, b.savar, 999L))
+
+        val amounts = Json.parseToJsonElement(client.get("/households/${a.id}/settlements").bodyAsText()).jsonArray
+            .map { it.jsonObject.getValue("amountMinor").jsonPrimitive.long }
+        assertEquals(listOf(100L), amounts)
     }
 }
