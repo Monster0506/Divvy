@@ -1,6 +1,10 @@
 package com.monster0506.divvy.server.routes
 
 import com.monster0506.divvy.server.ApiError
+import com.monster0506.divvy.server.ValidationException
+import com.monster0506.divvy.server.ml.AcceptResult
+import com.monster0506.divvy.server.ml.MlSettings
+import com.monster0506.divvy.server.ml.MlSettingsRepository
 import com.monster0506.divvy.server.ml.ItemPredictionView
 import com.monster0506.divvy.server.ml.MlStats
 import com.monster0506.divvy.server.ml.MlStatsSummary
@@ -10,13 +14,17 @@ import com.monster0506.divvy.server.ml.ReceiptPredictions
 import com.monster0506.divvy.server.repository.HouseholdRepository
 import com.monster0506.divvy.server.repository.ReceiptRepository
 import io.ktor.http.HttpStatusCode
+import io.ktor.server.request.receive
+import io.ktor.server.request.receiveText
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.RoutingContext
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
+import io.ktor.server.routing.put
 import io.ktor.server.routing.route
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import kotlin.uuid.Uuid
 
 @Serializable
@@ -30,7 +38,21 @@ data class ItemPredictionResponse(
     val ownerIds: List<String>,
     val confidence: Double? = null,
     val alternatives: List<AlternativeResponse> = emptyList(),
+    /** True when a person must confirm this item before the receipt can be confirmed. */
+    val needsConfirmation: Boolean = false,
 )
+
+@Serializable
+data class AcceptRequest(
+    /** The items to confirm as they are; leave out to confirm every item that needs it. */
+    val itemIds: List<String>? = null,
+)
+
+@Serializable
+data class AcceptResponse(val confirmedItemIds: List<String>)
+
+@Serializable
+data class MlSettingsBody(val autoAssign: Boolean, val autoAssignThreshold: Double)
 
 @Serializable
 data class PredictionsResponse(
@@ -58,6 +80,7 @@ private fun ItemPredictionView.toResponse() = ItemPredictionResponse(
     ownerIds = ownerIds.map { it.toString() },
     confidence = confidence,
     alternatives = alternatives.map { AlternativeResponse(it.ownerIds.map(Uuid::toString), it.confidence) },
+    needsConfirmation = needsConfirmation,
 )
 
 private fun ReceiptPredictions.toResponse() = PredictionsResponse(
@@ -72,6 +95,7 @@ private fun MlStatsSummary.toResponse() = MlStatsResponse(
     labelledItems, manual, predictedAccepted, predictedCorrected, correctionRate, predictionsStored,
 )
 
+private val lenientJson = Json { ignoreUnknownKeys = true }
 private val receiptNotFound = ApiError("not_found", "receipt not found")
 private val householdNotFound = ApiError("not_found", "household not found")
 private val notDraft = ApiError("not_draft", "only a draft receipt can be pre-assigned")
@@ -100,6 +124,18 @@ fun Route.predictionRoutes(receipts: () -> ReceiptRepository, service: () -> Pre
             }
         }
 
+        post("/accept") {
+            val receiptId = receiptIdInHousehold(receipts()) ?: return@post call.respond(HttpStatusCode.NotFound, receiptNotFound)
+            val text = call.receiveText()
+            val request = if (text.isBlank()) AcceptRequest() else lenientJson.decodeFromString(AcceptRequest.serializer(), text)
+            val ids = request.itemIds?.map { parseId(it) ?: throw ValidationException("item id is not a valid id: $it") }?.toSet()
+            when (val result = service().accept(receiptId, ids)) {
+                AcceptResult.NotFound -> call.respond(HttpStatusCode.NotFound, receiptNotFound)
+                AcceptResult.NotDraft -> call.respond(HttpStatusCode.Conflict, notDraft)
+                is AcceptResult.Done -> call.respond(AcceptResponse(result.itemIds.map { it.toString() }))
+            }
+        }
+
         get {
             val receiptId = receiptIdInHousehold(receipts()) ?: return@get call.respond(HttpStatusCode.NotFound, receiptNotFound)
             when (val result = service().stored(receiptId)) {
@@ -109,6 +145,30 @@ fun Route.predictionRoutes(receipts: () -> ReceiptRepository, service: () -> Pre
         }
     }
 }
+
+/** Whether the household auto-assigns confident predictions, and how confident counts. */
+fun Route.mlSettingsRoutes(households: () -> HouseholdRepository, settings: () -> MlSettingsRepository) {
+    route("/households/{id}/ml/settings") {
+        get {
+            val householdId = householdIdOrNull(households()) ?: return@get call.respond(HttpStatusCode.NotFound, householdNotFound)
+            call.respond(settings().get(householdId).toBody())
+        }
+
+        put {
+            val householdId = householdIdOrNull(households()) ?: return@put call.respond(HttpStatusCode.NotFound, householdNotFound)
+            val body = call.receive<MlSettingsBody>()
+            if (!body.autoAssignThreshold.isFinite() || body.autoAssignThreshold !in 0.0..1.0) {
+                throw ValidationException("autoAssignThreshold must be between 0 and 1")
+            }
+            call.respond(settings().save(householdId, MlSettings(body.autoAssign, body.autoAssignThreshold)).toBody())
+        }
+    }
+}
+
+private fun MlSettings.toBody() = MlSettingsBody(autoAssign, autoAssignThreshold)
+
+private suspend fun RoutingContext.householdIdOrNull(households: HouseholdRepository): Uuid? =
+    parseId(call.parameters["id"])?.takeIf { households.findById(it) != null }
 
 /** How often predictions were kept or changed in a household. */
 fun Route.mlStatsRoutes(households: () -> HouseholdRepository, stats: () -> MlStats) {

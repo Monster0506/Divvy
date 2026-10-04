@@ -87,3 +87,18 @@ The ML copy is checked first (see above). Items a person already assigned are ne
 - A confirmed receipt gets 409 `not_draft`. `GET` on the same path returns what was stored without asking the model.
 
 `GET /households/{id}/ml/stats` reports labelled items, accepted vs corrected predictions and the correction rate.
+
+## Auto-assign threshold and confirming guesses
+
+Each household has `autoAssign` (default on) and `autoAssignThreshold` (default 0.85), read and changed with
+`GET` and `PUT /households/{id}/ml/settings` (the threshold must be between 0 and 1). They live in `household_ml_settings`;
+a household with no row uses the defaults.
+
+A model guess at or above the threshold is applied as it is. A guess below it, or any guess when `autoAssign` is off, is
+returned with `needsConfirmation: true` and a receipt holding such items cannot be confirmed: the confirm call fails with
+409 `unconfirmed_items` listing the item ids (`ConfirmationGuardReceiptRepository`, wrapped around the label sync so nothing
+is pushed for a refused confirm).
+
+A person confirms an item by assigning it, even to the same owners, or with `POST .../predictions/accept`
+(`{"itemIds": [...]}`, or no body for every pending item), which keeps the model's owners as the person's choice.
+Either way the item is later labelled `predicted_accepted` if the owners did not change.

@@ -5,6 +5,8 @@ import com.monster0506.divvy.server.db.DivyDatabase
 import com.monster0506.divvy.server.ml.LabelSync
 import com.monster0506.divvy.server.ml.ExposedPredictionRepository
 import com.monster0506.divvy.server.ml.MlIntegration
+import com.monster0506.divvy.server.ml.ConfirmationGuardReceiptRepository
+import com.monster0506.divvy.server.ml.ExposedMlSettingsRepository
 import com.monster0506.divvy.server.ml.MlStats
 import com.monster0506.divvy.server.ml.PredictionService
 import com.monster0506.divvy.server.ml.MlResync
@@ -14,6 +16,7 @@ import com.monster0506.divvy.server.repository.ExposedPersonRepository
 import com.monster0506.divvy.server.repository.ExposedRepositories
 import com.monster0506.divvy.server.routes.householdRoutes
 import com.monster0506.divvy.server.routes.mlRoutes
+import com.monster0506.divvy.server.routes.mlSettingsRoutes
 import com.monster0506.divvy.server.routes.mlStatsRoutes
 import com.monster0506.divvy.server.routes.personArchiveRoutes
 import com.monster0506.divvy.server.routes.predictionRoutes
@@ -103,6 +106,12 @@ fun Application.module(connectDatabase: Boolean = true) {
                 ApiError("invalid_transition", cause.message ?: "Invalid status transition"),
             )
         }
+        exception<UnconfirmedItemsException> { call, cause ->
+            call.respond(
+                HttpStatusCode.Conflict,
+                ApiError("unconfirmed_items", cause.message ?: "Items need confirming", cause.itemIds.map { it.toString() }),
+            )
+        }
         exception<Throwable> { call, cause ->
             call.application.environment.log.error("Unhandled exception", cause)
             call.respond(HttpStatusCode.InternalServerError, ApiError("internal_error", "Internal server error"))
@@ -117,6 +126,7 @@ fun Application.module(connectDatabase: Boolean = true) {
             personRoutes({ repositories.households }, { repositories.people })
             mlRoutes({ repositories.households }, { ml.resync })
             mlStatsRoutes({ repositories.households }, { ml.stats })
+            mlSettingsRoutes({ repositories.households }, { ml.settings })
             predictionRoutes({ repositories.receipts }, { ml.predictions })
         }
     }
@@ -148,15 +158,18 @@ fun Application.configureDatabase(config: AppConfig): DivyDatabase {
         (mlClient as? AutoCloseable)?.close()
         database.close()
     }
-    val repos = ExposedRepositories(database.database) { SyncingReceiptRepository(it, labelSync) }
+    val settings = ExposedMlSettingsRepository(database.database)
+    val repos = ExposedRepositories(database.database) {
+        ConfirmationGuardReceiptRepository(SyncingReceiptRepository(it, labelSync), settings)
+    }
     val resync = MlResync(mlClient, repos.receipts, repos.people, labelSync)
     val predictionRepository = ExposedPredictionRepository(database.database)
     val predictions = PredictionService(
-        mlClient, resync, repos.receipts, repos.people, repos.itemOwners, predictionRepository,
+        mlClient, resync, repos.receipts, repos.people, repos.itemOwners, predictionRepository, settings,
     )
     attributes.put(
         MlKey,
-        MlIntegration(mlClient, labelSync, resync, predictions, MlStats(repos.receipts, predictionRepository)),
+        MlIntegration(mlClient, labelSync, resync, predictions, MlStats(repos.receipts, predictionRepository), settings),
     )
     attributes.put(RepositoriesKey, repos)
     return database
