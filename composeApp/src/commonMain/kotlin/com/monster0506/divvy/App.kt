@@ -82,7 +82,13 @@ import com.monster0506.divvy.data.repository.BalanceRepository
 import com.monster0506.divvy.data.repository.HouseholdRepository
 import com.monster0506.divvy.data.repository.ReceiptRepository
 import androidx.compose.runtime.collectAsState
+import com.monster0506.divvy.ui.screens.ShoppingItemScreen
 import com.monster0506.divvy.ui.screens.ShoppingListScreen
+import com.monster0506.divvy.data.repository.ShoppingListRepository
+import com.monster0506.divvy.shopping.LocalShoppingListApi
+import com.monster0506.divvy.shopping.RepositoryShoppingListApi
+import com.monster0506.divvy.shopping.ShoppingListController
+import com.monster0506.divvy.ui.preview.SampleData
 import com.monster0506.divvy.ui.state.AddMembersState
 import com.monster0506.divvy.ui.state.CreateHouseholdState
 import com.monster0506.divvy.ui.state.DivvyState
@@ -92,9 +98,14 @@ import androidx.compose.ui.tooling.preview.Preview
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
-enum class Route { Launch, CreateHousehold, AddMembers, Setup, Camera, Review, History, Detail, Balances, Shopping, Account, EditPerson, HouseholdSettings }
+enum class Route { Launch, CreateHousehold, AddMembers, Setup, Camera, Review, History, Detail, Balances, Shopping, ShoppingItem, Account, EditPerson, HouseholdSettings }
 
 private data class SelectedReceiptPhoto(val jpeg: ByteArray, val preview: ImageBitmap)
+
+private val serverId = Regex("^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$")
+
+/** Things to offer while typing on the list before the household is on a server. */
+private val sampleGroceries = listOf("Eggs", "Large eggs", "Eggplant", "Milk", "Oat milk", "Sandwich bread", "Bananas", "Paper towels")
 
 private fun Throwable.uploadMessage(): String = when (this) {
     is ApiException -> when (val reason = failure) {
@@ -254,6 +265,24 @@ fun DivvyApp(
         )
     }
     val balancesState by balancesController.state.collectAsState()
+    val serverShopping = remember(api) {
+        ShoppingListController(
+            RepositoryShoppingListApi(ShoppingListRepository(api)),
+            scope,
+            // Only a member loaded from the server can be named as who added an item.
+            currentPerson = { state.meId.takeIf { id -> serverId.matches(id) && state.people.any { it.id == id } } },
+        )
+    }
+    val localShopping = remember {
+        ShoppingListController(
+            LocalShoppingListApi(SampleData.shopping, sampleGroceries, nameOf = { state.person(it)?.name }),
+            scope,
+            currentPerson = { state.meId },
+        )
+    }
+    val serverShoppingState by serverShopping.state.collectAsState()
+    val localShoppingState by localShopping.state.collectAsState()
+    var shoppingItemId by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(reviewState.phase) {
     if (reviewState.phase == ReviewPhase.Confirmed) {
         review.close()
@@ -569,13 +598,54 @@ fun DivvyApp(
                     onUndo = balancesController::undo,
                 )
             }
-            Route.Shopping -> ShoppingListScreen(
-                items = state.shopping,
-                suggestions = state.suggestions,
-                onToggle = state::toggleShopping,
-                onAddSuggestion = state::addSuggestion,
-                onTab = onTab,
-            )
+            Route.Shopping -> {
+                val household = activeHousehold()
+                val list = if (household != null) serverShopping else localShopping
+                LaunchedEffect(household) {
+                    list.open(household ?: LOCAL_HOUSEHOLD_ID)
+                    // Loads "me", who is recorded as having added items.
+                    if (household != null) members.load(household)
+                }
+                ShoppingListScreen(
+                    state = if (household != null) serverShoppingState else localShoppingState,
+                    suggestions = state.suggestions,
+                    onInput = list::type,
+                    onAdd = { list.add(it) },
+                    onToggle = list::toggle,
+                    onOpen = {
+                        list.dismissMessage()
+                        shoppingItemId = it
+                        route = Route.ShoppingItem
+                    },
+                    onRemove = { list.remove(it, offerUndo = true) },
+                    onUndoRemove = list::undoRemove,
+                    onAddSuggestion = { i -> state.addSuggestion(i)?.let { list.add(it) } },
+                    onRetry = list::refresh,
+                    onDismissMessage = list::dismissMessage,
+                    onTab = onTab,
+                )
+            }
+
+            Route.ShoppingItem -> {
+                val household = activeHousehold()
+                val list = if (household != null) serverShopping else localShopping
+                val listState = if (household != null) serverShoppingState else localShoppingState
+                val item = listState.items.find { it.id == shoppingItemId }
+                if (item == null) {
+                    // Removed, here or by someone else.
+                    LaunchedEffect(Unit) { route = Route.Shopping }
+                } else {
+                    ShoppingItemScreen(
+                        item = item,
+                        saving = listState.saving,
+                        message = listState.message,
+                        onSave = { name, quantity, notes -> list.save(item.id, name, quantity, notes) { route = Route.Shopping } },
+                        onToggle = { list.toggle(item.id) },
+                        onRemove = { list.remove(item.id) },
+                        onTab = onTab,
+                    )
+                }
+            }
 
             Route.Account -> AccountScreen(
                 me = state.me,

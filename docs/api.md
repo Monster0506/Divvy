@@ -31,6 +31,24 @@ The image is stored under `IMAGE_DIR` (default `data/images`). The receipt start
   - 404 for an unknown or malformed household id
 - GET /households/{id}/settlements -> 200, newest first | 404
 
+## Grocery list
+The household's shared list. Items are `{"id", "householdId", "text", "quantity", "notes", "addedByPersonId", "addedByName",
+"status" ("open" or "purchased"), "purchasedAt", "createdAt", "updatedAt"}`; optional fields are left out when empty.
+`quantity` is free text ("2", "1 dozen"). Unknown or malformed household or item ids, and items of another household, return 404.
+- GET /households/{id}/list -> 200 | 404
+  Open items first, then purchased ones, each oldest first.
+- POST /households/{id}/list  {"text": "Eggs", "quantity": "1 dozen", "notes": "...", "addedByPersonId": "..."} -> 201 | 400 | 404
+  Only `text` is required. Text is trimmed and must be 1-200 characters, quantity at most 50 and notes at most 1000.
+  `addedByPersonId` must be an active member of the household.
+- GET /households/{id}/list/{itemId} -> 200 | 404
+- PATCH /households/{id}/list/{itemId}  {"text", "quantity", "notes", "purchased": true} -> 200 | 400 | 404
+  Absent fields are unchanged; an empty `quantity` or `notes` clears it. `purchased: true` checks the item off and sets
+  `purchasedAt` (checking it off again keeps the first time); `false` puts it back on the list.
+- DELETE /households/{id}/list/{itemId} -> 204 | 404
+- GET /households/{id}/list/autocomplete?q=egg&limit=10 -> 200 | 400 | 404
+  `{"suggestions": ["Eggplant", "Large eggs"]}`: item names from the household's confirmed receipts that contain `q`
+  (ignoring case), names starting with it first, then the most often bought. `limit` is 1-50 (default 10).
+
 ## Balances
 - GET /households/{id}/balances -> 200 | 404
   {"balances": [{"currency": "USD", "people": [{"personId", "displayName", "netMinor", "owes": [{"personId", "amountMinor"}], "owedBy": [...]}]}]}

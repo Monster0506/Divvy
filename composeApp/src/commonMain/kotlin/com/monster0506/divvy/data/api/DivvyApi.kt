@@ -1,7 +1,11 @@
 package com.monster0506.divvy.data.api
 
 import com.monster0506.divvy.data.dto.ApiError
+import com.monster0506.divvy.data.dto.AutocompleteDto
 import com.monster0506.divvy.data.dto.BalancesDto
+import com.monster0506.divvy.data.dto.CreateListItemRequest
+import com.monster0506.divvy.data.dto.ListItemDto
+import com.monster0506.divvy.data.dto.UpdateListItemRequest
 import com.monster0506.divvy.data.dto.AcceptPredictionsRequest
 import com.monster0506.divvy.data.dto.AcceptedPredictionsDto
 import com.monster0506.divvy.data.dto.ConfirmedReceiptDto
@@ -166,6 +170,24 @@ class DivvyApi(private val client: HttpClient) {
 
     suspend fun balances(householdId: String): BalancesDto =
         send { client.get("households/${householdId.seg()}/balances") }
+
+    /** The shared grocery list: open items first, then purchased ones. */
+    suspend fun listItems(householdId: String): List<ListItemDto> =
+        send { client.get("households/${householdId.seg()}/list") }
+
+    suspend fun addListItem(householdId: String, request: CreateListItemRequest): ListItemDto =
+        send { client.post("households/${householdId.seg()}/list") { setBody(request) } }
+
+    suspend fun updateListItem(householdId: String, itemId: String, change: UpdateListItemRequest): ListItemDto =
+        send { client.patch("households/${householdId.seg()}/list/$itemId") { setBody(change) } }
+
+    suspend fun deleteListItem(householdId: String, itemId: String) {
+        send<Unit> { client.delete("households/${householdId.seg()}/list/$itemId") }
+    }
+
+    /** Names the household has bought before that contain [query]. */
+    suspend fun autocompleteListItem(householdId: String, query: String): AutocompleteDto =
+        send { client.get("households/${householdId.seg()}/list/autocomplete") { parameter("q", query) } }
 
     private suspend inline fun <reified T> send(request: () -> HttpResponse): T {
         val response = try {
