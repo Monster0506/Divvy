@@ -36,6 +36,7 @@ interface HouseholdRepository {
 interface PersonRepository {
     suspend fun add(householdId: Uuid, displayName: String): Person
     suspend fun findById(id: Uuid): Person?
+    suspend fun rename(id: Uuid, displayName: String): Person?
 
     /** Members of a household in the order they were added. */
     suspend fun listByHousehold(householdId: Uuid, includeArchived: Boolean = false): List<Person>

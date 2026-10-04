@@ -88,6 +88,12 @@ class ExposedPersonRepository(private val db: Database) : PersonRepository {
         }.single().toPerson()
     }
 
+    override suspend fun rename(id: Uuid, displayName: String): Person? = db.dbQuery {
+        PersonTable.updateReturning(where = { PersonTable.id eq id }) {
+            it[PersonTable.displayName] = displayName
+        }.singleOrNull()?.toPerson()
+    }
+
     override suspend fun findById(id: Uuid): Person? = db.dbQuery {
         PersonTable.selectAll().where { PersonTable.id eq id }.singleOrNull()?.toPerson()
     }
