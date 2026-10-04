@@ -19,6 +19,9 @@ dependencies {
     implementation(libs.ktor.server.call.logging)
     implementation(libs.ktor.server.auth)
     implementation(libs.ktor.server.status.pages)
+    implementation(libs.ktor.client.core.jvm)
+    implementation(libs.ktor.client.cio.jvm)
+    implementation(libs.ktor.client.content.negotiation.jvm)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.logback.classic)
 
@@ -31,6 +34,7 @@ dependencies {
     implementation(libs.hikari)
 
     testImplementation(libs.ktor.server.test.host)
+    testImplementation(libs.ktor.client.mock.jvm)
     testImplementation(libs.kotlin.test.junit)
     testImplementation(libs.testcontainers.postgresql)
 }

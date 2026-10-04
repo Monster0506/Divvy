@@ -4,6 +4,9 @@ import com.monster0506.divvy.server.domain.CurrencyCode
 import com.monster0506.divvy.server.domain.Household
 import com.monster0506.divvy.server.domain.ItemOwner
 import com.monster0506.divvy.server.domain.ItemOwnerHistoryEntry
+import com.monster0506.divvy.server.domain.LedgerEntry
+import com.monster0506.divvy.server.domain.LedgerSourceType
+import com.monster0506.divvy.server.domain.NewLedgerEntry
 import com.monster0506.divvy.server.domain.NewReceipt
 import com.monster0506.divvy.server.domain.NewReceiptItem
 import com.monster0506.divvy.server.domain.NewSettlement
@@ -43,6 +46,8 @@ interface PersonRepository {
     /** Members of a household in the order they were added. */
     suspend fun listByHousehold(householdId: Uuid, includeArchived: Boolean = false): List<Person>
 
+    suspend fun rename(id: Uuid, displayName: String): Person?
+
     /** Removes a person from the active household while keeping their history. */
     suspend fun archive(id: Uuid): Person?
 }
@@ -60,6 +65,10 @@ interface ReceiptRepository {
     /** Receipts newest first, with items and owners. */
     suspend fun listByHousehold(householdId: Uuid, limit: Int = 50): List<Receipt>
 
+    /**
+     * Confirms a draft receipt and records a [com.monster0506.divvy.server.domain.LabelSource]
+     * for each item by comparing its final owners with what the model first predicted.
+     */
     suspend fun confirm(id: Uuid): Receipt?
 
     /*
@@ -76,6 +85,12 @@ interface ReceiptRepository {
      * quantities are summed and the first item's owners are kept. The others are removed.
      */
     suspend fun mergeItems(receiptId: Uuid, itemIds: List<Uuid>, description: String? = null): Receipt?
+
+    /**
+     * Share of model-predicted items on confirmed receipts that people changed, or null if there
+     * are none yet.
+     */
+    suspend fun correctionRate(householdId: Uuid): Double?
 
     /** Marks a receipt void. Receipts are never deleted, so their history stays available. */
     suspend fun void(id: Uuid): Receipt?
@@ -113,4 +128,19 @@ interface SettlementRepository {
 
     /** Settlements newest first. */
     suspend fun listByHousehold(householdId: Uuid): List<Settlement>
+}
+
+/** Insert and query only: ledger rows are never updated or deleted. */
+interface LedgerRepository {
+    suspend fun append(entry: NewLedgerEntry): LedgerEntry
+
+    /** Appends an entry with debtor and creditor swapped that cancels [entryId]. Null if it does not exist. */
+    suspend fun reverse(entryId: Uuid): LedgerEntry?
+    suspend fun findById(id: Uuid): LedgerEntry?
+
+    /** Entries oldest first. */
+    suspend fun listByHousehold(householdId: Uuid): List<LedgerEntry>
+
+    /** Entries created by one receipt or settlement, oldest first, including their reversals. */
+    suspend fun listBySource(sourceType: LedgerSourceType, sourceId: Uuid): List<LedgerEntry>
 }
