@@ -22,8 +22,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.ImageBitmap
-import org.jetbrains.compose.resources.decodeToImageBitmap
 import com.monster0506.divvy.platform.rememberCameraCapture
 import com.monster0506.divvy.platform.rememberGalleryPicker
 import com.monster0506.divvy.ui.components.Tab
@@ -67,9 +65,7 @@ fun DivvyApp(
         }
     }
     var editingId by remember { mutableStateOf(state.meId) }
-    var selectedPhotoBytes by remember { mutableStateOf<ByteArray?>(null) }
-    var selectedPhotoPreview by remember { mutableStateOf<ImageBitmap?>(null) }
-    var photoError by remember { mutableStateOf<String?>(null) }
+    var cameraError by remember { mutableStateOf<String?>(null) }
     val onTab = { tab: Tab ->
         route = when (tab) {
             Tab.Receipts -> Route.History
@@ -78,21 +74,10 @@ fun DivvyApp(
             Tab.Account -> Route.Account
         }
     }
-    fun selectPhoto(bytes: ByteArray) {
-        val preview = runCatching { bytes.decodeToImageBitmap() }.getOrNull()
-        if (preview == null) {
-            photoError = "This photo could not be opened. Please try again."
-        } else {
-            selectedPhotoBytes = bytes
-            selectedPhotoPreview = preview
-            photoError = null
-        }
+    val cameraCapture = rememberCameraCapture {
+        cameraError = "Camera unavailable. Check camera access in Settings, or choose a photo from Gallery."
     }
-    val cameraCapture = rememberCameraCapture(
-        onResult = ::selectPhoto,
-        onError = { photoError = "Camera unavailable. Check camera access in Settings, or choose a photo from Gallery." },
-    )
-    val galleryPicker = rememberGalleryPicker { bytes -> if (bytes != null) selectPhoto(bytes) }
+    val galleryPicker = rememberGalleryPicker { bytes -> if (bytes != null) route = Route.Review }
     AnimatedContent(
         targetState = route,
         transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(120)) },
@@ -119,21 +104,15 @@ fun DivvyApp(
             )
 
             Route.Camera -> CameraScreen(
-                photo = selectedPhotoPreview,
-                errorMessage = photoError,
+                errorMessage = cameraError,
                 cameraSupported = cameraCapture.isSupported,
                 onCapture = {
-                    photoError = null
+                    cameraError = null
                     cameraCapture.launch()
                 },
-                onGallery = {
-                    photoError = null
-                    galleryPicker.launch()
-                },
+                onGallery = { galleryPicker.launch() },
                 onCancel = {
-                    selectedPhotoBytes = null
-                    selectedPhotoPreview = null
-                    photoError = null
+                    cameraError = null
                     route = Route.History
                 },
             )
