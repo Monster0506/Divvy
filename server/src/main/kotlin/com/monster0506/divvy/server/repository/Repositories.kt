@@ -146,6 +146,9 @@ sealed interface ConfirmResult {
 
     /** [itemIds] have no active owner. */
     data class Unassigned(val itemIds: List<Uuid>) : ConfirmResult
+
+    /** Nobody is recorded as having paid, so there is no one to owe. */
+    data object NoPayer : ConfirmResult
     data class Confirmed(val receipt: Receipt) : ConfirmResult
 }
 

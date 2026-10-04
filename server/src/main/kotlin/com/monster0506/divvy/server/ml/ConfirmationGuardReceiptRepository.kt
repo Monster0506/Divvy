@@ -3,6 +3,7 @@ package com.monster0506.divvy.server.ml
 import com.monster0506.divvy.server.UnconfirmedItemsException
 import com.monster0506.divvy.server.domain.Receipt
 import com.monster0506.divvy.server.domain.ReceiptStatus
+import com.monster0506.divvy.server.repository.ConfirmResult
 import com.monster0506.divvy.server.repository.ReceiptRepository
 import kotlin.uuid.Uuid
 
@@ -16,12 +17,20 @@ class ConfirmationGuardReceiptRepository(
     private val settings: MlSettingsRepository,
 ) : ReceiptRepository by delegate {
     override suspend fun confirm(id: Uuid): Receipt? {
-        val receipt = delegate.findById(id) ?: return null
-        if (receipt.status == ReceiptStatus.DRAFT) {
-            val rules = settings.get(receipt.householdId)
-            val pending = receipt.items.filter(rules::needsConfirmation)
-            if (pending.isNotEmpty()) throw UnconfirmedItemsException(pending.map { it.id })
-        }
+        refuseIfUnconfirmed(id)
         return delegate.confirm(id)
+    }
+
+    override suspend fun confirmAssigned(id: Uuid): ConfirmResult {
+        refuseIfUnconfirmed(id)
+        return delegate.confirmAssigned(id)
+    }
+
+    private suspend fun refuseIfUnconfirmed(id: Uuid) {
+        val receipt = delegate.findById(id) ?: return
+        if (receipt.status != ReceiptStatus.DRAFT) return
+        val rules = settings.get(receipt.householdId)
+        val pending = receipt.items.filter(rules::needsConfirmation)
+        if (pending.isNotEmpty()) throw UnconfirmedItemsException(pending.map { it.id })
     }
 }

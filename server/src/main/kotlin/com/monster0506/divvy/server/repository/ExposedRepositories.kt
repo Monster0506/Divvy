@@ -74,12 +74,19 @@ class ExposedRepositories(
     /** Lets the app wrap receipts, for example to push confirmed labels to the ML service. */
     wrapReceipts: (ReceiptRepository) -> ReceiptRepository = { it },
 ) {
+    private val exposedReceipts = ExposedReceiptRepository(db)
     val households: HouseholdRepository = ExposedHouseholdRepository(db)
     val people: PersonRepository = ExposedPersonRepository(db)
-    val receipts: ReceiptRepository = wrapReceipts(ExposedReceiptRepository(db))
+    val receipts: ReceiptRepository = wrapReceipts(exposedReceipts)
     val itemOwners: ItemOwnerRepository = ExposedItemOwnerRepository(db)
     val settlements: SettlementRepository = ExposedSettlementRepository(db)
     val ledger: LedgerRepository = ExposedLedgerRepository(db)
+
+    /**
+     * Gives confirmed receipts the balances and item labels they should have had. Receipts confirmed through the app
+     * before the confirm route wrote them have neither. Safe to run on every start: it only touches receipts that lack them.
+     */
+    suspend fun repairConfirmedReceipts(): Int = exposedReceipts.repairConfirmed()
 }
 
 class ExposedHouseholdRepository(private val db: Database) : HouseholdRepository {
@@ -319,6 +326,28 @@ class ExposedReceiptRepository(private val db: Database) : ReceiptRepository {
         receipt
     }
 
+    /** Returns how many confirmed receipts needed balances or labels and got them. */
+    suspend fun repairConfirmed(): Int = db.dbQuery {
+        val withEntries = LedgerEntryTable.select(LedgerEntryTable.sourceId)
+            .where { LedgerEntryTable.sourceType eq LedgerSourceType.RECEIPT.dbValue }
+            .map { it[LedgerEntryTable.sourceId] }
+            .toSet()
+        val confirmed = ReceiptTable.select(ReceiptTable.id)
+            .where { ReceiptTable.status eq ReceiptStatus.CONFIRMED.dbValue }
+            .map { it[ReceiptTable.id] }
+        var repaired = 0
+        for (id in confirmed) {
+            val receipt = loadReceipts(listOf(id)).singleOrNull() ?: continue
+            val unlabelled = receipt.items.any { it.labelSource == null }
+            val unbalanced = id !in withEntries && ledgerEntriesFor(receipt).isNotEmpty()
+            if (!unlabelled && !unbalanced) continue
+            if (unlabelled) recordLabelSources(id)
+            if (unbalanced) writeReceiptLedger(receipt)
+            repaired++
+        }
+        repaired
+    }
+
     /**
      * Moves a confirmed receipt back to draft so it can be corrected, and cancels its ledger
      * entries. No effect unless the receipt is confirmed.
@@ -345,6 +374,7 @@ class ExposedReceiptRepository(private val db: Database) : ReceiptRepository {
             .toSet()
         val unassigned = receipt.items.filter { item -> item.owners.none { it.personId !in archived } }
         if (unassigned.isNotEmpty()) return@dbQuery ConfirmResult.Unassigned(unassigned.map { it.id })
+        if (receipt.paidByPersonId == null) return@dbQuery ConfirmResult.NoPayer
 
         ItemOwnerTable.update({
             (ItemOwnerTable.receiptItemId inList receipt.items.map { it.id }) and
@@ -356,7 +386,11 @@ class ExposedReceiptRepository(private val db: Database) : ReceiptRepository {
             it[status] = ReceiptStatus.CONFIRMED.dbValue
             it[confirmedAt] = CurrentTimestampWithTimeZone
         }
-        ConfirmResult.Confirmed(loadReceipts(listOf(id)).single())
+        // the same two steps as confirm(): how each item's owners were decided, and who owes whom
+        recordLabelSources(id)
+        val confirmed = loadReceipts(listOf(id)).single()
+        writeReceiptLedger(confirmed)
+        ConfirmResult.Confirmed(confirmed)
     }
 
     override suspend fun update(id: Uuid, patch: ReceiptPatch): Receipt? = db.dbQuery {
