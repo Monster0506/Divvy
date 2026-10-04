@@ -44,24 +44,25 @@ fun venmoUsernameProblem(raw: String): String? {
 }
 
 /**
- * Link that opens the Venmo app on a payment to [username] ([txn] "pay") or a request from them ("charge"), pre-filled
- * with amount and note. The recipient is sent as "@username", the form Venmo shows.
+ * Link that opens the Venmo app on a payment to the recipient ([txn] "pay") or a request from them ("charge"),
+ * pre-filled with amount and note. Venmo's app finds the recipient by their numeric [userId] (see [VenmoUserIds]); a
+ * username alone comes back "recipient not found", so it is only used when the ID is unknown.
  */
-fun venmoDeepLink(username: String, amountCents: Long, note: String, txn: String = "pay"): String =
-    "venmo://paycharge?" + query("@" + cleanUsername(username), amountCents, note, txn)
+fun venmoDeepLink(username: String, amountCents: Long, note: String, txn: String = "pay", userId: String? = null): String =
+    "venmo://paycharge?" + query(userId ?: cleanUsername(username), amountCents, note, txn)
 
 /** Venmo's pay page, used when the Venmo app is not installed. */
 fun venmoPayUrl(username: String, amountCents: Long, note: String, txn: String = "pay"): String =
     "https://account.venmo.com/pay?" + query(cleanUsername(username), amountCents, note, txn)
 
 /** Opens the Venmo app on a payment to [username], or Venmo's pay page if the app is not installed. */
-fun UrlOpener.payWithVenmo(username: String, amountCents: Long, note: String) {
-    open(venmoDeepLink(username, amountCents, note)) { open(venmoPayUrl(username, amountCents, note)) }
+fun UrlOpener.payWithVenmo(username: String, amountCents: Long, note: String, userId: String? = null) {
+    open(venmoDeepLink(username, amountCents, note, userId = userId)) { open(venmoPayUrl(username, amountCents, note)) }
 }
 
 /** Opens the Venmo app on a request from [username], or Venmo's pay page if the app is not installed. */
-fun UrlOpener.requestWithVenmo(username: String, amountCents: Long, note: String) {
-    open(venmoDeepLink(username, amountCents, note, txn = "charge")) {
+fun UrlOpener.requestWithVenmo(username: String, amountCents: Long, note: String, userId: String? = null) {
+    open(venmoDeepLink(username, amountCents, note, txn = "charge", userId = userId)) {
         open(venmoPayUrl(username, amountCents, note, txn = "charge"))
     }
 }
