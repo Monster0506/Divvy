@@ -2,13 +2,25 @@ package com.monster0506.divvy.data.dto
 
 import kotlinx.serialization.Serializable
 
-/** Positive [netCents] means the person is owed money; negative means they owe. */
+/** One counterparty and the amount, in minor units, owed between them and the person it sits under. */
 @Serializable
-data class BalanceDto(
+data class DebtDto(val personId: String, val amountMinor: Long)
+
+/** Positive [netMinor] means the person is owed money; negative means they owe. */
+@Serializable
+data class PersonBalanceDto(
     val personId: String,
-    val netCents: Long,
-    val currency: String = DEFAULT_CURRENCY,
+    val displayName: String,
+    val netMinor: Long,
+    val owes: List<DebtDto> = emptyList(),
+    val owedBy: List<DebtDto> = emptyList(),
 )
+
+@Serializable
+data class CurrencyBalancesDto(val currency: String, val people: List<PersonBalanceDto>)
+
+@Serializable
+data class BalancesDto(val balances: List<CurrencyBalancesDto>)
 
 @Serializable
 data class SettlementDto(

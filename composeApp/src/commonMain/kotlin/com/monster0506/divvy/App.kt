@@ -46,7 +46,7 @@ import com.monster0506.divvy.ui.components.Tab
 import com.monster0506.divvy.ui.model.ReceiptStatus
 import com.monster0506.divvy.ui.screens.AccountScreen
 import com.monster0506.divvy.ui.screens.AddMembersScreen
-import com.monster0506.divvy.ui.screens.BalancesScreen
+import com.monster0506.divvy.ui.screens.LiveBalancesScreen
 import com.monster0506.divvy.ui.screens.CameraScreen
 import com.monster0506.divvy.ui.screens.ReceiptPhotoStage
 import com.monster0506.divvy.ui.screens.CreateHouseholdScreen
@@ -73,6 +73,8 @@ import com.monster0506.divvy.review.ReceiptReviewController
 import com.monster0506.divvy.review.PayerStore
 import com.monster0506.divvy.review.RepositoryReviewApi
 import com.monster0506.divvy.review.ReviewPhase
+import com.monster0506.divvy.balances.BalancesController
+import com.monster0506.divvy.data.repository.BalanceRepository
 import com.monster0506.divvy.data.repository.HouseholdRepository
 import com.monster0506.divvy.data.repository.ReceiptRepository
 import androidx.compose.runtime.collectAsState
@@ -206,12 +208,14 @@ fun DivvyApp(
             Image(photo, contentDescription = "Receipt photo", modifier = Modifier.fillMaxWidth(), contentScale = ContentScale.Fit)
         }
     }
+    val balancesController = remember(api) { BalancesController(BalanceRepository(api)::balances, scope) }
+    val balancesState by balancesController.state.collectAsState()
     LaunchedEffect(reviewState.phase) {
-        if (reviewState.phase == ReviewPhase.Confirmed) {
-            review.close()
-            route = Route.Balances
-        }
+    if (reviewState.phase == ReviewPhase.Confirmed) {
+        review.close()
+        route = Route.Balances
     }
+}
     val onTab = { tab: Tab ->
         route = when (tab) {
             Tab.Receipts -> Route.History
@@ -505,7 +509,12 @@ fun DivvyApp(
                 }
             }
 
-            Route.Balances -> BalancesScreen(state.balances, state.transfers, state::togglePaid, onTab)
+            Route.Balances -> {
+                val id = householdId ?: router?.currentHouseholdId()
+                val real = id != null && id != LOCAL_HOUSEHOLD_ID
+                LaunchedEffect(id) { if (real) balancesController.open(id!!) }
+                LiveBalancesScreen(balancesState, hasHousehold = real, onRefresh = balancesController::refresh, onTab = onTab)
+            }
             Route.Shopping -> ShoppingListScreen(
                 items = state.shopping,
                 suggestions = state.suggestions,
