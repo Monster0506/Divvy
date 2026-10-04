@@ -1,3 +1,4 @@
+import hashlib
 import threading
 from datetime import date
 
@@ -180,6 +181,7 @@ def test_history_status_reports_readiness(client):
         "min_history": 30,
         "ready": False,
         "model_version": None,
+        "digest": hashlib.sha256(b"").hexdigest(),
     }
 
     rows = [obs(f"id{n}", day=1 + n % 28, item=f"Item {n}") for n in range(30)]
