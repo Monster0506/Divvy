@@ -35,3 +35,24 @@ ML_SERVICE_URL=http://127.0.0.1:8000 ./gradlew :server:test --tests "*MlServiceC
 ```
 
 It pushes a household's history, predicts from it, corrects and deletes a label, and replaces the history.
+
+## Keeping the ML copy current (label sync)
+
+When a receipt is confirmed, its items' final owners are pushed to the ML service as labels; voiding it removes them.
+`SyncingReceiptRepository` wraps `ReceiptRepository`, so the confirm route and any route added later get this without
+calling the ML service themselves.
+
+- **Background.** The push runs in the background after the database change, so a slow or hung ML service never delays
+  the response. Changes to one household are sent in the order they were made; households do not wait for each other.
+- **What is sent.** One observation per item that has an owner: its id (the item id, so a resend updates it), the
+  purchase date (UTC), the description, the owners, and how it was labelled (`manual`, `predicted_accepted` or
+  `predicted_corrected`, from the label source recorded at confirmation). Items nobody owns are skipped.
+- **Members.** The people who were in the household when the receipt was confirmed. Someone who joined later is
+  unknown for these items, not a "no", and someone archived afterwards still counts as a member of what was labelled
+  while they lived there.
+- **Failure.** If the ML service is unavailable the household is marked dirty and the request still succeeds. A rejected
+  push is logged and not retried. Confirm and void never fail because of the ML service.
+
+`LabelSyncDatabaseTest` drives the real repositories on a real Postgres with a fake ML client. `LabelSyncLiveTest` does
+the same against a real ML service when `ML_SERVICE_URL` is set: confirming receipts grows the ML history and voiding
+one shrinks it.
