@@ -21,6 +21,8 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.getValue
@@ -77,6 +79,8 @@ fun LiveBalancesScreen(
     onTab: (Tab) -> Unit = {},
     onSettle: (SettleTransfer, amountCents: Int) -> Unit = { _, _ -> },
     onUndo: () -> Unit = {},
+    onPayWithVenmo: (SettleTransfer) -> Unit = {},
+    onAddVenmo: () -> Unit = {},
 ) {
     var paying by remember { mutableStateOf<SettleTransfer?>(null) }
     paying?.let { transfer ->
@@ -110,7 +114,15 @@ fun LiveBalancesScreen(
                     if (state.balances.isEmpty()) BalancesNote("Nobody in this household yet.")
                     if (state.transfers.isNotEmpty()) {
                         SectionHeader("Settle up", if (state.transfers.size == 1) "1 payment" else "${state.transfers.size} payments")
-                        state.transfers.forEach { SettleRow(it, enabled = !state.recording) { paying = it } }
+                        state.transfers.forEach {
+                            SettleRow(
+                                it,
+                                enabled = !state.recording,
+                                onPay = { paying = it },
+                                onVenmo = { onPayWithVenmo(it) },
+                                onAddVenmo = onAddVenmo,
+                            )
+                        }
                     }
                     if (state.otherCurrencies) {
                         Spacer(Modifier.height(8.dp))
@@ -122,29 +134,55 @@ fun LiveBalancesScreen(
     }
 }
 
-/** "A pays B $X" with a button to record the payment. Payments involving this device's person stand out. */
+/**
+ * "A pays B $X" with buttons to pay with Venmo, when B has a Venmo username, and to record the payment. Without a
+ * username the row says where to add one. Payments involving this device's person stand out.
+ */
 @Composable
-private fun SettleRow(transfer: SettleTransfer, enabled: Boolean, onPay: () -> Unit) {
+private fun SettleRow(
+    transfer: SettleTransfer,
+    enabled: Boolean,
+    onPay: () -> Unit,
+    onVenmo: () -> Unit,
+    onAddVenmo: () -> Unit,
+) {
     val weight = if (transfer.involvesMe) FontWeight.SemiBold else FontWeight.Normal
     val tint = if (transfer.involvesMe) DivvyColors.Accent else DivvyColors.Ink
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text("${transfer.from.name} pays ${transfer.to.name}", Modifier.weight(1f), fontSize = 14.sp, fontWeight = weight, color = tint)
-        Text(transfer.amountCents.toMoney(), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = tint)
-        OutlinedButton(
-            onClick = onPay,
-            enabled = enabled,
-            modifier = Modifier.padding(start = 10.dp),
-            shape = RoundedCornerShape(6.dp),
-            border = BorderStroke(1.dp, if (enabled) tint else DivvyColors.Line),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-        ) {
-            Text("Mark paid", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = tint)
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("${transfer.from.name} pays ${transfer.to.name}", Modifier.weight(1f), fontSize = 14.sp, fontWeight = weight, color = tint)
+            Text(transfer.amountCents.toMoney(), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = tint)
+        }
+        Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (transfer.toVenmo == null) {
+                Text(
+                    "No Venmo for ${transfer.to.name}. Add it in Household settings.",
+                    Modifier.weight(1f).clickable(onClick = onAddVenmo),
+                    fontSize = 12.sp,
+                    color = DivvyColors.Accent,
+                )
+            } else {
+                Spacer(Modifier.weight(1f))
+                SettleButton("Pay with Venmo", enabled = true, tint = tint, onClick = onVenmo)
+            }
+            SettleButton("Mark paid", enabled = enabled, tint = tint, onClick = onPay, modifier = Modifier.padding(start = 10.dp))
         }
     }
     RowDivider()
+}
+
+@Composable
+private fun SettleButton(label: String, enabled: Boolean, tint: Color, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    OutlinedButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier,
+        shape = RoundedCornerShape(6.dp),
+        border = BorderStroke(1.dp, if (enabled) tint else DivvyColors.Line),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+    ) {
+        Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = tint)
+    }
 }
 
 /** Confirms a payment. The amount can be lowered to record a part payment. */

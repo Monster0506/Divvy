@@ -6,6 +6,7 @@ import com.monster0506.divvy.server.domain.LedgerSourceType
 import com.monster0506.divvy.server.domain.Money
 import com.monster0506.divvy.server.domain.NewLedgerEntry
 import com.monster0506.divvy.server.domain.NewSettlement
+import com.monster0506.divvy.server.domain.PersonPatch
 import com.monster0506.divvy.server.repository.ExposedRepositories
 import io.ktor.client.request.get
 import io.ktor.client.statement.HttpResponse
@@ -99,6 +100,18 @@ class BalanceRoutesTest {
         assertEquals(mapOf(h.ann.toString() to 2000L), usdBlock.person(h.ben).debts("owes"))
         assertEquals(mapOf(h.cy.toString() to 500L), usdBlock.person(h.ben).debts("owedBy"))
         assertEquals(mapOf(h.ann.toString() to 1000L, h.ben.toString() to 500L), usdBlock.person(h.cy).debts("owes"))
+    }
+
+    @Test
+    fun `balances include each person's venmo username when they have one`() = withApp {
+        val h = home()
+        repos.people.update(h.ann, PersonPatch(venmoUsername = "ann-pays"))
+        owe(h, debtor = h.ben, creditor = h.ann, cents = 1200)
+
+        val usdBlock = client.get("/households/${h.id}/balances").json().jsonObject.block("USD")
+
+        assertEquals("ann-pays", usdBlock.person(h.ann).getValue("venmoUsername").jsonPrimitive.content)
+        assertNull(usdBlock.person(h.ben)["venmoUsername"])
     }
 
     @Test

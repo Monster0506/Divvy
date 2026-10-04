@@ -23,8 +23,24 @@ private fun query(recipient: String?, amountCents: Long, note: String): String =
     add("note=${note.encodeURLParameter()}")
 }.joinToString("&")
 
-private fun cleanUsername(username: String) = username.trim().removePrefix("@").also {
+private fun cleanUsername(username: String) = normalizeVenmoUsername(username).also {
     require(it.isNotEmpty()) { "Venmo username must not be blank" }
+}
+
+private val venmoUsernamePattern = Regex("^[A-Za-z0-9_-]{5,30}$")
+
+/** [raw] without spaces or a leading "@", the form the server stores. */
+fun normalizeVenmoUsername(raw: String): String = raw.trim().removePrefix("@")
+
+/** Why [raw] is not a Venmo username, or null if it is one (or blank, which removes it). Mirrors the server. */
+fun venmoUsernameProblem(raw: String): String? {
+    val username = normalizeVenmoUsername(raw)
+    return when {
+        username.isEmpty() || venmoUsernamePattern.matches(username) -> null
+        username.length < 5 -> "Venmo usernames are at least 5 characters."
+        username.length > 30 -> "Venmo usernames are at most 30 characters."
+        else -> "Use only letters, numbers, - and _."
+    }
 }
 
 /** Link that opens the Venmo app on a pre-filled payment. */

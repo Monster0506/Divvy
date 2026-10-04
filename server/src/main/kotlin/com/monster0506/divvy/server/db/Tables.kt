@@ -32,6 +32,7 @@ object PersonTable : TimestampedTable("person") {
     val householdId = uuid("household_id")
     val displayName = text("display_name")
     val archivedAt = timestampWithTimeZone("archived_at").nullable()
+    val venmoUsername = text("venmo_username").nullable()
 
     override val primaryKey = PrimaryKey(id)
 }

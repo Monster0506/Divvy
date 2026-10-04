@@ -32,6 +32,8 @@ data class PersonBalanceResponse(
     val owes: List<DebtResponse>,
     /** People who owe this person, after netting opposite debts. */
     val owedBy: List<DebtResponse>,
+    /** Where this person receives payments, so settle-up can offer Venmo. */
+    val venmoUsername: String? = null,
 )
 
 @Serializable
@@ -118,6 +120,7 @@ fun Route.balanceRoutes(
                                     .map { DebtResponse(it.creditorPersonId.toString(), it.amountMinor) },
                                 owedBy = balances.debts.filter { it.creditorPersonId == person.id }
                                     .map { DebtResponse(it.debtorPersonId.toString(), it.amountMinor) },
+                                venmoUsername = person.venmoUsername,
                             )
                         },
                 )

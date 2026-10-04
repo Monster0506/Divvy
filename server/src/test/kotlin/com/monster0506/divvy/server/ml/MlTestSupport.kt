@@ -6,6 +6,7 @@ import com.monster0506.divvy.server.domain.LabelSource
 import com.monster0506.divvy.server.domain.Money
 import com.monster0506.divvy.server.domain.OwnershipSource
 import com.monster0506.divvy.server.domain.Person
+import com.monster0506.divvy.server.domain.PersonPatch
 import com.monster0506.divvy.server.domain.Receipt
 import com.monster0506.divvy.server.domain.ReceiptItem
 import com.monster0506.divvy.server.domain.ReceiptStatus
@@ -81,7 +82,7 @@ class FakePeople(private val everyone: List<Person>) : PersonRepository {
     override suspend fun listByHousehold(householdId: Uuid, includeArchived: Boolean) =
         everyone.filter { it.householdId == householdId && (includeArchived || it.archivedAt == null) }
 
-    override suspend fun rename(id: Uuid, displayName: String) = error("not used")
+    override suspend fun update(id: Uuid, patch: PersonPatch) = error("not used")
 
     override suspend fun archive(id: Uuid) = error("not used")
 }

@@ -32,12 +32,64 @@ class HouseholdSettingsStateTest {
         rename: suspend (String) -> SettingsResult<Unit> = { SettingsResult.Ok(Unit) },
         create: suspend (String) -> CreatePersonResult = { CreatePersonResult.Created("new-$it") },
         archive: suspend (String) -> SettingsResult<Unit> = { SettingsResult.Ok(Unit) },
+        setVenmo: suspend (String, String) -> SettingsResult<String?> = { _, u -> SettingsResult.Ok(u.ifEmpty { null }) },
     ) = HouseholdSettingsState(
         load = { SettingsResult.Ok(HouseholdDetails("Apartment 4B", members)) },
         rename = rename,
         create = create,
         archive = archive,
+        setVenmo = setVenmo,
     )
+
+    @Test
+    fun venmoUsernameIsSavedWithoutTheAtSign() {
+        val sent = mutableListOf<Pair<String, String>>()
+        val s = state(setVenmo = { id, u -> sent += id to u; SettingsResult.Ok(u) })
+        runSettings { s.refresh() }
+        s.editVenmo(sam)
+        s.onVenmoDraftChange(" @sam-pays ")
+        assertNull(s.venmoMessage)
+        assertTrue(runSettings { s.saveVenmo() })
+        assertEquals(listOf("2" to "sam-pays"), sent)
+        assertEquals("sam-pays", s.members.first { it.id == "2" }.venmoUsername)
+        assertNull(s.editingVenmo)
+    }
+
+    @Test
+    fun invalidVenmoUsernameIsNotSent() {
+        var calls = 0
+        val s = state(setVenmo = { _, u -> calls++; SettingsResult.Ok(u) })
+        runSettings { s.refresh() }
+        s.editVenmo(sam)
+        s.onVenmoDraftChange("sam")
+        assertEquals("Venmo usernames are at least 5 characters.", s.venmoMessage)
+        assertFalse(runSettings { s.saveVenmo() })
+        assertEquals(0, calls)
+        assertNotNull(s.editingVenmo)
+    }
+
+    @Test
+    fun clearingVenmoUsernameRemovesIt() {
+        val s = state(members = listOf(andrew, sam.copy(venmoUsername = "sam-pays"), jo))
+        runSettings { s.refresh() }
+        s.editVenmo(s.members.first { it.id == "2" })
+        assertEquals("sam-pays", s.venmoDraft)
+        s.onVenmoDraftChange("")
+        assertTrue(runSettings { s.saveVenmo() })
+        assertNull(s.members.first { it.id == "2" }.venmoUsername)
+    }
+
+    @Test
+    fun serverRejectionKeepsTheDialogOpenWithItsMessage() {
+        val s = state(setVenmo = { _, _ -> SettingsResult.Invalid("venmoUsername must be 5 to 30 letters") })
+        runSettings { s.refresh() }
+        s.editVenmo(sam)
+        s.onVenmoDraftChange("sam-pays")
+        assertFalse(runSettings { s.saveVenmo() })
+        assertEquals("venmoUsername must be 5 to 30 letters", s.venmoMessage)
+        assertNotNull(s.editingVenmo)
+        assertNull(s.members.first { it.id == "2" }.venmoUsername)
+    }
 
     @Test
     fun loadSplitsActiveAndArchivedMembers() {

@@ -164,16 +164,14 @@ fun AccountScreen(
         }
 
         SectionHeader("Payments")
-        OutlinedTextField(
-            value = settings.venmoUsername,
-            onValueChange = { onSettingsChange(settings.copy(venmoUsername = it.removePrefix("@").trim())) },
-            label = { Text("Venmo username") },
-            prefix = { Text("@") },
-            supportingText = { Text("Housemates use this to pay you when settling up") },
-            singleLine = true,
-            shape = RoundedCornerShape(8.dp),
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
-        )
+        Column(Modifier.fillMaxWidth().clickable(onClick = onOpenHouseholdSettings).padding(horizontal = 20.dp, vertical = 14.dp)) {
+            Text("Venmo usernames", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = DivvyColors.Accent)
+            Text(
+                "Set each member's Venmo in Household settings so housemates can pay them when settling up.",
+                fontSize = 12.sp,
+                color = DivvyColors.Dim,
+            )
+        }
 
         SectionHeader("Server")
         OutlinedTextField(

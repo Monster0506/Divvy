@@ -94,6 +94,31 @@ class SettleUpTest {
     }
 
     @Test
+    fun payments_carry_the_recipients_venmo_username_when_they_have_one() = runTest {
+        server.balances = usd(
+            person("tj", "TJ", 2000).copy(venmoUsername = "tj-pays"),
+            person("sam", "Sam", -1200),
+            person("ana", "Ana", -800).copy(venmoUsername = "ana-v"),
+        )
+
+        val c = open(controller())
+
+        assertEquals(listOf("tj-pays", "tj-pays"), c.state.value.transfers.map { it.toVenmo })
+    }
+
+    @Test
+    fun payments_to_someone_without_venmo_have_no_username() = runTest {
+        server.balances = usd(
+            person("tj", "TJ", 2000).copy(venmoUsername = " "),
+            person("sam", "Sam", -2000).copy(venmoUsername = "sam-v"),
+        )
+
+        val c = open(controller())
+
+        assertNull(c.state.value.transfers.single().toVenmo)
+    }
+
+    @Test
     fun payments_involving_this_devices_person_come_first_and_are_marked() = runTest {
         val c = open(controller(me = "ana"))
 

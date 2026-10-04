@@ -7,6 +7,7 @@ import com.monster0506.divvy.server.domain.NewReceipt
 import com.monster0506.divvy.server.domain.NewReceiptItem
 import com.monster0506.divvy.server.domain.NewSettlement
 import com.monster0506.divvy.server.domain.OwnerShare
+import com.monster0506.divvy.server.domain.PersonPatch
 import com.monster0506.divvy.server.domain.ReceiptStatus
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.exceptions.ExposedSQLException
@@ -51,6 +52,16 @@ class CoreRepositoryTest : RepositoryTestBase() {
         assertNotNull(archived.archivedAt)
         assertEquals(listOf("Sumedh", "Savar", "TJ"), repos.people.listByHousehold(home.id).map { it.displayName })
         assertEquals(4, repos.people.listByHousehold(home.id, includeArchived = true).size)
+    }
+
+    @Test
+    fun `the database rejects malformed venmo usernames`() = runBlocking {
+        val (_, people) = household("Sumedh")
+        val id = people.single().id
+        assertEquals("sumedh-j", repos.people.update(id, PersonPatch(venmoUsername = "sumedh-j"))?.venmoUsername)
+        assertFailsWith<ExposedSQLException> { repos.people.update(id, PersonPatch(venmoUsername = "@sumedh")) }
+        assertFailsWith<ExposedSQLException> { repos.people.update(id, PersonPatch(venmoUsername = "abc")) }
+        assertNull(repos.people.update(id, PersonPatch(venmoUsername = ""))?.venmoUsername)
     }
 
     @Test

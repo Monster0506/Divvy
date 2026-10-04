@@ -78,6 +78,9 @@ import com.monster0506.divvy.review.PayerStore
 import com.monster0506.divvy.review.RepositoryReviewApi
 import com.monster0506.divvy.review.ReviewPhase
 import com.monster0506.divvy.balances.BalancesController
+import com.monster0506.divvy.balances.VENMO_NOTE
+import com.monster0506.divvy.platform.payWithVenmo
+import com.monster0506.divvy.platform.rememberUrlOpener
 import com.monster0506.divvy.data.repository.BalanceRepository
 import com.monster0506.divvy.data.repository.HouseholdRepository
 import com.monster0506.divvy.data.repository.ReceiptRepository
@@ -265,6 +268,7 @@ fun DivvyApp(
         )
     }
     val balancesState by balancesController.state.collectAsState()
+    val urlOpener = rememberUrlOpener()
     val serverShopping = remember(api) {
         ShoppingListController(
             RepositoryShoppingListApi(ShoppingListRepository(api)),
@@ -596,6 +600,10 @@ fun DivvyApp(
                     onTab = onTab,
                     onSettle = balancesController::settle,
                     onUndo = balancesController::undo,
+                    onPayWithVenmo = { transfer ->
+                        transfer.toVenmo?.let { urlOpener.payWithVenmo(it, transfer.amountCents.toLong(), VENMO_NOTE) }
+                    },
+                    onAddVenmo = { route = Route.HouseholdSettings },
                 )
             }
             Route.Shopping -> {
@@ -696,6 +704,10 @@ fun DivvyApp(
                         archive = { personId ->
                             if (id == null || settingsApi == null) SettingsResult.Failure("Not connected")
                             else settingsApi.archive(id, personId)
+                        },
+                        setVenmo = { personId, username ->
+                            if (id == null || settingsApi == null) SettingsResult.Failure("Not connected")
+                            else settingsApi.setVenmo(id, personId, username)
                         },
                     )
                 }
