@@ -2,8 +2,20 @@ package com.monster0506.divvy.server
 
 import com.monster0506.divvy.server.db.DatabaseFactory
 import com.monster0506.divvy.server.db.DivyDatabase
+import com.monster0506.divvy.server.ml.LabelSync
+import com.monster0506.divvy.server.ml.ExposedPredictionRepository
+import com.monster0506.divvy.server.ml.MlIntegration
+import com.monster0506.divvy.server.ml.MlStats
+import com.monster0506.divvy.server.ml.PredictionService
+import com.monster0506.divvy.server.ml.MlResync
+import com.monster0506.divvy.server.ml.SyncingReceiptRepository
+import com.monster0506.divvy.server.ml.createMlClient
+import com.monster0506.divvy.server.repository.ExposedPersonRepository
 import com.monster0506.divvy.server.repository.ExposedRepositories
 import com.monster0506.divvy.server.routes.householdRoutes
+import com.monster0506.divvy.server.routes.mlRoutes
+import com.monster0506.divvy.server.routes.mlStatsRoutes
+import com.monster0506.divvy.server.routes.predictionRoutes
 import com.monster0506.divvy.server.routes.personRoutes
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.auth.HttpAuthHeader
@@ -26,6 +38,10 @@ import io.ktor.server.response.respond
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
 import io.ktor.util.AttributeKey
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.slf4j.event.Level
@@ -97,6 +113,9 @@ fun Application.module(connectDatabase: Boolean = true) {
         authenticate(API_KEY_AUTH) {
             householdRoutes { repositories.households }
             personRoutes({ repositories.households }, { repositories.people })
+            mlRoutes({ repositories.households }, { ml.resync })
+            mlStatsRoutes({ repositories.households }, { ml.stats })
+            predictionRoutes({ repositories.receipts }, { ml.predictions })
         }
     }
 
@@ -104,6 +123,10 @@ fun Application.module(connectDatabase: Boolean = true) {
 }
 
 private val RepositoriesKey = AttributeKey<ExposedRepositories>("repositories")
+private val MlKey = AttributeKey<MlIntegration>("ml")
+
+/** The ML client and label sync. Available once [configureDatabase] has run. */
+val Application.ml: MlIntegration get() = attributes[MlKey]
 
 /** The repositories routes use for data access. Available once [configureDatabase] has run. */
 val Application.repositories: ExposedRepositories get() = attributes[RepositoriesKey]
@@ -115,8 +138,25 @@ val Application.repositories: ExposedRepositories get() = attributes[Repositorie
  */
 fun Application.configureDatabase(config: AppConfig): DivyDatabase {
     val database = DatabaseFactory.connect(config)
-    monitor.subscribe(ApplicationStopped) { database.close() }
-    attributes.put(RepositoriesKey, ExposedRepositories(database.database))
+    val mlClient = createMlClient(config)
+    val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    val labelSync = LabelSync(mlClient, ExposedPersonRepository(database.database), syncScope)
+    monitor.subscribe(ApplicationStopped) {
+        syncScope.cancel()
+        (mlClient as? AutoCloseable)?.close()
+        database.close()
+    }
+    val repos = ExposedRepositories(database.database) { SyncingReceiptRepository(it, labelSync) }
+    val resync = MlResync(mlClient, repos.receipts, repos.people, labelSync)
+    val predictionRepository = ExposedPredictionRepository(database.database)
+    val predictions = PredictionService(
+        mlClient, resync, repos.receipts, repos.people, repos.itemOwners, predictionRepository,
+    )
+    attributes.put(
+        MlKey,
+        MlIntegration(mlClient, labelSync, resync, predictions, MlStats(repos.receipts, predictionRepository)),
+    )
+    attributes.put(RepositoriesKey, repos)
     return database
 }
 
