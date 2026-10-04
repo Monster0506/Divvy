@@ -2,6 +2,7 @@ package com.monster0506.divvy.data.api
 
 import com.monster0506.divvy.data.dto.BalanceDto
 import com.monster0506.divvy.data.dto.HouseholdDto
+import com.monster0506.divvy.data.dto.ReceiptUploadDto
 import com.monster0506.divvy.data.repository.BalanceRepository
 import com.monster0506.divvy.data.repository.HouseholdRepository
 import com.monster0506.divvy.data.dto.ItemOwnerDto
@@ -14,6 +15,7 @@ import io.ktor.client.engine.mock.toByteArray
 import io.ktor.client.request.HttpRequestData
 import io.ktor.client.request.HttpResponseData
 import io.ktor.http.HttpHeaders
+import io.ktor.http.ContentType
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
@@ -121,6 +123,29 @@ class DivvyApiTest {
 
         val balances = assertIs<ApiResult.Success<List<BalanceDto>>>(repo.balances("h1"))
         assertEquals(250L, balances.value.single().netCents)
+    }
+
+    @Test
+    fun receipt_photo_is_sent_as_multipart_and_processing_id_is_decoded() = runTest {
+        var contentType = ""
+        var body = ""
+        var path = ""
+        var apiKey = ""
+        val repo = ReceiptRepository(api { request ->
+            contentType = request.body.contentType.toString()
+            body = request.body.toByteArray().decodeToString()
+            path = request.url.encodedPath
+            apiKey = request.headers[API_KEY_HEADER].orEmpty()
+            respond("""{"id":"receipt-1","status":"processing"}""", HttpStatusCode.Created, json)
+        })
+
+        val result = assertIs<ApiResult.Success<ReceiptUploadDto>>(repo.upload("home-1", "jpeg contents".encodeToByteArray()))
+        assertEquals("/households/home-1/receipts", path)
+        assertEquals("key", apiKey)
+        assertTrue(contentType.startsWith(ContentType.MultiPart.FormData.toString()))
+        assertTrue(body.contains("name=image"))
+        assertTrue(body.contains("receipt.jpg"))
+        assertEquals("receipt-1", result.value.id)
     }
 
     @Test
