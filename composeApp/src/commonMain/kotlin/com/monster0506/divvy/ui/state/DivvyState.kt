@@ -6,6 +6,7 @@ import androidx.compose.runtime.setValue
 import com.monster0506.divvy.domain.editLine
 import com.monster0506.divvy.domain.mergeLines
 import com.monster0506.divvy.domain.nextLineId
+import com.monster0506.divvy.domain.shares as splitShares
 import com.monster0506.divvy.ui.model.AvatarColor
 import com.monster0506.divvy.ui.model.Balance
 import com.monster0506.divvy.ui.model.HistoryEntry
@@ -42,38 +43,57 @@ class DivvyState {
                 line.copy(confirmed = line.id in reviewed || auto)
             },
         )
+    /** The draft as edited so far with every line locked in, which is what the split is computed from. */
     val resolvedDraft: ReceiptDraft
-        get() = SampleData.resolvedDraft.copy(payer = resolve(SampleData.resolvedDraft.payer), people = people)
+        get() = draft.copy(lines = draft.lines.map { it.copy(confirmed = true) })
     val shares: List<Pair<Person, Int>>
-        get() = SampleData.shares.map { (p, cents) -> resolve(p) to cents }
+        get() = resolvedDraft.splitShares()
 
     var autoExpanded by mutableStateOf(false)
         private set
-    private var rawTransfers by mutableStateOf(SampleData.transfers.map { it.copy(paid = false) })
+    private var paidFrom by mutableStateOf(emptySet<String>())
+    /** Everyone but the payer owes the payer their share of the edited receipt. */
     val transfers: List<Transfer>
-        get() = rawTransfers.map { it.copy(from = resolve(it.from), to = resolve(it.to)) }
+        get() {
+            val payer = draft.payer
+            return shares.filter { (p, cents) -> p.id != payer.id && cents > 0 }
+                .map { (p, cents) -> Transfer(p, payer, cents, paid = p.id in paidFrom) }
+        }
     var shopping by mutableStateOf(SampleData.shopping)
         private set
     var suggestions by mutableStateOf(SampleData.suggestions)
         private set
     private var rawHistory by mutableStateOf(SampleData.history)
     val history: List<HistoryEntry>
-        get() = rawHistory.map { it.copy(payer = resolve(it.payer)) }
+        get() = rawHistory.mapIndexed { i, e ->
+            // The first entry is the receipt being reviewed, so its total follows the edits.
+            e.copy(payer = resolve(e.payer), totalCents = if (i == 0) draft.totalCents else e.totalCents)
+        }
     var householdName by mutableStateOf("Apartment 4B")
     var newMember by mutableStateOf("")
     private var nextId = 0
 
     val balances: List<Balance>
-        get() = SampleData.balances.map { b ->
-            val paid = rawTransfers.filter { it.paid }
-            val delta = paid.sumOf {
-                when (b.person.id) {
-                    it.from.id -> it.amountCents
-                    it.to.id -> -it.amountCents
-                    else -> 0
+        get() {
+            val all = transfers
+            val paid = all.filter { it.paid }
+            return draft.people.map { person ->
+                val owed = all.sumOf {
+                    when (person.id) {
+                        it.to.id -> it.amountCents
+                        it.from.id -> -it.amountCents
+                        else -> 0
+                    }
                 }
-            }
-            b.copy(person = resolve(b.person), netCents = b.netCents + delta)
+                val settled = paid.sumOf {
+                    when (person.id) {
+                        it.from.id -> it.amountCents
+                        it.to.id -> -it.amountCents
+                        else -> 0
+                    }
+                }
+                Balance(person, owed + settled)
+            }.sortedByDescending { it.netCents }
         }
 
     /** Current details for [p], or [p] itself if they're no longer in the household. */
@@ -136,7 +156,8 @@ class DivvyState {
     }
 
     fun togglePaid(index: Int) {
-        rawTransfers = rawTransfers.mapIndexed { i, t -> if (i == index) t.copy(paid = !t.paid) else t }
+        val id = transfers.getOrNull(index)?.from?.id ?: return
+        paidFrom = if (id in paidFrom) paidFrom - id else paidFrom + id
     }
 
     fun toggleShopping(index: Int) {
