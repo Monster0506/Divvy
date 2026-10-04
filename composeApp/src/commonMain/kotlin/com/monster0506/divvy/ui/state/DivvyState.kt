@@ -93,6 +93,49 @@ class DivvyState {
         reviewed = reviewed + lineId
     }
 
+    /** Lines picked for a bulk action; only non-empty while [selecting]. */
+    var selected by mutableStateOf(emptySet<Int>())
+        private set
+    var selecting by mutableStateOf(false)
+        private set
+    /** When on, the review screen lists only lines that still need confirming. */
+    var unassignedOnly by mutableStateOf(false)
+        private set
+
+    fun toggleSelecting() {
+        selecting = !selecting
+        selected = emptySet()
+    }
+
+    fun toggleSelected(lineId: Int) {
+        selected = if (lineId in selected) selected - lineId else selected + lineId
+    }
+
+    /** Adds [personId] to every selected line, or removes them if all selected lines already have them. */
+    fun toggleOwnerOnSelected(personId: String) {
+        val lines = rawDraft.lines.filter { it.id in selected }
+        if (lines.isEmpty()) return
+        val remove = lines.all { personId in it.owners }
+        rawDraft = rawDraft.copy(
+            lines = rawDraft.lines.map {
+                if (it.id !in selected) it else it.copy(owners = if (remove) it.owners - personId else it.owners + personId)
+            },
+        )
+        reviewed = reviewed + selected
+    }
+
+    /** Gives every line that still needs confirming to [personId] alone and marks it confirmed. */
+    fun assignRemaining(personId: String) {
+        val pending = draft.lines.filter { !it.confirmed }.map { it.id }.toSet()
+        rawDraft = rawDraft.copy(lines = rawDraft.lines.map { if (it.id in pending) it.copy(owners = setOf(personId)) else it })
+        reviewed = reviewed + pending
+        unassignedOnly = false
+    }
+
+    fun toggleUnassignedOnly() {
+        unassignedOnly = !unassignedOnly
+    }
+
     fun toggleAuto() {
         autoExpanded = !autoExpanded
     }
