@@ -28,6 +28,7 @@ import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.notInList
 import org.jetbrains.exposed.v1.javatime.CurrentTimestampWithTimeZone
@@ -38,6 +39,7 @@ import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.insertReturning
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
+import org.jetbrains.exposed.v1.jdbc.update
 import org.jetbrains.exposed.v1.jdbc.updateReturning
 import org.jetbrains.exposed.v1.jdbc.upsert
 import java.time.Instant
@@ -169,6 +171,30 @@ class ExposedReceiptRepository(private val db: Database) : ReceiptRepository {
             it[confirmedAt] = CurrentTimestampWithTimeZone
         }.toList()
         loadReceipts(listOf(id)).singleOrNull()
+    }
+
+    override suspend fun confirmAssigned(id: Uuid): ConfirmResult = db.dbQuery {
+        val receipt = loadReceipts(listOf(id)).singleOrNull() ?: return@dbQuery ConfirmResult.NotFound
+        if (receipt.status != ReceiptStatus.DRAFT) return@dbQuery ConfirmResult.NotDraft(receipt.status)
+
+        val archived = PersonTable.select(PersonTable.id)
+            .where { (PersonTable.householdId eq receipt.householdId) and PersonTable.archivedAt.isNotNull() }
+            .map { it[PersonTable.id] }
+            .toSet()
+        val unassigned = receipt.items.filter { item -> item.owners.none { it.personId !in archived } }
+        if (unassigned.isNotEmpty()) return@dbQuery ConfirmResult.Unassigned(unassigned.map { it.id })
+
+        ItemOwnerTable.update({
+            (ItemOwnerTable.receiptItemId inList receipt.items.map { it.id }) and
+                (ItemOwnerTable.ownershipSource eq OwnershipSource.MODEL.dbValue)
+        }) {
+            it[ownershipSource] = OwnershipSource.USER.dbValue
+        }
+        ReceiptTable.update({ (ReceiptTable.id eq id) and (ReceiptTable.status eq ReceiptStatus.DRAFT.dbValue) }) {
+            it[status] = ReceiptStatus.CONFIRMED.dbValue
+            it[confirmedAt] = CurrentTimestampWithTimeZone
+        }
+        ConfirmResult.Confirmed(loadReceipts(listOf(id)).single())
     }
 
     override suspend fun void(id: Uuid): Receipt? = db.dbQuery {
