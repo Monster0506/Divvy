@@ -51,6 +51,7 @@ fun AccountScreen(
     apiConfig: ApiConfig = ApiConfig(),
     onApiConfigChange: (ApiConfig) -> Unit = {},
     onTab: (Tab) -> Unit = {},
+    onOpenHouseholdSettings: () -> Unit = {},
 ) {
     var serverUrl by remember(apiConfig) { mutableStateOf(apiConfig.baseUrl) }
     var serverKey by remember(apiConfig) { mutableStateOf(apiConfig.apiKey) }
@@ -71,6 +72,14 @@ fun AccountScreen(
         }
 
         SectionHeader("Household", "${people.size} members")
+        Text(
+            "Household settings",
+            Modifier.fillMaxWidth().clickable(onClick = onOpenHouseholdSettings).padding(horizontal = 20.dp, vertical = 14.dp),
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = DivvyColors.Accent,
+        )
+        RowDivider()
         OutlinedTextField(
             value = householdName,
             onValueChange = onHouseholdNameChange,
