@@ -2,6 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from divvy_ml.app import app
+from divvy_ml.embed import make_embedder
 from divvy_ml.models.abstain import MIN_HISTORY
 from divvy_ml.ownership import service
 from divvy_ml.ownership.demo import (
@@ -16,9 +17,47 @@ from divvy_ml.ownership.manager import ModelManager
 from divvy_ml.ownership.router import get_manager, get_store
 from divvy_ml.ownership.schemas import PredictRequest
 from divvy_ml.ownership.store import HistoryStore
-from tests.test_serving import EMBEDDER, PEOPLE, by_item, predict, push_synthetic
+from divvy_ml.synthetic import generate
 
+PEOPLE = ("sumedh", "savar", "andrew", "tj")
+EMBEDDER = make_embedder("hashing")
 SIX = [f"p{i}" for i in range(6)]
+
+
+def push_synthetic(client, household, size, seed=7):
+    rows = []
+    for p in generate(size, seed):
+        record = p.to_json()
+        rows.append(
+            {
+                "observation_id": f"obs-{record['seq']}",
+                "purchased_on": record["date"],
+                "description": record["item"],
+                "member_ids": list(PEOPLE),
+                "owner_ids": [name for name, owns in record["owners"].items() if owns],
+            }
+        )
+    response = client.put(
+        f"/ownership/households/{household}/observations", json={"observations": rows}
+    )
+    assert response.status_code == 200
+
+
+def predict(client, household, items, people=PEOPLE):
+    response = client.post(
+        "/ownership/predict",
+        json={
+            "household_id": household,
+            "people": [{"id": p, "name": p.title()} for p in people],
+            "items": [{"item_id": f"i{n}", "description": d} for n, d in enumerate(items)],
+        },
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def by_item(body):
+    return {p["item_id"]: p for p in body["predictions"]}
 
 
 def ask(state, people, items):
