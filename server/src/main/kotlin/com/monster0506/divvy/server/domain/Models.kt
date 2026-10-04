@@ -90,9 +90,27 @@ data class ReceiptItem(
     /** Line total. Negative for standalone coupon lines. */
     val total: Money,
     val owners: List<ItemOwner>,
+    /** Set when the receipt is confirmed; null while it is a draft. */
+    val labelSource: LabelSource? = null,
     val createdAt: Instant,
     val updatedAt: Instant,
 )
+
+/** How a confirmed item's owners were decided. */
+enum class LabelSource(val dbValue: String) {
+    /** No model prediction existed; a person chose the owners. */
+    MANUAL("manual"),
+
+    /** The model's prediction was kept unchanged. */
+    PREDICTED_ACCEPTED("predicted_accepted"),
+
+    /** The model predicted owners and a person changed them. */
+    PREDICTED_CORRECTED("predicted_corrected");
+
+    companion object {
+        fun fromDb(value: String): LabelSource = entries.first { it.dbValue == value }
+    }
+}
 
 enum class OwnershipSource(val dbValue: String) {
     /** Chosen or confirmed by a person. */
@@ -208,5 +226,42 @@ data class NewSettlement(
     init {
         require(amount.amountMinor > 0) { "Settlement amount must be positive" }
         require(fromPersonId != toPersonId) { "A person cannot settle with themselves" }
+    }
+}
+
+enum class LedgerSourceType(val dbValue: String) {
+    RECEIPT("receipt"),
+    SETTLEMENT("settlement");
+
+    companion object {
+        fun fromDb(value: String): LedgerSourceType = entries.first { it.dbValue == value }
+    }
+}
+
+/** One row of the append-only ledger: [debtorPersonId] owes [creditorPersonId] [amount]. */
+data class LedgerEntry(
+    val id: Uuid,
+    val householdId: Uuid,
+    val debtorPersonId: Uuid,
+    val creditorPersonId: Uuid,
+    val amount: Money,
+    val sourceType: LedgerSourceType,
+    val sourceId: Uuid,
+    /** Set when this entry cancels an earlier one. */
+    val reversesEntryId: Uuid?,
+    val createdAt: Instant,
+)
+
+data class NewLedgerEntry(
+    val householdId: Uuid,
+    val debtorPersonId: Uuid,
+    val creditorPersonId: Uuid,
+    val amount: Money,
+    val sourceType: LedgerSourceType,
+    val sourceId: Uuid,
+) {
+    init {
+        require(amount.amountMinor > 0) { "Ledger amount must be positive" }
+        require(debtorPersonId != creditorPersonId) { "A person cannot owe themselves" }
     }
 }

@@ -64,6 +64,7 @@ object ReceiptItemTable : TimestampedTable("receipt_item") {
     val unitPriceMinor = long("unit_price_minor").nullable()
     val discountMinor = long("discount_minor")
     val totalMinor = long("total_minor")
+    val labelSource = text("label_source").nullable()
 
     override val primaryKey = PrimaryKey(id)
 }
@@ -102,6 +103,20 @@ object SettlementTable : TimestampedTable("settlement") {
     val currency = char("currency", 3)
     val settledAt = timestampWithTimeZone("settled_at").databaseGenerated()
     val note = text("note").nullable()
+
+    override val primaryKey = PrimaryKey(id)
+}
+
+object LedgerEntryTable : TimestampedTable("ledger_entry") {
+    val id = uuid("id").databaseGenerated()
+    val householdId = uuid("household_id")
+    val debtorPersonId = uuid("debtor_person_id")
+    val creditorPersonId = uuid("creditor_person_id")
+    val amountMinor = long("amount_minor")
+    val currency = char("currency", 3)
+    val sourceType = text("source_type")
+    val sourceId = uuid("source_id")
+    val reversesEntryId = uuid("reverses_entry_id").nullable()
 
     override val primaryKey = PrimaryKey(id)
 }
