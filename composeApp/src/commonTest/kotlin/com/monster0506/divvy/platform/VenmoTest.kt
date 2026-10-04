@@ -51,7 +51,7 @@ class VenmoTest {
 
     @Test
     fun usernames_follow_venmo_rules() {
-        listOf("Savar-Shrestha", "savar-shrestha", "sam-r", "Sam_Roddy-7", " @sam_r ", "a".repeat(30), "", "  ").forEach {
+        listOf("Savar-Shrestha", "savar-shrestha", "sam-r", "Sam_Lee-7", " @sam_r ", "a".repeat(30), "", "  ").forEach {
             assertNull(venmoUsernameProblem(it), it)
         }
         assertEquals("Venmo usernames are at least 5 characters.", venmoUsernameProblem("@sam"))
