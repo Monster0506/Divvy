@@ -11,6 +11,10 @@ data class RenameHouseholdRequest(val name: String)
 @Serializable
 data class PersonRequest(val displayName: String)
 
+/** `PATCH /households/{id}/people/{personId}`; an empty [venmoUsername] removes it. */
+@Serializable
+data class VenmoUsernameRequest(val venmoUsername: String)
+
 @Serializable
 data class SetReceiptPayerRequest(val paidByPersonId: String)
 

@@ -70,6 +70,24 @@ class DivvyApiTest {
     }
 
     @Test
+    fun venmo_username_is_sent_as_typed_case() = runTest {
+        var body = ""
+        val repo = HouseholdRepository(
+            api { request ->
+                body = request.body.toByteArray().decodeToString()
+                respond("""{"id":"p1","householdId":"h1","displayName":"Savar","venmoUsername":"Savar-Shrestha"}""", headers = json)
+            },
+        )
+
+        val saved = assertIs<ApiResult.Success<com.monster0506.divvy.data.dto.PersonDto>>(
+            repo.setVenmoUsername("h1", "p1", "Savar-Shrestha"),
+        ).value
+
+        assertEquals("""{"venmoUsername":"Savar-Shrestha"}""", body)
+        assertEquals("Savar-Shrestha", saved.venmoUsername)
+    }
+
+    @Test
     fun unauthorised_maps_to_unauthorised() = runTest {
         val repo = ReceiptRepository(api { respond("", HttpStatusCode.Unauthorized) })
 

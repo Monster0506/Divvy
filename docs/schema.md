@@ -39,6 +39,7 @@ erDiagram
         uuid household_id FK
         text display_name
         timestamptz archived_at "null while active"
+        text venmo_username "optional, no @"
         timestamptz created_at
         timestamptz updated_at
     }
@@ -116,6 +117,8 @@ receipts use unless told otherwise.
 **`person`**: a member of a household. Not a login account (accounts arrive in M4 and will link
 to a person). Leaving the household sets `archived_at`; the row stays so past receipts, ownership
 and settlements still resolve. Active members have unique names per household (case-insensitive).
+`venmo_username` (added in `V12`) is where they receive payments: 5-30 letters, digits, `-` or `_`, stored without
+the "@", or null. It is the only payment detail Divvy keeps.
 
 **`receipt`**: one shopping trip, paid by one person. Receipts are the source of truth. A receipt
 starts as `draft`, becomes `confirmed` once its items are reviewed, and is set to `void` instead of
@@ -168,7 +171,8 @@ keys so it outlives the rows it describes. Saving an unchanged assignment adds n
   a `BEFORE UPDATE` trigger maintains `updated_at`.
 - **Checks.** Currency codes match `^[A-Z]{3}$`; names and descriptions are not blank; line
   numbers, quantities, share weights and settlement amounts are positive; confidence is within
-  [0, 1]; a person cannot settle with themselves; a confirmed receipt has `confirmed_at`.
+  [0, 1]; a person cannot settle with themselves; a confirmed receipt has `confirmed_at`; a Venmo
+  username matches `^[A-Za-z0-9_-]{5,30}$`.
 
 ## Indexes
 

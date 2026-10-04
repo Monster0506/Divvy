@@ -16,6 +16,7 @@ import com.monster0506.divvy.server.domain.NewSettlement
 import com.monster0506.divvy.server.domain.OwnerShare
 import com.monster0506.divvy.server.domain.OwnershipSource
 import com.monster0506.divvy.server.domain.Person
+import com.monster0506.divvy.server.domain.PersonPatch
 import com.monster0506.divvy.server.domain.ProcessedReceipt
 import com.monster0506.divvy.server.domain.Receipt
 import com.monster0506.divvy.server.domain.ReceiptStatus
@@ -58,7 +59,8 @@ interface PersonRepository {
     /** Members of a household in the order they were added. */
     suspend fun listByHousehold(householdId: Uuid, includeArchived: Boolean = false): List<Person>
 
-    suspend fun rename(id: Uuid, displayName: String): Person?
+    /** Changes the fields [patch] sets. Returns null if the person does not exist. */
+    suspend fun update(id: Uuid, patch: PersonPatch): Person?
 
     /** Removes a person from the active household while keeping their history. */
     suspend fun archive(id: Uuid): Person?
