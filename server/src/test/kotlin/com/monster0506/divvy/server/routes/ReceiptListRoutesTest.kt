@@ -134,4 +134,26 @@ class ReceiptListRoutesTest {
         assertEquals(HttpStatusCode.NotFound, client.get("/households/00000000-0000-0000-0000-000000000001/receipts").status)
         assertEquals(HttpStatusCode.NotFound, client.get("/households/nope/receipts").status)
     }
+
+    @Test
+    fun `a receipt still being read is listed with no payer instead of the text null`() = withApp {
+        val (home, _) = setup()
+        runBlocking { repos.receipts.createProcessing(home.id, "image-key") }
+
+        val item = client.get("/households/${home.id}/receipts").json().getValue("items").jsonArray.single().jsonObject
+
+        assertEquals("processing", item.getValue("status").jsonPrimitive.content)
+        assertNull(item["paidByPersonId"])
+    }
+
+    @Test
+    fun `receipts that are processing or failed can be filtered by status`() = withApp {
+        val (home, _) = setup()
+        val reading = runBlocking { repos.receipts.createProcessing(home.id, "a") }
+        val broken = runBlocking { repos.receipts.createProcessing(home.id, "b") }
+        runBlocking { repos.receipts.failProcessing(broken.id, "no items") }
+
+        assertEquals(listOf(reading.id.toString()), client.get("/households/${home.id}/receipts?status=processing").json().ids())
+        assertEquals(listOf(broken.id.toString()), client.get("/households/${home.id}/receipts?status=failed").json().ids())
+    }
 }

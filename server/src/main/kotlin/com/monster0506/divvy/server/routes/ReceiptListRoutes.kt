@@ -27,7 +27,8 @@ data class ReceiptSummaryResponse(
     val id: String,
     val merchantName: String?,
     val purchasedAt: String,
-    val paidByPersonId: String,
+    /** Null while a receipt is processing or failed. */
+    val paidByPersonId: String?,
     val currency: String,
     val totalMinor: Long,
     val status: String,
@@ -41,7 +42,7 @@ private fun Receipt.toSummary() = ReceiptSummaryResponse(
     id = id.toString(),
     merchantName = merchantName,
     purchasedAt = purchasedAt.toString(),
-    paidByPersonId = paidByPersonId.toString(),
+    paidByPersonId = paidByPersonId?.toString(),
     currency = currency.code,
     totalMinor = total.amountMinor,
     status = status.dbValue,
@@ -73,7 +74,7 @@ fun Route.receiptListRoutes(households: () -> HouseholdRepository, receipts: () 
 
         val status = q["status"]?.let { raw ->
             ReceiptStatus.entries.firstOrNull { it.dbValue == raw }
-                ?: return@get call.respond(HttpStatusCode.BadRequest, invalid("status must be one of draft, confirmed, void"))
+                ?: return@get call.respond(HttpStatusCode.BadRequest, invalid("status must be one of processing, draft, confirmed, void, failed"))
         }
         val from = q["from"]?.let {
             parseWhen(it) ?: return@get call.respond(HttpStatusCode.BadRequest, invalid("from must be an ISO-8601 date or time"))
