@@ -20,6 +20,9 @@ import com.monster0506.divvy.server.domain.OwnershipChange
 import com.monster0506.divvy.server.domain.OwnershipSource
 import com.monster0506.divvy.server.domain.Person
 import com.monster0506.divvy.server.domain.Receipt
+import com.monster0506.divvy.server.domain.ReceiptCursor
+import com.monster0506.divvy.server.domain.ReceiptFilter
+import com.monster0506.divvy.server.domain.ReceiptPage
 import com.monster0506.divvy.server.domain.ReceiptItem
 import com.monster0506.divvy.server.domain.ReceiptStatus
 import com.monster0506.divvy.server.domain.Settlement
@@ -27,6 +30,10 @@ import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.greaterEq
+import org.jetbrains.exposed.v1.core.less
+import org.jetbrains.exposed.v1.core.lowerCase
+import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.notInList
@@ -157,6 +164,40 @@ class ExposedReceiptRepository(private val db: Database) : ReceiptRepository {
             .limit(limit)
             .map { it[ReceiptTable.id] }
         loadReceipts(ids)
+    }
+
+    override suspend fun page(
+        householdId: Uuid,
+        filter: ReceiptFilter,
+        after: ReceiptCursor?,
+        limit: Int,
+    ): ReceiptPage = db.dbQuery {
+        val query = ReceiptTable.select(ReceiptTable.id, ReceiptTable.purchasedAt)
+            .where { ReceiptTable.householdId eq householdId }
+        filter.status?.let { s -> query.andWhere { ReceiptTable.status eq s.dbValue } }
+        filter.merchant?.let { m -> query.andWhere { ReceiptTable.merchantName.lowerCase() eq m.lowercase() } }
+        filter.from?.let { f -> query.andWhere { ReceiptTable.purchasedAt greaterEq f.toUtc() } }
+        filter.to?.let { t -> query.andWhere { ReceiptTable.purchasedAt less t.toUtc() } }
+        filter.paidByPersonId?.let { p -> query.andWhere { ReceiptTable.paidByPersonId eq p } }
+        after?.let { c ->
+            val at = c.purchasedAt.toUtc()
+            query.andWhere {
+                (ReceiptTable.purchasedAt less at) or
+                    ((ReceiptTable.purchasedAt eq at) and (ReceiptTable.id less c.id))
+            }
+        }
+        // One extra row tells us whether another page follows.
+        val rows = query
+            .orderBy(ReceiptTable.purchasedAt to SortOrder.DESC, ReceiptTable.id to SortOrder.DESC)
+            .limit(limit + 1)
+            .toList()
+        val pageRows = rows.take(limit)
+        val next = if (rows.size > limit) {
+            pageRows.last().let { ReceiptCursor(it[ReceiptTable.purchasedAt].toInstant(), it[ReceiptTable.id]) }
+        } else {
+            null
+        }
+        ReceiptPage(loadReceipts(pageRows.map { it[ReceiptTable.id] }), next)
     }
 
     /** No effect unless the receipt is a draft. */
