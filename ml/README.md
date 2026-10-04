@@ -273,4 +273,6 @@ where one blurry price was read from the printed subtotal.
 
 ## Product name normalisation
 
-`divvy_ml.normalize.normalize_product_name` turns a raw receipt line (`ORG WHL MLK 1GAL`) into a readable lowercase name (`organic whole milk`). It is rule based: it drops sizes, weights, prices and numeric codes, then expands abbreviations from the dictionary in `divvy_ml/normalize/abbreviations.py`. Unknown tokens are kept as they are, with no LLM or lookup fallback.
+`divvy_ml.normalize.normalize_product_name` turns a raw receipt line (`ORG WHL MLK 1GAL`) into a readable lowercase name (`organic whole milk`). It is rule based: it drops sizes, weights, prices and numeric codes, then expands abbreviations from the dictionary in `divvy_ml/normalize/abbreviations.py`. Unknown tokens are kept as they are, with no LLM or lookup fallback. Trailing units with no number (`GV WHOLE GAL`) are dropped, and store brands such as `GV` expand to `great value`.
+
+`POST /receipts/extract` fills `normalized_name` on every item (the printed `name` is kept as it is), so the backend can store the readable name as the item's description and keep the printed text.
