@@ -3,20 +3,31 @@ package com.monster0506.divvy.balances
 import com.monster0506.divvy.data.api.ApiFailure
 import com.monster0506.divvy.data.api.ApiResult
 import com.monster0506.divvy.data.dto.BalancesDto
+import com.monster0506.divvy.data.dto.CreateSettlementRequest
+import com.monster0506.divvy.data.dto.SettlementDto
 import com.monster0506.divvy.data.dto.DEFAULT_CURRENCY
 import com.monster0506.divvy.ui.model.AvatarColor
 import com.monster0506.divvy.ui.model.Balance
 import com.monster0506.divvy.ui.model.Person
+import com.monster0506.divvy.domain.simplifyDebts
 import com.monster0506.divvy.ui.model.initialsFor
+import com.monster0506.divvy.ui.model.toMoney
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 enum class BalancesPhase { Idle, Loading, Ready, Failed }
+
+/** One payment that would settle part of the household: [from] pays [to]. [involvesMe] is true for this device's person. */
+data class SettleTransfer(val from: Person, val to: Person, val amountCents: Int, val involvesMe: Boolean = false)
+
+/** A payment just recorded, which [BalancesController.undo] can reverse for a short while. */
+data class Payment(val from: Person, val to: Person, val amountCents: Int)
 
 data class BalancesState(
     val phase: BalancesPhase = BalancesPhase.Idle,
@@ -28,6 +39,12 @@ data class BalancesState(
     val message: String? = null,
     /** The server reported more than one currency; only dollars (or else the first) are shown. */
     val otherCurrencies: Boolean = false,
+    /** The fewest payments that would settle everyone, the ones involving this device's person first. */
+    val transfers: List<SettleTransfer> = emptyList(),
+    /** True while a payment is being recorded. */
+    val recording: Boolean = false,
+    /** The payment just recorded, offered for undo until the window passes. */
+    val payment: Payment? = null,
 ) {
     val settled get() = phase == BalancesPhase.Ready && balances.all { it.netCents == 0 }
 }
@@ -36,12 +53,18 @@ data class BalancesState(
 class BalancesController(
     private val load: suspend (householdId: String) -> ApiResult<BalancesDto>,
     private val scope: CoroutineScope,
+    private val record: suspend (householdId: String, request: CreateSettlementRequest) -> ApiResult<SettlementDto> =
+        { _, _ -> ApiResult.Failure(ApiFailure.Offline) },
+    /** The person this device last acted as in the household, to put their payments first. */
+    private val currentPerson: (householdId: String) -> String? = { null },
+    private val undoWindowMillis: Long = 8_000,
 ) {
     private val mutableState = MutableStateFlow(BalancesState())
     val state: StateFlow<BalancesState> = mutableState
 
     private var householdId: String? = null
     private var job: Job? = null
+    private var undoJob: Job? = null
 
     /** Shows [householdId]'s balances, loading them afresh. */
     fun open(householdId: String) {
@@ -66,7 +89,7 @@ class BalancesController(
                 ApiResult.Failure(ApiFailure.ServerError(null))
             }
             when (result) {
-                is ApiResult.Success -> mutableState.value = result.value.toState()
+                is ApiResult.Success -> mutableState.update { result.value.toState(id).copy(payment = it.payment, recording = it.recording) }
                 is ApiResult.Failure -> mutableState.update {
                     it.copy(
                         phase = if (it.phase == BalancesPhase.Ready) BalancesPhase.Ready else BalancesPhase.Failed,
@@ -78,17 +101,100 @@ class BalancesController(
         }
     }
 
-    private fun BalancesDto.toState(): BalancesState {
+    /** Records that [transfer]'s payer paid [amountCents] (all of it by default, or part), then reloads the balances. */
+    fun settle(transfer: SettleTransfer, amountCents: Int = transfer.amountCents) {
+        val id = householdId ?: return
+        if (mutableState.value.recording) return
+        if (amountCents < 1 || amountCents > transfer.amountCents) {
+            mutableState.update { it.copy(message = "Enter an amount between ${1.toMoney()} and ${transfer.amountCents.toMoney()}.") }
+            return
+        }
+        mutableState.update { it.copy(recording = true, message = null) }
+        scope.launch {
+            val request = CreateSettlementRequest(transfer.from.id, transfer.to.id, amountCents.toLong())
+            when (val result = safely { record(id, request) }) {
+                is ApiResult.Success -> {
+                    mutableState.update { it.copy(recording = false, payment = Payment(transfer.from, transfer.to, amountCents)) }
+                    refresh()
+                    startUndoWindow()
+                }
+                is ApiResult.Failure -> mutableState.update {
+                    it.copy(recording = false, message = "Could not record that payment. ${describe(result.failure)}")
+                }
+            }
+        }
+    }
+
+    /** Reverses the payment just recorded by recording the same amount back the other way. */
+    fun undo() {
+        val id = householdId ?: return
+        val payment = mutableState.value.payment ?: return
+        if (mutableState.value.recording) return
+        undoJob?.cancel()
+        mutableState.update { it.copy(recording = true, message = null) }
+        scope.launch {
+            val request = CreateSettlementRequest(payment.to.id, payment.from.id, payment.amountCents.toLong(), note = "Undo")
+            when (val result = safely { record(id, request) }) {
+                is ApiResult.Success -> {
+                    mutableState.update { it.copy(recording = false, payment = null) }
+                    refresh()
+                }
+                is ApiResult.Failure -> {
+                    mutableState.update {
+                        it.copy(recording = false, message = "Could not undo that payment. ${describe(result.failure)}")
+                    }
+                    startUndoWindow()
+                }
+            }
+        }
+    }
+
+    fun dismissPayment() {
+        undoJob?.cancel()
+        mutableState.update { it.copy(payment = null) }
+    }
+
+    private fun startUndoWindow() {
+        undoJob?.cancel()
+        undoJob = scope.launch {
+            delay(undoWindowMillis)
+            mutableState.update { it.copy(payment = null) }
+        }
+    }
+
+    private suspend fun <T> safely(call: suspend () -> ApiResult<T>): ApiResult<T> =
+        try {
+            call()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ApiResult.Failure(ApiFailure.ServerError(null))
+        }
+
+    private fun BalancesDto.toState(householdId: String): BalancesState {
         val shown = balances.firstOrNull { it.currency == DEFAULT_CURRENCY } ?: balances.firstOrNull()
         val people = shown?.people.orEmpty()
+        val ui = people.mapIndexed { index, p ->
+            Person(p.personId, p.displayName, initialsFor(p.displayName), AvatarColor.entries[index % AvatarColor.entries.size])
+        }
+        val me = currentPerson(householdId)
         return BalancesState(
             phase = BalancesPhase.Ready,
-            balances = people.mapIndexed { index, p ->
-                val color = AvatarColor.entries[index % AvatarColor.entries.size]
-                Balance(Person(p.personId, p.displayName, initialsFor(p.displayName), color), p.netMinor.toInt())
-            }.sortedWith(compareByDescending<Balance> { it.netCents }.thenBy { it.person.name }),
+            balances = people.mapIndexed { index, p -> Balance(ui[index], p.netMinor.toInt()) }
+                .sortedWith(compareByDescending<Balance> { it.netCents }.thenBy { it.person.name }),
             otherCurrencies = balances.size > 1,
+            transfers = transfersFor(people.map { it.personId to it.netMinor }, ui, me),
         )
+    }
+
+    private fun transfersFor(net: List<Pair<String, Long>>, people: List<Person>, me: String?): List<SettleTransfer> {
+        if (net.sumOf { it.second } != 0L) return emptyList()
+        val byId = people.associateBy { it.id }
+        return simplifyDebts(net.toMap()).mapNotNull { t ->
+            val from = byId[t.fromPersonId] ?: return@mapNotNull null
+            val to = byId[t.toPersonId] ?: return@mapNotNull null
+            SettleTransfer(from, to, t.amountCents.toInt(), involvesMe = me != null && (from.id == me || to.id == me))
+        }.sortedWith(compareByDescending<SettleTransfer> { it.involvesMe }.thenByDescending { it.amountCents })
     }
 
     private fun describe(failure: ApiFailure): String = when (failure) {
