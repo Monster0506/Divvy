@@ -75,3 +75,15 @@ database is the source of truth, so the ML copy is checked against it and rebuil
   household is dirty and whether the ML service is reachable. `POST /households/{id}/ml/resync` rebuilds now and answers
   503 if the ML service is down or 502 if it refuses the history. A household with no labels is rebuilt as empty, which is
   why the ML service accepts an empty `replace`.
+
+## Pre-assigning a draft receipt (predictions)
+
+`POST /households/{id}/receipts/{receiptId}/predictions` asks the model about a draft receipt's items and stores the answer.
+The ML copy is checked first (see above). Items a person already assigned are never touched.
+
+- Confident items get MODEL owners with their confidence, and the answer is kept in `item_prediction` with the model version.
+- Unknown items stay unassigned. Owners are limited to current household members.
+- If the ML service is down or rejects the request, the response is still 200 with `mlAvailable: false` and a notice. Nothing changes.
+- A confirmed receipt gets 409 `not_draft`. `GET` on the same path returns what was stored without asking the model.
+
+`GET /households/{id}/ml/stats` reports labelled items, accepted vs corrected predictions and the correction rate.
