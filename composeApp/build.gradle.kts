@@ -46,6 +46,7 @@ kotlin {
         target.binaries.framework {
             baseName = "ComposeApp"
             isStatic = true
+            binaryOption("bundleId", "com.monster0506.divvy.shared")
         }
     }
 
@@ -75,6 +76,7 @@ kotlin {
             implementation("org.jetbrains.compose.components:components-resources:${libs.versions.compose.multiplatform.get()}")
             implementation("org.jetbrains.compose.ui:ui:${libs.versions.compose.multiplatform.get()}")
             implementation("org.jetbrains.compose.ui:ui-tooling-preview:${libs.versions.compose.multiplatform.get()}")
+            implementation(libs.multiplatform.settings.no.arg)
         }
         androidMain.dependencies {
             implementation(libs.ktor.client.okhttp)
@@ -88,6 +90,7 @@ kotlin {
         commonTest.dependencies {
             implementation(libs.kotlin.test)
             implementation(libs.ktor.client.mock)
+            implementation(libs.multiplatform.settings.test)
             implementation(libs.kotlinx.coroutines.test)
         }
     }
