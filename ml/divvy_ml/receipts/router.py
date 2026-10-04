@@ -4,9 +4,10 @@ from typing import Annotated, Protocol
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from divvy_ml.normalize.configured import configured_normalizer
+from divvy_ml.qwen_config import NotConfiguredError, QwenConfig
 from divvy_ml.receipts import images
-from divvy_ml.receipts.config import NotConfiguredError, QwenConfig, image_dir
-from divvy_ml.receipts.images import ImageError, ReceiptImage
+from divvy_ml.receipts.images import ImageError, ReceiptImage, image_dir
 from divvy_ml.receipts.qwen import ExtractionError, QwenExtractor
 from divvy_ml.receipts.schemas import ExtractedReceipt, ExtractRequest
 
@@ -21,7 +22,7 @@ class Extractor(Protocol):
 
 @lru_cache(maxsize=1)
 def _configured_extractor() -> QwenExtractor:
-    return QwenExtractor(QwenConfig.from_env())
+    return QwenExtractor(QwenConfig.from_env(), normalizer=configured_normalizer())
 
 
 def get_extractor() -> Extractor:

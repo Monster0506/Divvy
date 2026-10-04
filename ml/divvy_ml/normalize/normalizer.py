@@ -6,6 +6,7 @@ rather than being guessed at.
 """
 
 import re
+from typing import Protocol
 
 from divvy_ml.normalize.abbreviations import ABBREVIATIONS
 
@@ -19,6 +20,17 @@ _CODE = re.compile(r"^\d{3,}$")
 _SPLIT = re.compile(r"[^a-z0-9%]+")
 # A unit left on its own at the end ("GV WHOLE GAL") is a size with its number lost
 _TRAILING_UNITS = frozenset({"gal", "lb", "lbs", "oz", "ct", "pk", "ea", "doz"})
+
+
+class NameNormalizer(Protocol):
+    def normalize_many(self, raws: list[str]) -> list[str]: ...
+
+
+class RulesNormalizer:
+    """Rule-based names only. Never touches the network."""
+
+    def normalize_many(self, raws: list[str]) -> list[str]:
+        return [normalize_product_name(raw) for raw in raws]
 
 
 def normalize_product_name(raw: str) -> str:

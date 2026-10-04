@@ -5,7 +5,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from divvy_ml.receipts.config import NotConfiguredError, QwenConfig
+from divvy_ml.qwen_config import NotConfiguredError, QwenConfig
 from divvy_ml.receipts.dates import normalise_date
 from divvy_ml.receipts.images import ReceiptImage
 from divvy_ml.receipts.qwen import ExtractionError, QwenExtractor, cents, to_receipt
