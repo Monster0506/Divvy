@@ -79,6 +79,12 @@ fun Application.module(connectDatabase: Boolean = true) {
         exception<NotFoundException> { call, cause ->
             call.respond(HttpStatusCode.NotFound, ApiError("not_found", cause.message ?: "Not found"))
         }
+        exception<InvalidTransitionException> { call, cause ->
+            call.respond(
+                HttpStatusCode.Conflict,
+                ApiError("invalid_transition", cause.message ?: "Invalid status transition"),
+            )
+        }
         exception<Throwable> { call, cause ->
             call.application.environment.log.error("Unhandled exception", cause)
             call.respond(HttpStatusCode.InternalServerError, ApiError("internal_error", "Internal server error"))
