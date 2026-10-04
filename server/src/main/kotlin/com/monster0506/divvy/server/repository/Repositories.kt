@@ -8,6 +8,7 @@ import com.monster0506.divvy.server.domain.LedgerEntry
 import com.monster0506.divvy.server.domain.LedgerSourceType
 import com.monster0506.divvy.server.domain.NewLedgerEntry
 import com.monster0506.divvy.server.domain.NewReceipt
+import com.monster0506.divvy.server.domain.NewReceiptItem
 import com.monster0506.divvy.server.domain.NewSettlement
 import com.monster0506.divvy.server.domain.OwnerShare
 import com.monster0506.divvy.server.domain.OwnershipSource
@@ -16,6 +17,8 @@ import com.monster0506.divvy.server.domain.Receipt
 import com.monster0506.divvy.server.domain.ReceiptCursor
 import com.monster0506.divvy.server.domain.ReceiptFilter
 import com.monster0506.divvy.server.domain.ReceiptPage
+import com.monster0506.divvy.server.domain.ReceiptItemPatch
+import com.monster0506.divvy.server.domain.ReceiptPatch
 import com.monster0506.divvy.server.domain.Settlement
 import kotlin.uuid.Uuid
 
@@ -85,6 +88,21 @@ interface ReceiptRepository {
      */
     suspend fun confirm(id: Uuid): Receipt?
 
+    /*
+     * Edits below apply to draft receipts only and throw [ReceiptLockedException] otherwise.
+     * They return the updated receipt, or null if the receipt (or the item) does not exist.
+     */
+    suspend fun update(id: Uuid, patch: ReceiptPatch): Receipt?
+    suspend fun addItem(receiptId: Uuid, item: NewReceiptItem): Receipt?
+    suspend fun updateItem(receiptId: Uuid, itemId: Uuid, patch: ReceiptItemPatch): Receipt?
+    suspend fun deleteItem(receiptId: Uuid, itemId: Uuid): Receipt?
+
+    /**
+     * Combines two or more items into the first (lowest line number): totals, discounts and
+     * quantities are summed and the first item's owners are kept. The others are removed.
+     */
+    suspend fun mergeItems(receiptId: Uuid, itemIds: List<Uuid>, description: String? = null): Receipt?
+
     /**
      * Share of model-predicted items on confirmed receipts that people changed, or null if there
      * are none yet.
@@ -97,6 +115,9 @@ interface ReceiptRepository {
     /** Moves a confirmed receipt back to draft for correction and reverses its ledger entries. */
     suspend fun reopen(id: Uuid): Receipt?
 }
+
+/** The receipt is no longer a draft, so its contents cannot be edited. */
+class ReceiptLockedException(message: String) : RuntimeException(message)
 
 interface ItemOwnerRepository {
     /**
