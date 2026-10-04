@@ -1,0 +1,95 @@
+{
+  "store": "Walmart",
+  "purchased_on": "2026-09-18",
+  "items": [
+    {
+      "name": "4CT BAN CHOC",
+      "quantity": 1,
+      "unit_price_cents": 398,
+      "total_cents": 398
+    },
+    {
+      "name": "4CT CCHIP",
+      "quantity": 1,
+      "unit_price_cents": 398,
+      "total_cents": 398
+    },
+    {
+      "name": "GVMOZSHRD32Z",
+      "quantity": 1,
+      "unit_price_cents": 692,
+      "total_cents": 692
+    },
+    {
+      "name": "GV PEPJKSH 8",
+      "quantity": 1,
+      "unit_price_cents": 197,
+      "total_cents": 197
+    },
+    {
+      "name": "GV PL WRAP",
+      "quantity": 1,
+      "unit_price_cents": 214,
+      "total_cents": 214
+    },
+    {
+      "name": "TOTES UMB",
+      "quantity": 1,
+      "unit_price_cents": 800,
+      "total_cents": 800
+    },
+    {
+      "name": "BANANAS",
+      "quantity": 3.92,
+      "unit_price_cents": 48,
+      "total_cents": 188
+    },
+    {
+      "name": "GV WHOLE GAL",
+      "quantity": 1,
+      "unit_price_cents": 222,
+      "total_cents": 222
+    },
+    {
+      "name": "BNLS CK BRST",
+      "quantity": 1,
+      "unit_price_cents": 1169,
+      "total_cents": 1169
+    },
+    {
+      "name": "DONUTS",
+      "quantity": 1,
+      "unit_price_cents": 697,
+      "total_cents": 697
+    },
+    {
+      "name": "GV 40PK",
+      "quantity": 1,
+      "unit_price_cents": 547,
+      "total_cents": 547
+    },
+    {
+      "name": "MAGNETIC MUL",
+      "quantity": 1,
+      "unit_price_cents": 497,
+      "total_cents": 497
+    },
+    {
+      "name": "TBC RNCLN 24",
+      "quantity": 1,
+      "unit_price_cents": 282,
+      "total_cents": 282
+    },
+    {
+      "name": "SCRUB DADDY",
+      "quantity": 1,
+      "unit_price_cents": 388,
+      "total_cents": 388
+    }
+  ],
+  "discounts": [],
+  "subtotal_cents": 6689,
+  "tax_cents": 153,
+  "total_cents": 6842,
+  "warnings": []
+}

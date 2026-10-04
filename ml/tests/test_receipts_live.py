@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from divvy_ml.qwen_config import NotConfiguredError, QwenConfig
 from divvy_ml.receipts import images
-from divvy_ml.receipts.config import NotConfiguredError, QwenConfig
 from divvy_ml.receipts.qwen import QwenExtractor
 
 RECEIPT = os.environ.get("DIVVY_LIVE_RECEIPT")

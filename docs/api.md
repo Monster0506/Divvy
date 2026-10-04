@@ -23,16 +23,23 @@ Response: `{"items": [{"id", "merchantName", "purchasedAt", "paidByPersonId", "c
 
 The image is stored under `IMAGE_DIR` (default `data/images`). The receipt starts in `processing` status with no payer or amounts.
 
-## Receipt assignment
-- PUT /receipts/{id}/items/{itemId}/owners  {"owners": [{"personId": "...", "weight": 1 (optional)}]} -> 200 | 400 | 404 | 409
-- POST /receipts/{id}/confirm -> 200 | 400 | 404 | 409
-Owners replace the existing owners of the item and must be distinct, active members of the receipt household (400 otherwise). An empty list unassigns the item. Assignments are stored with source `user` and logged in the ownership history.
-Confirm returns 400 with the unassigned item ids in `details` if any item has no active owner, and moves the receipt from draft to confirmed in one transaction. Non-draft receipts return 409.
+## Settlements
+- POST /households/{id}/settlements  {"fromPersonId": "...", "toPersonId": "...", "amountMinor": 2500, "note": "Venmo" (optional)} -> 201 | 400 | 404
+  Records that `fromPersonId` paid `toPersonId`. Also writes a ledger entry that reduces what the payer owes the receiver.
+  The currency is the household's default. Overpaying is allowed and flips the balance.
+  - 400 for a non-positive amount, the same person on both sides, a person outside the household, a missing field or malformed JSON
+  - 404 for an unknown or malformed household id
+- GET /households/{id}/settlements -> 200, newest first | 404
 
-## Receipt edits
-Edits apply to draft receipts. A confirmed receipt returns 409 (`conflict`) for every edit. Unknown or malformed receipt and item ids return 404. Every response is the full receipt with its items and a `reconciliation` block: `itemsTotalMinor`, `totalDifferenceMinor` (total minus items plus tax), `subtotalDifferenceMinor` (null without a subtotal) and `reconciled`.
-- PATCH /receipts/{id}  any of `merchantName`, `purchasedAt` (ISO-8601), `paidByPersonId` (must be in the receipt's household), `taxMinor`, `totalMinor` (not negative) -> 200 | 400 | 404 | 409
-- POST /receipts/{id}/items  {"description", "totalMinor", "quantity"?, "unitPriceMinor"?, "discountMinor"?} -> 201 | 400 | 404 | 409
-- PATCH /receipts/{id}/items/{itemId}  any of the same fields -> 200 | 400 | 404 | 409
-- DELETE /receipts/{id}/items/{itemId} -> 200 | 404 | 409
-- POST /receipts/{id}/items/merge  {"itemIds": [two or more], "description"?} -> 200 | 400 | 404 | 409. Totals, discounts and quantities are summed into the first item (lowest line number), which keeps its owners; the others are removed.
+## Balances
+- GET /households/{id}/balances -> 200 | 404
+  {"balances": [{"currency": "USD", "people": [{"personId", "displayName", "netMinor", "owes": [{"personId", "amountMinor"}], "owedBy": [...]}]}]}
+  One block per currency in the ledger (the household's default currency is always present). `netMinor` is positive when
+  the person is owed money and negative when they owe it; nets in a currency always sum to zero. `owes`/`owedBy` are
+  pairwise debts after netting opposite directions, not simplified across people. People who have left are listed only
+  while they have a balance.
+- GET /households/{id}/ledger?personId=  -> 200 | 400 | 404
+  The ledger entries behind the balances, oldest first. Each has `sourceType` (`receipt` or `settlement`) and `sourceId`,
+  and `reversesEntryId` when it cancels an earlier entry. With `personId`, only entries involving that person are listed,
+  each with `personEffectMinor` (+ when they are the creditor, - when the debtor); these add up to their net balance.
+  400 for a malformed `personId` or one outside the household.
