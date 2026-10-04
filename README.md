@@ -1,4 +1,5 @@
 # Divvy
+Learns to split the receipt automatically
 
 [![Gradle](https://github.com/Monster0506/Divvy/actions/workflows/gradle.yml/badge.svg)](https://github.com/Monster0506/Divvy/actions/workflows/gradle.yml)
 [![ML service](https://github.com/Monster0506/Divvy/actions/workflows/ml.yml/badge.svg)](https://github.com/Monster0506/Divvy/actions/workflows/ml.yml)
