@@ -4,14 +4,14 @@ A Kotlin Multiplatform app (Compose Multiplatform) targeting Android, iOS, and t
 
 ## Project layout
 
-- `composeApp/` – shared Compose UI and logic (Android library, iOS framework, Wasm web app)
-- `androidApp/` – Android application entry point
-- `iosApp/` – Xcode project for the iOS app
+- `composeApp/` - shared Compose UI and logic (Android library, iOS framework, Wasm web app)
+- `androidApp/` - Android application entry point
+- `iosApp/` - Xcode project for the iOS app
 
 ## Prerequisites
 
 - **JDK 17 or newer**
-- **Android Studio** (latest stable) with the Android SDK installed – compile SDK 37, min SDK 24
+- **Android Studio** (latest stable) with the Android SDK installed - compile SDK 37, min SDK 24
 - **For iOS:** a Mac with Xcode, plus an Apple Developer account to run on a physical device
 - No separate Gradle install is needed; use the included Gradle wrapper (`./gradlew`, or `gradlew.bat` on Windows)
 
@@ -101,8 +101,8 @@ GitHub Actions runs each workflow only when its files change, so a docs-only cha
 
 | Workflow | Runs when | Does | Typical time |
 |----------|-----------|------|--------------|
-| **Gradle** (`.github/workflows/gradle.yml`) | PRs and pushes to `main` touching `composeApp/`, `androidApp/`, `server/`, `gradle/` or the build scripts | `./gradlew :composeApp:check :androidApp:assembleDebug :server:test` on JDK 17; uploads test reports on failure | ~4–5 min |
+| **Gradle** (`.github/workflows/gradle.yml`) | PRs and pushes to `main` touching `composeApp/`, `androidApp/`, `server/`, `gradle/` or the build scripts | `./gradlew :composeApp:check :androidApp:assembleDebug :server:test` on JDK 17; uploads test reports on failure | ~4-5 min |
 | **ML service** (`.github/workflows/ml.yml`) | PRs and pushes to `main` touching `ml/` | ruff, pytest and a Docker build with a `/health` check. See [ml/README.md](ml/README.md). | ~20 s per job (parallel) |
 | **iOS** (`.github/workflows/ios.yml`) | Nightly at 06:17 UTC, manual trigger, and PRs touching `composeApp/src/iosMain/` or `iosApp/` | `:composeApp:linkDebugFrameworkIosSimulatorArm64` on macOS | IOS_TIME |
 
-To run the iOS build by hand, use **Actions → iOS → Run workflow**, or run `gh workflow run ios.yml`.
+To run the iOS build by hand, use **Actions > iOS > Run workflow**, or run `gh workflow run ios.yml`.

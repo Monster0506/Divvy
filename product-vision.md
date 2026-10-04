@@ -58,7 +58,7 @@ The application is not simply memorizing exact products.
 
 It develops a model of the household's purchasing patterns.
 
-If someone frequently buys several related products, the system can use those relationships when encountering something new. Cilantro, serrano peppers, jalape├▒os, and other cooking ingredients are semantically related even though their receipt descriptions may be completely different.
+If someone frequently buys several related products, the system can use those relationships when encountering something new. Cilantro, serrano peppers, jalapenos, and other cooking ingredients are semantically related even though their receipt descriptions may be completely different.
 
 This allows the application to learn patterns such as:
 
