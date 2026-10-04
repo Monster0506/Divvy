@@ -97,4 +97,23 @@ class HouseholdRoutesTest {
         val id = post("/households", """{"name":"Home"}""").field("id")
         assertEquals(HttpStatusCode.BadRequest, patch("/households/$id", """{"name":""}""").status)
     }
+
+    @Test
+    fun `creating a name that exists opens that household instead of making another`() = withApp {
+        val first = post("/households", """{"name":"Flat 4B"}""")
+        assertEquals(HttpStatusCode.Created, first.status)
+        val again = post("/households", """{"name":"  flat 4b "}""")
+        assertEquals(HttpStatusCode.OK, again.status)
+        assertEquals(first.field("id"), again.field("id"))
+    }
+
+    @Test
+    fun `renaming to a name another household has is refused`() = withApp {
+        post("/households", """{"name":"Taken"}""")
+        val id = post("/households", """{"name":"Mine"}""").field("id")
+        val res = patch("/households/$id", """{"name":"taken"}""")
+        assertEquals(HttpStatusCode.Conflict, res.status)
+        assertEquals("name_taken", res.field("code"))
+        assertEquals(HttpStatusCode.OK, patch("/households/$id", """{"name":"MINE"}""").status)
+    }
 }

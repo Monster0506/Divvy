@@ -192,6 +192,10 @@ fun DivvyApp(
             fetch = { id -> api.getHousehold(id).name },
             rename = { id, name -> api.renameHousehold(id, name).name },
             setLocal = { state.householdName = it },
+            onIdChanged = {
+                router?.onboardingCompleted(it)
+                householdId = it
+            },
         )
     }
     val historyState by history.state.collectAsState()
@@ -274,7 +278,7 @@ fun DivvyApp(
             try {
                 val savedId = router?.currentHouseholdId()
                 suspend fun createServerHousehold(): String =
-                    api.createHousehold(state.householdName).id.also { router?.onboardingCompleted(it) }
+                    api.createHousehold(state.householdName).name.also { router?.onboardingCompleted(it) }
                 val householdId = if (savedId.isNullOrBlank() || savedId == LOCAL_HOUSEHOLD_ID) {
                     createServerHousehold()
                 } else savedId

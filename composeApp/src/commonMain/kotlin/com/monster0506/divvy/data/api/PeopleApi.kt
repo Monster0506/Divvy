@@ -30,7 +30,7 @@ sealed interface CreatePersonResult {
 class PeopleApi(private val client: HttpClient) {
     suspend fun create(householdId: String, name: String): CreatePersonResult {
         val response: HttpResponse = try {
-            client.post("households/$householdId/people") { setBody(CreatePersonBody(name)) }
+            client.post("households/${householdId.seg()}/people") { setBody(CreatePersonBody(name)) }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

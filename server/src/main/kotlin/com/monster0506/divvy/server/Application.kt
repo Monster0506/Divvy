@@ -15,6 +15,7 @@ import com.monster0506.divvy.server.ml.SyncingReceiptRepository
 import com.monster0506.divvy.server.ml.createMlClient
 import com.monster0506.divvy.server.repository.ExposedPersonRepository
 import com.monster0506.divvy.server.repository.ExposedRepositories
+import com.monster0506.divvy.server.routes.HouseholdNameAsId
 import com.monster0506.divvy.server.routes.householdRoutes
 import com.monster0506.divvy.server.routes.mlRoutes
 import com.monster0506.divvy.server.routes.mlSettingsRoutes
@@ -135,6 +136,7 @@ fun Application.module(connectDatabase: Boolean = true) {
         }
     }
 
+    install(HouseholdNameAsId) { households = { repositories.households } }
     routing {
         get("/health") { call.respond(HealthResponse("ok", config.version)) }
         authenticate(API_KEY_AUTH) {

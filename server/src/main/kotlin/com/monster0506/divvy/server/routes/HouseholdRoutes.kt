@@ -55,6 +55,7 @@ private fun parseId(raw: String?): Uuid? = raw?.let { runCatching { Uuid.parse(i
 private val badJson = ApiError("validation_error", "invalid JSON body")
 private val badName = ApiError("validation_error", NAME_ERROR)
 private val notFound = ApiError("not_found", "household not found")
+private val nameTaken = ApiError("name_taken", "another household already has that name")
 
 /** [households] is resolved per request because the database connects after routing is set up. */
 @OptIn(ExperimentalUuidApi::class)
@@ -71,6 +72,8 @@ fun Route.householdRoutes(households: () -> HouseholdRepository) {
                     HttpStatusCode.BadRequest,
                     ApiError("validation_error", "defaultCurrency must be a 3-letter currency code"),
                 )
+            // A name is an id, so creating a name that exists opens that household instead of making a second one.
+            households().findByName(name)?.let { return@post call.respond(HttpStatusCode.OK, it.toResponse()) }
             call.respond(HttpStatusCode.Created, households().create(name, currency).toResponse())
         }
 
@@ -87,6 +90,8 @@ fun Route.householdRoutes(households: () -> HouseholdRepository) {
                 ?: return@patch call.respond(HttpStatusCode.BadRequest, badJson)
             val name = validHouseholdName(body.name)
                 ?: return@patch call.respond(HttpStatusCode.BadRequest, badName)
+            households().findByName(name)?.takeIf { it.id != id }
+                ?.let { return@patch call.respond(HttpStatusCode.Conflict, nameTaken) }
             val updated = households().rename(id, name)
                 ?: return@patch call.respond(HttpStatusCode.NotFound, notFound)
             call.respond(updated.toResponse())

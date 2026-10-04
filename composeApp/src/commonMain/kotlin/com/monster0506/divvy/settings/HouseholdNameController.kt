@@ -23,6 +23,8 @@ class HouseholdNameController(
     /** Puts a name into the on-screen state (the Account field and every header that shows it). */
     private val setLocal: (String) -> Unit,
     private val debounceMillis: Long = 600,
+    /** The name is the household's id, so a rename changes the id the app stores and sends. */
+    private val onIdChanged: (newId: String) -> Unit = {},
 ) {
     var message by mutableStateOf<String?>(null)
         private set
@@ -79,7 +81,7 @@ class HouseholdNameController(
         saveJob = scope.launch {
             do {
                 dirty = false
-                flush(id)
+                flush(householdId ?: id)
             } while (dirty)
         }
     }
@@ -96,6 +98,8 @@ class HouseholdNameController(
         try {
             val saved = rename(id, trimmed)
             savedName = saved
+            householdId = saved
+            onIdChanged(saved)
             message = null
             if (latest == sent && saved != sent) {
                 latest = saved
