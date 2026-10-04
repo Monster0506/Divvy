@@ -59,6 +59,9 @@ class ReceiptRepository(private val api: DivvyApi) {
 
     suspend fun confirm(id: String): ApiResult<ConfirmedReceiptDto> = apiCall { api.confirmReceipt(id) }
 
+    suspend fun setPayer(receiptId: String, personId: String): ApiResult<Unit> =
+        apiCall { api.setReceiptPayer(receiptId, personId) }
+
     suspend fun retry(householdId: String, receiptId: String): ApiResult<ReceiptUploadDto> =
         apiCall { api.retryReceipt(householdId, receiptId) }
 

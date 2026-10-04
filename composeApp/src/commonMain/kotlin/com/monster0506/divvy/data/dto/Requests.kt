@@ -12,4 +12,7 @@ data class RenameHouseholdRequest(val name: String)
 data class PersonRequest(val displayName: String)
 
 @Serializable
+data class SetReceiptPayerRequest(val paidByPersonId: String)
+
+@Serializable
 data class SetItemOwnersRequest(val owners: List<ItemOwnerDto>)
