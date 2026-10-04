@@ -123,6 +123,12 @@ class DivvyApi(private val client: HttpClient) {
     suspend fun putMlSettings(householdId: String, settings: MlSettingsDto): MlSettingsDto =
         send { client.put("households/$householdId/ml/settings") { setBody(settings) } }
 
+    /** Moves a confirmed receipt back to a draft so it can be corrected. */
+    suspend fun reopenReceipt(id: String): ReceiptDto = send { client.post("receipts/$id/reopen") }
+
+    /** The receipt's photo exactly as it was uploaded. */
+    suspend fun getReceiptImage(id: String): ByteArray = send { client.get("receipts/$id/image") }
+
     /** Records who paid. The response is not needed, only that the change was accepted. */
     suspend fun setReceiptPayer(receiptId: String, personId: String) {
         send<kotlinx.serialization.json.JsonElement> {

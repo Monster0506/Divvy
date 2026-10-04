@@ -55,6 +55,18 @@ import com.monster0506.divvy.ui.screens.ReceiptDetailScreen
 import com.monster0506.divvy.ui.screens.ReceiptHistoryScreen
 import com.monster0506.divvy.ui.screens.ReviewReceiptScreen
 import com.monster0506.divvy.ui.screens.ReviewStatusScreen
+import com.monster0506.divvy.history.DetailPhase
+import com.monster0506.divvy.history.ReceiptDetailController
+import com.monster0506.divvy.history.ReceiptHistoryController
+import com.monster0506.divvy.history.RepositoryBrowseApi
+import com.monster0506.divvy.settings.AutoAssignController
+import com.monster0506.divvy.settings.RepositorySettingsApi
+import com.monster0506.divvy.data.repository.SettingsRepository
+import com.monster0506.divvy.data.dto.ReceiptStatusDto
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.window.Dialog
 import com.monster0506.divvy.review.ReceiptReviewController
 import com.monster0506.divvy.review.RepositoryReviewApi
 import com.monster0506.divvy.review.ReviewPhase
@@ -154,6 +166,33 @@ fun DivvyApp(
     }
     DisposableEffect(review) { onDispose { review.close() } }
     val reviewState by review.state.collectAsState()
+    val browse = remember(api) { RepositoryBrowseApi(ReceiptRepository(api), HouseholdRepository(api)) }
+    val history = remember(browse) { ReceiptHistoryController(browse, scope) }
+    val detail = remember(browse) { ReceiptDetailController(browse, scope) }
+    val autoAssign = remember(api) { AutoAssignController(RepositorySettingsApi(SettingsRepository(api)), scope) }
+    val historyState by history.state.collectAsState()
+    val detailState by detail.state.collectAsState()
+    val autoState by autoAssign.state.collectAsState()
+    var viewedPhoto by remember { mutableStateOf<ImageBitmap?>(null) }
+    fun activeHousehold(): String? = router?.currentHouseholdId()?.takeIf { it.isNotBlank() && it != LOCAL_HOUSEHOLD_ID }
+    LaunchedEffect(route) {
+        val household = activeHousehold() ?: return@LaunchedEffect
+        when (route) {
+            Route.History -> history.load(household)
+            Route.Account -> autoAssign.load(household)
+            else -> Unit
+        }
+    }
+    LaunchedEffect(autoState.autoAssign, autoState.threshold) {
+        val on = autoState.autoAssign
+        val threshold = autoState.threshold
+        if (on != null && threshold != null) state.settings = state.settings.copy(autoAssign = on, autoAssignThreshold = threshold)
+    }
+    viewedPhoto?.let { photo ->
+        Dialog(onDismissRequest = { viewedPhoto = null }) {
+            Image(photo, contentDescription = "Receipt photo", modifier = Modifier.fillMaxWidth(), contentScale = ContentScale.Fit)
+        }
+    }
     LaunchedEffect(reviewState.phase) {
         if (reviewState.phase == ReviewPhase.Confirmed) {
             review.close()
@@ -341,7 +380,13 @@ fun DivvyApp(
                             onToggleAuto = state::toggleAuto,
                             onConfirmSplit = review::confirm,
                             onTab = onTab,
-                            notice = reviewState.message,
+                            onEditLine = review::editLine,
+                            onAddLine = review::addLine,
+                            onDeleteLine = review::deleteLine,
+                            onMergeLines = review::mergeLines,
+                            canUndo = reviewState.canUndo,
+                            onUndo = review::undoDelete,
+                            notice = reviewState.message ?: reviewState.warning,
                         )
                     else -> ReviewStatusScreen(
                         title = when (reviewState.phase) {
@@ -368,23 +413,82 @@ fun DivvyApp(
                 }
             }
 
-            Route.History -> ReceiptHistoryScreen(
-                entries = state.history,
-                onOpen = {
-                    route =
-                        if (it == 0 && state.history[0].status == ReceiptStatus.NeedsReview) Route.Review else Route.Detail
-                },
-                onScan = { route = Route.Camera },
-                onTab = onTab,
-            )
+            Route.History -> {
+                val household = activeHousehold()
+                if (household == null) {
+                    ReceiptHistoryScreen(
+                        entries = state.history,
+                        onOpen = { route = if (it == 0 && state.history[0].status == ReceiptStatus.NeedsReview) Route.Review else Route.Detail },
+                        onScan = { route = Route.Camera },
+                        onTab = onTab,
+                    )
+                } else {
+                    val rows = historyState.rows
+                    ReceiptHistoryScreen(
+                        entries = rows.map { it.entry },
+                        onOpen = { index ->
+                            val row = rows.getOrNull(index) ?: return@ReceiptHistoryScreen
+                            when (row.status) {
+                                ReceiptStatusDto.Confirmed -> {
+                                    detail.open(household, row.id)
+                                    route = Route.Detail
+                                }
+                                ReceiptStatusDto.Void -> Unit
+                                else -> {
+                                    review.open(household, row.id)
+                                    route = Route.Review
+                                }
+                            }
+                        },
+                        onScan = { route = Route.Camera },
+                        onTab = onTab,
+                        message = historyState.message ?: if (historyState.loaded && rows.isEmpty()) "No receipts yet. Scan one to get started." else null,
+                    )
+                }
+            }
 
-            Route.Detail -> ReceiptDetailScreen(
-                receipt = state.resolvedDraft,
-                shares = state.shares,
-                onViewPhoto = {},
-                onReopen = {},
-                onTab = onTab,
-            )
+            Route.Detail -> {
+                val household = activeHousehold()
+                val shown = detailState.receipt
+                when {
+                    detailState.phase == DetailPhase.Idle -> ReceiptDetailScreen(
+                        receipt = state.resolvedDraft,
+                        shares = state.shares,
+                        onViewPhoto = {},
+                        onReopen = {},
+                        onTab = onTab,
+                    )
+                    shown != null && detailState.phase == DetailPhase.Ready -> ReceiptDetailScreen(
+                        receipt = shown,
+                        shares = detailState.shares,
+                        onViewPhoto = {
+                            if (detailState.hasPhoto) scope.launch {
+                                detail.photo()?.let { bytes -> viewedPhoto = bytes.decodeToImageBitmap() }
+                            }
+                        },
+                        onReopen = {
+                            detail.reopen { id ->
+                                if (household != null) review.open(household, id)
+                                route = Route.Review
+                            }
+                        },
+                        onTab = onTab,
+                        notice = detailState.message,
+                    )
+                    else -> ReviewStatusScreen(
+                        title = if (detailState.phase == DetailPhase.Loading) "Opening receipt" else "Could not open the receipt",
+                        message = detailState.message,
+                        busy = detailState.phase == DetailPhase.Loading,
+                        actionLabel = null,
+                        onAction = {},
+                        onBack = {
+                            detail.close()
+                            route = Route.History
+                        },
+                        onTab = onTab,
+                    )
+                }
+            }
 
             Route.Balances -> BalancesScreen(state.balances, state.transfers, state::togglePaid, onTab)
             Route.Shopping -> ShoppingListScreen(
@@ -409,7 +513,14 @@ fun DivvyApp(
                     editingId = state.addPerson("New member")
                     route = Route.EditPerson
                 },
-                onSettingsChange = { state.settings = it },
+                onSettingsChange = { updated ->
+                    val before = state.settings
+                    state.settings = updated
+                    if (updated.autoAssign != before.autoAssign || updated.autoAssignThreshold != before.autoAssignThreshold) {
+                        autoAssign.change(updated.autoAssign, updated.autoAssignThreshold)
+                    }
+                },
+                settingsMessage = autoState.message,
                 apiConfig = apiConfig,
                 onApiConfigChange = onApiConfigChange,
                 onTab = onTab,

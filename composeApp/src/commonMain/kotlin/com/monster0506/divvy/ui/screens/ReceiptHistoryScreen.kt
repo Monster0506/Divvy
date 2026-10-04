@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.sp
 import com.monster0506.divvy.ui.components.AppScaffold
 import com.monster0506.divvy.ui.components.RowDivider
 import com.monster0506.divvy.ui.components.ScreenHeader
+import com.monster0506.divvy.ui.components.SectionHeader
 import com.monster0506.divvy.ui.components.Tab
 import com.monster0506.divvy.ui.model.HistoryEntry
 import com.monster0506.divvy.ui.model.ReceiptStatus
@@ -36,6 +37,7 @@ fun ReceiptHistoryScreen(
     onOpen: (index: Int) -> Unit,
     onScan: () -> Unit = {},
     onTab: (Tab) -> Unit = {},
+    message: String? = null,
 ) {
     AppScaffold(selected = Tab.Receipts, onSelect = onTab) {
         ScreenHeader("Receipts", metaStart = "Newest first", action = {
@@ -43,6 +45,7 @@ fun ReceiptHistoryScreen(
                 Text("Scan receipt", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = DivvyColors.Accent)
             }
         })
+        if (message != null) SectionHeader(message, warn = true)
         entries.forEachIndexed { i, e ->
             Row(
                 Modifier.fillMaxWidth().clickable { onOpen(i) }.padding(horizontal = 20.dp, vertical = 13.dp),
