@@ -235,3 +235,13 @@ it. Each run logs its start and end with the history size, model version and met
 next check.
 
 In Docker the data directory is `/data`, a named volume (`mldata`) in `docker-compose.yml`.
+
+## Receipt extraction evaluation
+
+Ground-truth receipts live in `tests/data/receipts/`, one JSON per receipt (same shape as
+`ExtractedReceipt`, money in cents). Score a directory of predictions with:
+
+    python evaluate_extraction.py --predictions DIR [--truth tests/data/receipts]
+
+It prints item price accuracy and the total reconciliation rate. The checked-in files are synthetic
+placeholders (`tests/data/make_fixtures.py`); real labelled receipts still need to be added.
