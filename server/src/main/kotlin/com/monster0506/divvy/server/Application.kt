@@ -28,6 +28,7 @@ import com.monster0506.divvy.server.routes.receiptEditRoutes
 import com.monster0506.divvy.server.routes.receiptReadRoutes
 import com.monster0506.divvy.server.routes.receiptRoutes
 import com.monster0506.divvy.server.routes.settlementRoutes
+import com.monster0506.divvy.server.routes.balanceRoutes
 import com.monster0506.divvy.server.storage.LocalFileImageStorage
 import com.monster0506.divvy.server.routes.settlementRoutes
 import io.ktor.http.HttpStatusCode
@@ -149,6 +150,7 @@ fun Application.module(connectDatabase: Boolean = true) {
             settlementRoutes({ repositories.households }, { repositories.people }, { repositories.settlements })
             receiptReadRoutes({ repositories.receipts }, { imageStorage })
             settlementRoutes({ repositories.households }, { repositories.people }, { repositories.settlements })
+            balanceRoutes({ repositories.households }, { repositories.people }, { repositories.ledger })
         }
     }
 
