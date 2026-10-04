@@ -13,6 +13,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import com.monster0506.divvy.platform.rememberGalleryPicker
 import com.monster0506.divvy.ui.components.Tab
 import com.monster0506.divvy.ui.model.ReceiptStatus
 import com.monster0506.divvy.ui.screens.AccountScreen
@@ -49,6 +50,7 @@ fun DivvyApp(start: Route = Route.Setup, state: DivvyState = remember { DivvySta
             Tab.Account -> Route.Account
         }
     }
+    val galleryPicker = rememberGalleryPicker { bytes -> if (bytes != null) route = Route.Review }
     AnimatedContent(
         targetState = route,
         transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(120)) },
@@ -67,7 +69,7 @@ fun DivvyApp(start: Route = Route.Setup, state: DivvyState = remember { DivvySta
             )
             Route.Camera -> CameraScreen(
                 onCapture = { route = Route.Review },
-                onGallery = { route = Route.Review },
+                onGallery = { galleryPicker.launch() },
                 onCancel = { route = Route.History },
             )
             Route.Review -> ReviewReceiptScreen(

@@ -20,16 +20,20 @@ services:
     deploy:
       resources:
         limits:
+          cpus: "1.5"
           memory: 1536M
 
   ml:
     build:
       context: ./ml
     restart: unless-stopped
+    volumes:
+      - mldata:/data
     networks: [internal]
     deploy:
       resources:
         limits:
+          cpus: "2.0"
           memory: 3G
 
   server:
@@ -48,8 +52,9 @@ services:
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
       ML_SERVICE_URL: http://ml:8000
       API_KEY: ${API_KEY:?set API_KEY in .env}
+      IMAGE_DIR: /data/receipts
     ports:
-      - "127.0.0.1:8080:8080"   # loopback only; host Caddy proxies to this
+        - "8080:8080"
     volumes:
       - receipts:/data/receipts
     networks: [internal, edge]
@@ -62,6 +67,7 @@ services:
     deploy:
       resources:
         limits:
+          cpus: "1.5"
           memory: 1536M
 
 networks:
@@ -72,3 +78,4 @@ networks:
 volumes:
   pgdata:
   receipts:
+  mldata:

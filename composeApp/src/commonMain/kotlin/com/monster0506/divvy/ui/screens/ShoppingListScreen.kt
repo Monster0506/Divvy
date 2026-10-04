@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -34,6 +35,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.monster0506.divvy.ui.components.AppScaffold
+import com.monster0506.divvy.ui.components.DivvyIcons
 import com.monster0506.divvy.ui.components.RowDivider
 import com.monster0506.divvy.ui.components.ScreenHeader
 import com.monster0506.divvy.ui.components.SectionHeader
@@ -84,7 +86,7 @@ private fun ItemRow(item: ShoppingItem, onToggle: () -> Unit) {
                 Modifier.size(20.dp).clip(shape).background(fill).border(1.5.dp, edge, shape),
                 contentAlignment = Alignment.Center,
             ) {
-                Text("✓", Modifier.scale(tick).alpha(tick), fontSize = 13.sp, color = Color.White)
+                Icon(DivvyIcons.Check, contentDescription = null, modifier = Modifier.size(15.dp).scale(tick).alpha(tick), tint = Color.White)
             }
             Text(
                 item.name,
