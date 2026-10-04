@@ -106,8 +106,8 @@ class DtoSerializationTest {
 
     @Test
     fun balances_use_the_servers_field_names() {
-        val text = json.encodeToString(PersonBalanceDto("p1", "TJ", netMinor = 3410))
-        assertEquals("""{"personId":"p1","displayName":"TJ","netMinor":3410,"owes":[],"owedBy":[]}""", text)
+        val text = json.encodeToString(PersonBalanceDto("p1", "TJ", netMinor = 3410, venmoUsername = "tj-pays"))
+        assertEquals("""{"personId":"p1","displayName":"TJ","netMinor":3410,"owes":[],"owedBy":[],"venmoUsername":"tj-pays"}""", text)
     }
 
     @Test

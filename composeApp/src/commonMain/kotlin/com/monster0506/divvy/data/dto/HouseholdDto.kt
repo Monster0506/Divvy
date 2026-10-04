@@ -16,6 +16,8 @@ data class PersonDto(
     val householdId: String,
     val displayName: String,
     val archivedAt: String? = null,
+    /** Where the person receives payments, without the "@". */
+    val venmoUsername: String? = null,
 ) {
     val isArchived: Boolean get() = archivedAt != null
 }

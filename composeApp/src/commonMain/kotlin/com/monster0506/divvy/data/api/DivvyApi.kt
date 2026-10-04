@@ -25,6 +25,7 @@ import com.monster0506.divvy.data.dto.ItemOwnerDto
 import com.monster0506.divvy.data.dto.ItemOwnersDto
 import com.monster0506.divvy.data.dto.PersonDto
 import com.monster0506.divvy.data.dto.PersonRequest
+import com.monster0506.divvy.data.dto.VenmoUsernameRequest
 import com.monster0506.divvy.data.dto.ReceiptDto
 import com.monster0506.divvy.data.dto.ReceiptUploadDto
 import com.monster0506.divvy.data.dto.RenameHouseholdRequest
@@ -90,6 +91,15 @@ class DivvyApi(private val client: HttpClient) {
 
     suspend fun renamePerson(householdId: String, personId: String, displayName: String): PersonDto =
         send { client.patch("households/${householdId.seg()}/people/$personId") { contentType(ContentType.Application.Json); setBody(PersonRequest(displayName)) } }
+
+    /** Saves where [personId] receives payments; an empty [username] removes it. */
+    suspend fun setVenmoUsername(householdId: String, personId: String, username: String): PersonDto =
+        send {
+            client.patch("households/${householdId.seg()}/people/$personId") {
+                contentType(ContentType.Application.Json)
+                setBody(VenmoUsernameRequest(username))
+            }
+        }
 
     suspend fun archivePerson(householdId: String, personId: String): PersonDto =
         send { client.post("households/${householdId.seg()}/people/$personId/archive") }
