@@ -29,7 +29,7 @@ enum class BalancesPhase { Idle, Loading, Ready, Failed }
 
 /**
  * One payment that would settle part of the household: [from] pays [to]. [involvesMe] is true for this device's
- * person. [toVenmo] is where [to] receives payments, if they have said.
+ * person. [toVenmo] and [fromVenmo] are [to]'s and [from]'s Venmo usernames, if they have said.
  */
 data class SettleTransfer(
     val from: Person,
@@ -37,10 +37,14 @@ data class SettleTransfer(
     val amountCents: Int,
     val involvesMe: Boolean = false,
     val toVenmo: String? = null,
+    val fromVenmo: String? = null,
 )
 
-/** True when [personId] (this device's person) makes this payment, the only case Venmo is offered. */
+/** True when [personId] (this device's person) makes this payment, so they are offered Pay with Venmo. */
 fun SettleTransfer.isPaidBy(personId: String?): Boolean = personId != null && from.id == personId
+
+/** True when [personId] (this device's person) receives this payment, so they are offered Request with Venmo. */
+fun SettleTransfer.isPaidTo(personId: String?): Boolean = personId != null && to.id == personId
 
 /** The note Venmo shows on a settle-up payment. */
 const val VENMO_NOTE = "Divvy settle-up"
@@ -183,7 +187,7 @@ class BalancesController(
     }
 
     /**
-     * Saves [username] as where [person] receives payments, then shows Pay with Venmo on their payments.
+     * Saves [username] as [person]'s Venmo, then uses it for paying them and requesting from them.
      * [onSaved] runs once the server has it.
      */
     fun setVenmo(person: Person, username: String, onSaved: () -> Unit = {}) {
@@ -201,7 +205,13 @@ class BalancesController(
                     mutableState.update { s ->
                         s.copy(
                             savingVenmo = false,
-                            transfers = s.transfers.map { if (it.to.id == person.id) it.copy(toVenmo = saved) else it },
+                            transfers = s.transfers.map {
+                                when (person.id) {
+                                    it.to.id -> it.copy(toVenmo = saved)
+                                    it.from.id -> it.copy(fromVenmo = saved)
+                                    else -> it
+                                }
+                            },
                         )
                     }
                     onSaved()
@@ -277,6 +287,7 @@ class BalancesController(
                 t.amountCents.toInt(),
                 involvesMe = me != null && (from.id == me || to.id == me),
                 toVenmo = venmo[to.id],
+                fromVenmo = venmo[from.id],
             )
         }.sortedWith(compareByDescending<SettleTransfer> { it.involvesMe }.thenByDescending { it.amountCents })
     }

@@ -82,6 +82,7 @@ import com.monster0506.divvy.review.ReviewPhase
 import com.monster0506.divvy.balances.BalancesController
 import com.monster0506.divvy.balances.VENMO_NOTE
 import com.monster0506.divvy.platform.payWithVenmo
+import com.monster0506.divvy.platform.requestWithVenmo
 import com.monster0506.divvy.platform.rememberUrlOpener
 import com.monster0506.divvy.data.repository.BalanceRepository
 import com.monster0506.divvy.data.repository.HouseholdRepository
@@ -643,6 +644,9 @@ fun DivvyApp(
                     onUndo = balancesController::undo,
                     onPayWithVenmo = { transfer ->
                         transfer.toVenmo?.let { urlOpener.payWithVenmo(it, transfer.amountCents.toLong(), VENMO_NOTE) }
+                    },
+                    onRequestWithVenmo = { transfer ->
+                        transfer.fromVenmo?.let { urlOpener.requestWithVenmo(it, transfer.amountCents.toLong(), VENMO_NOTE) }
                     },
                     onSaveVenmo = balancesController::setVenmo,
                     onEditVenmo = balancesController::dismissVenmoMessage,
