@@ -42,6 +42,8 @@ private class StubReceipts(
     override suspend fun correctionRate(householdId: Uuid): Double? = 0.25
 
     override suspend fun void(id: Uuid): Receipt? = onVoid
+
+    override suspend fun reopen(id: Uuid): Receipt? = null
 }
 
 class SyncingReceiptRepositoryTest {
