@@ -27,6 +27,7 @@ import com.monster0506.divvy.server.routes.receiptAssignmentRoutes
 import com.monster0506.divvy.server.routes.receiptListRoutes
 import com.monster0506.divvy.server.routes.receiptEditRoutes
 import com.monster0506.divvy.server.routes.receiptReadRoutes
+import com.monster0506.divvy.server.routes.receiptReopenRoutes
 import com.monster0506.divvy.server.routes.receiptRetryRoutes
 import com.monster0506.divvy.server.routes.receiptRoutes
 import com.monster0506.divvy.server.routes.settlementRoutes
@@ -152,6 +153,7 @@ fun Application.module(connectDatabase: Boolean = true) {
                 onUploaded = { ml.extraction.schedule(it) },
             )
             receiptRetryRoutes({ repositories.receipts }, { ml.extraction })
+            receiptReopenRoutes({ repositories.receipts })
             receiptEditRoutes({ repositories.receipts }, { repositories.people })
             settlementRoutes({ repositories.households }, { repositories.people }, { repositories.settlements })
             receiptReadRoutes({ repositories.receipts }, { imageStorage })
