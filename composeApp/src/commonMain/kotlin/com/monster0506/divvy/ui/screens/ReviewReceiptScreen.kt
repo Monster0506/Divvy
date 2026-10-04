@@ -350,6 +350,10 @@ private fun LineRow(
             }
             if (line.confirmed) {
                 Text(line.ownersLabel(draft.people), fontSize = 12.sp, color = DivvyColors.Dim)
+            } else if (line.owners.isEmpty()) {
+                Text("Choose who purchased this item", fontSize = 12.sp, color = DivvyColors.Warn)
+            } else if (line.confidence == 1f) {
+                Text("Selected ${line.ownersLabel(draft.people)}", fontSize = 12.sp, color = DivvyColors.Warn)
             } else {
                 val pct = (line.confidence * 100).toInt()
                 Text("Suggested ${line.ownersLabel(draft.people)}, $pct% sure", fontSize = 12.sp, color = DivvyColors.Warn)
@@ -358,8 +362,8 @@ private fun LineRow(
             OwnerPicker(draft.people, line.owners, onToggle = { onToggleOwner(line.id, it) }) {
                 if (!line.confirmed) {
                     Spacer(Modifier.weight(1f))
-                    TextButton(onClick = { onConfirmLine(line.id) }) {
-                        Text("Looks right", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = DivvyColors.Accent)
+                    TextButton(onClick = { onConfirmLine(line.id) }, enabled = line.owners.isNotEmpty()) {
+                        Text("Confirm", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = DivvyColors.Accent)
                     }
                 }
             }
