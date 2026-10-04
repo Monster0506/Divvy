@@ -43,6 +43,7 @@ import com.monster0506.divvy.balances.BalancesPhase
 import com.monster0506.divvy.balances.BalancesState
 import com.monster0506.divvy.balances.Payment
 import com.monster0506.divvy.balances.SettleTransfer
+import com.monster0506.divvy.balances.isPaidBy
 import com.monster0506.divvy.domain.centsToInput
 import com.monster0506.divvy.domain.parsePriceCents
 import com.monster0506.divvy.ui.components.AppScaffold
@@ -86,6 +87,8 @@ fun LiveBalancesScreen(
     onPayWithVenmo: (SettleTransfer) -> Unit = {},
     onSaveVenmo: (person: Person, username: String, onSaved: () -> Unit) -> Unit = { _, _, _ -> },
     onEditVenmo: () -> Unit = {},
+    /** This device's person; Venmo is offered only on payments they make. */
+    meId: String? = null,
 ) {
     var paying by remember { mutableStateOf<SettleTransfer?>(null) }
     var askingVenmo by remember { mutableStateOf<Person?>(null) }
@@ -136,6 +139,7 @@ fun LiveBalancesScreen(
                         state.transfers.forEach {
                             SettleRow(
                                 it,
+                                meId = meId,
                                 enabled = !state.recording,
                                 onPay = { paying = it },
                                 onVenmo = { if (it.toVenmo != null) onPayWithVenmo(it) else askingVenmo = it.to },
@@ -157,16 +161,18 @@ fun LiveBalancesScreen(
  * B, or asks for B's Venmo username first if nobody has added it yet. Payments involving this device's person stand out.
  */
 @Composable
-private fun SettleRow(transfer: SettleTransfer, enabled: Boolean, onPay: () -> Unit, onVenmo: () -> Unit) {
-    val weight = if (transfer.involvesMe) FontWeight.SemiBold else FontWeight.Normal
-    val tint = if (transfer.involvesMe) DivvyColors.Accent else DivvyColors.Ink
+private fun SettleRow(transfer: SettleTransfer, meId: String?, enabled: Boolean, onPay: () -> Unit, onVenmo: () -> Unit) {
+    val iPay = transfer.isPaidBy(meId)
+    val involvesMe = transfer.involvesMe || iPay || (meId != null && transfer.to.id == meId)
+    val weight = if (involvesMe) FontWeight.SemiBold else FontWeight.Normal
+    val tint = if (involvesMe) DivvyColors.Accent else DivvyColors.Ink
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text("${transfer.from.name} pays ${transfer.to.name}", Modifier.weight(1f), fontSize = 14.sp, fontWeight = weight, color = tint)
         Text(transfer.amountCents.toMoney(), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = tint)
-        if (transfer.iPay) {
+        if (iPay) {
             SettleButton("Venmo", enabled = true, tint = tint, onClick = onVenmo, modifier = Modifier.padding(start = 10.dp))
         }
         SettleButton(
@@ -174,7 +180,7 @@ private fun SettleRow(transfer: SettleTransfer, enabled: Boolean, onPay: () -> U
             enabled = enabled,
             tint = tint,
             onClick = onPay,
-            modifier = Modifier.padding(start = if (transfer.iPay) 6.dp else 10.dp),
+            modifier = Modifier.padding(start = if (iPay) 6.dp else 10.dp),
         )
     }
     RowDivider()
