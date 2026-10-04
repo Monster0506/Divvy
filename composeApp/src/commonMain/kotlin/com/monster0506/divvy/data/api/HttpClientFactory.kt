@@ -8,9 +8,11 @@ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
 import io.ktor.client.plugins.logging.LogLevel
 import io.ktor.client.plugins.logging.Logging
+import io.ktor.client.request.HttpRequestPipeline
 import io.ktor.client.request.header
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
+import io.ktor.http.content.OutgoingContent
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
 
@@ -42,8 +44,14 @@ fun createHttpClient(
         defaultRequest {
             url(config.baseUrl.trimEnd('/') + "/")
             header(API_KEY_HEADER, config.apiKey)
-            contentType(ContentType.Application.Json)
         }
     }
-    return if (engine != null) HttpClient(engine, configure) else HttpClient(configure)
+    val client = if (engine != null) HttpClient(engine, configure) else HttpClient(configure)
+    client.requestPipeline.intercept(HttpRequestPipeline.Before) {
+        // Objects are sent as JSON. Multipart and other ready-made bodies keep their own content type.
+        if (context.contentType() == null && subject !is OutgoingContent) {
+            context.contentType(ContentType.Application.Json)
+        }
+    }
+    return client
 }

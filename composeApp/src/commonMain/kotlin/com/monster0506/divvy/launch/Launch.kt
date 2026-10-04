@@ -40,6 +40,8 @@ enum class LaunchDestination { Onboarding, Home }
 const val LOCAL_HOUSEHOLD_ID = "local"
 
 class LaunchRouter(private val store: HouseholdStore, private val lookup: HouseholdLookup) {
+    fun currentHouseholdId(): String? = store.get()
+
     suspend fun decide(): LaunchDestination {
         val id = store.get() ?: return LaunchDestination.Onboarding
         return when (lookup.lookup(id)) {
