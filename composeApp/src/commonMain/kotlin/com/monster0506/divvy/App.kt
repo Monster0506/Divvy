@@ -46,6 +46,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import kotlinx.coroutines.launch
 
 enum class Route { Launch, CreateHousehold, Setup, Camera, Review, History, Detail, Balances, Shopping, Account, EditPerson }
+
 @Composable
 fun App() {
     val router = remember { LaunchRouter(HouseholdStore(Settings()), LocalHouseholdLookup()) }
