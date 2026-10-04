@@ -50,7 +50,7 @@ fun ReceiptHistoryScreen(
             ) {
                 Column(Modifier.weight(1f)) {
                     Text(e.store, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = DivvyColors.Ink)
-                    Text("${e.date} · paid by ${e.payer.name}", fontSize = 12.sp, color = DivvyColors.Dim)
+                    Text("${e.date} - paid by ${e.payer.name}", fontSize = 12.sp, color = DivvyColors.Dim)
                 }
                 Column(horizontalAlignment = Alignment.End) {
                     Text(e.totalCents.toMoney(), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = DivvyColors.Ink)

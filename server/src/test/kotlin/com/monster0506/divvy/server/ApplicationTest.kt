@@ -36,7 +36,7 @@ class ApplicationTest {
     }
 
     private fun Application.testModule() {
-        module()
+        module(connectDatabase = false)
         routing {
             get("/boom") { error("secret internal detail") }
             get("/invalid") { throw ValidationException("Name is required", listOf("name")) }
@@ -48,7 +48,7 @@ class ApplicationTest {
     @Test
     fun moduleStarts() = testApplication {
         testConfig()
-        application { module() }
+        application { module(connectDatabase = false) }
         startApplication()
     }
 
@@ -86,7 +86,7 @@ class ApplicationTest {
     @Test
     fun healthReturnsOkWithVersion() = testApplication {
         testConfig()
-        application { module() }
+        application { module(connectDatabase = false) }
         val response = client.get("/health")
         assertEquals(HttpStatusCode.OK, response.status)
         assertEquals(
