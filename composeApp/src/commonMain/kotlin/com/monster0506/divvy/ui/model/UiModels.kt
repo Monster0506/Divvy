@@ -120,3 +120,5 @@ fun ReceiptLine.ownersLabel(people: List<Person>): String = when {
 }
 
 fun ReceiptLine.weightOf(personId: String): Int = weights[personId] ?: 1
+/** Every owner of the line with the weight they will pay by; equal unless the person changed it. */
+fun ReceiptLine.ownerWeights(): Map<String, Int> = owners.associateWith { weightOf(it) }

@@ -37,6 +37,7 @@ fun buildReviewLines(
             name = item.description,
             priceCents = item.total.amountMinor.toInt(),
             owners = owners,
+            weights = item.owners.associate { it.personId to it.shareWeight },
             confidence = confidenceOf(item),
             confirmed = owners.isNotEmpty() && item.id !in needsConfirmation,
         )
