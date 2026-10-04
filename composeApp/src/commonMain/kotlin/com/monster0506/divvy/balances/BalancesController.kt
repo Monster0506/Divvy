@@ -6,6 +6,9 @@ import com.monster0506.divvy.data.dto.BalancesDto
 import com.monster0506.divvy.data.dto.CreateSettlementRequest
 import com.monster0506.divvy.data.dto.SettlementDto
 import com.monster0506.divvy.data.dto.DEFAULT_CURRENCY
+import com.monster0506.divvy.data.dto.PersonDto
+import com.monster0506.divvy.platform.normalizeVenmoUsername
+import com.monster0506.divvy.platform.venmoUsernameProblem
 import com.monster0506.divvy.ui.model.AvatarColor
 import com.monster0506.divvy.ui.model.Balance
 import com.monster0506.divvy.ui.model.Person
@@ -57,6 +60,10 @@ data class BalancesState(
     val recording: Boolean = false,
     /** The payment just recorded, offered for undo until the window passes. */
     val payment: Payment? = null,
+    /** True while a Venmo username is being saved. */
+    val savingVenmo: Boolean = false,
+    /** Why the last Venmo username could not be saved. */
+    val venmoMessage: String? = null,
 ) {
     val settled get() = phase == BalancesPhase.Ready && balances.all { it.netCents == 0 }
 }
@@ -70,6 +77,9 @@ class BalancesController(
     /** The person this device last acted as in the household, to put their payments first. */
     private val currentPerson: (householdId: String) -> String? = { null },
     private val undoWindowMillis: Long = 8_000,
+    /** Saves where a person receives payments, as Household settings does. */
+    private val saveVenmo: suspend (householdId: String, personId: String, username: String) -> ApiResult<PersonDto> =
+        { _, _, _ -> ApiResult.Failure(ApiFailure.Offline) },
 ) {
     private val mutableState = MutableStateFlow(BalancesState())
     val state: StateFlow<BalancesState> = mutableState
@@ -101,7 +111,14 @@ class BalancesController(
                 ApiResult.Failure(ApiFailure.ServerError(null))
             }
             when (result) {
-                is ApiResult.Success -> mutableState.update { result.value.toState(id).copy(payment = it.payment, recording = it.recording) }
+                is ApiResult.Success -> mutableState.update {
+                    result.value.toState(id).copy(
+                        payment = it.payment,
+                        recording = it.recording,
+                        savingVenmo = it.savingVenmo,
+                        venmoMessage = it.venmoMessage,
+                    )
+                }
                 is ApiResult.Failure -> mutableState.update {
                     it.copy(
                         phase = if (it.phase == BalancesPhase.Ready) BalancesPhase.Ready else BalancesPhase.Failed,
@@ -159,6 +176,41 @@ class BalancesController(
                 }
             }
         }
+    }
+
+    /**
+     * Saves [username] as where [person] receives payments, then shows Pay with Venmo on their payments.
+     * [onSaved] runs once the server has it.
+     */
+    fun setVenmo(person: Person, username: String, onSaved: () -> Unit = {}) {
+        val id = householdId ?: return
+        if (mutableState.value.savingVenmo) return
+        venmoUsernameProblem(username)?.let { problem ->
+            mutableState.update { it.copy(venmoMessage = problem) }
+            return
+        }
+        mutableState.update { it.copy(savingVenmo = true, venmoMessage = null) }
+        scope.launch {
+            when (val result = safely { saveVenmo(id, person.id, normalizeVenmoUsername(username)) }) {
+                is ApiResult.Success -> {
+                    val saved = result.value.venmoUsername?.takeIf { it.isNotBlank() }
+                    mutableState.update { s ->
+                        s.copy(
+                            savingVenmo = false,
+                            transfers = s.transfers.map { if (it.to.id == person.id) it.copy(toVenmo = saved) else it },
+                        )
+                    }
+                    onSaved()
+                }
+                is ApiResult.Failure -> mutableState.update {
+                    it.copy(savingVenmo = false, venmoMessage = venmoFailure(result.failure))
+                }
+            }
+        }
+    }
+
+    fun dismissVenmoMessage() {
+        mutableState.update { it.copy(venmoMessage = null) }
     }
 
     fun dismissPayment() {
@@ -223,6 +275,12 @@ class BalancesController(
                 toVenmo = venmo[to.id],
             )
         }.sortedWith(compareByDescending<SettleTransfer> { it.involvesMe }.thenByDescending { it.amountCents })
+    }
+
+    private fun venmoFailure(failure: ApiFailure): String = when (failure) {
+        is ApiFailure.Validation -> failure.error.message
+        is ApiFailure.ServerError -> "The server could not save that Venmo username. Try again in a moment."
+        else -> describe(failure)
     }
 
     private fun describe(failure: ApiFailure): String = when (failure) {

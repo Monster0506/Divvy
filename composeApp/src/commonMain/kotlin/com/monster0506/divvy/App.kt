@@ -265,6 +265,7 @@ fun DivvyApp(
             scope = scope,
             record = balanceRepository::settle,
             currentPerson = payerStore::get,
+            saveVenmo = HouseholdRepository(api)::setVenmoUsername,
         )
     }
     val balancesState by balancesController.state.collectAsState()
@@ -603,7 +604,8 @@ fun DivvyApp(
                     onPayWithVenmo = { transfer ->
                         transfer.toVenmo?.let { urlOpener.payWithVenmo(it, transfer.amountCents.toLong(), VENMO_NOTE) }
                     },
-                    onAddVenmo = { route = Route.HouseholdSettings },
+                    onSaveVenmo = balancesController::setVenmo,
+                    onEditVenmo = balancesController::dismissVenmoMessage,
                 )
             }
             Route.Shopping -> {
