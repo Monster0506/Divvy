@@ -38,7 +38,11 @@ Option B with Qwen (`qwen3.7-plus`) through an OpenAI-compatible endpoint, as in
   to users, and the provider is replaceable because the call sits behind one class.
 - The service needs outbound network access, so in Docker Compose the `ml` service joins the `edge` network
   (no ports are published).
-- The acceptance targets (at least 90% of items with the right price, under 30 seconds) have not been measured on
-  real receipts yet. `ml/evaluate_extraction.py` scores a directory of extractions against labelled receipts, and
-  `ml/tests/test_receipts_live.py` times one real call. Record the results here once the labelled set exists, and
-  revisit option A if the numbers miss.
+- First real measurement, one photographed Walmart receipt (14 items, rotated, downscaled to 1600 px), against a
+  hand-labelled copy in `ml/tests/data/labelled/`. With thinking on (budget 512) the call took 31.9 s and 12 of 14
+  prices were right (86%). With thinking off it took 14.3 s and 11 of 14 were right. Store, date, subtotal, tax and
+  total were correct both times, item names had small misreads (`4CT COHIP`, `GVM02SHRD32Z`), and the subtotal check
+  flagged both runs because the item prices did not add up to it.
+- That is one receipt, so it neither meets nor misses the 90% target yet, but the time is over 30 s with thinking on.
+  Next: label more real receipts, score them with `ml/evaluate_extraction.py`, and compare thinking settings,
+  smaller images and a faster model. Revisit option A if the numbers miss.
