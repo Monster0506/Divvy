@@ -3,6 +3,7 @@ package com.monster0506.divvy.server
 import com.monster0506.divvy.server.db.DatabaseFactory
 import com.monster0506.divvy.server.db.DivyDatabase
 import com.monster0506.divvy.server.repository.ExposedRepositories
+import com.monster0506.divvy.server.routes.householdRoutes
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.auth.HttpAuthHeader
 import io.ktor.serialization.kotlinx.json.json
@@ -28,6 +29,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.slf4j.event.Level
 import java.security.MessageDigest
+import io.ktor.server.application.application
 
 @Serializable
 data class HealthResponse(val status: String, val version: String)
@@ -49,7 +51,7 @@ fun Application.module(connectDatabase: Boolean = true) {
         level = Level.INFO
         format { call ->
             "${call.request.httpMethod.value} ${call.request.path()} " +
-                "${call.response.status()?.value} ${call.processingTimeMillis()}ms"
+                    "${call.response.status()?.value} ${call.processingTimeMillis()}ms"
         }
     }
     install(Authentication) {
@@ -86,6 +88,7 @@ fun Application.module(connectDatabase: Boolean = true) {
     routing {
         get("/health") { call.respond(HealthResponse("ok", config.version)) }
         authenticate(API_KEY_AUTH) {
+            householdRoutes { repositories.households }
         }
     }
 
