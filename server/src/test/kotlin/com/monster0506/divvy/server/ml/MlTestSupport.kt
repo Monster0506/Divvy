@@ -87,6 +87,8 @@ class FakePeople(private val everyone: List<Person>) : PersonRepository {
 class FakeMl : MlClient {
     val upserts = CopyOnWriteArrayList<Pair<String, List<MlObservation>>>()
     val deletes = CopyOnWriteArrayList<Pair<String, String>>()
+    val replaces = CopyOnWriteArrayList<Boolean>()
+    var historyCalls = 0
     val events = CopyOnWriteArrayList<String>()
 
     var upsertResult: () -> MlResult<MlUpsertResponse> = { MlResult.Success(MlUpsertResponse("h", 0, 0)) }
@@ -104,6 +106,7 @@ class FakeMl : MlClient {
     ): MlResult<MlUpsertResponse> {
         events += "start $householdId"
         if (upsertDelayMillis > 0) delay(upsertDelayMillis)
+        replaces += replace
         upserts += householdId to observations
         events += "end $householdId"
         return upsertResult()
@@ -114,5 +117,8 @@ class FakeMl : MlClient {
         return deleteResult(observationId)
     }
 
-    override suspend fun history(householdId: String) = historyResult(householdId)
+    override suspend fun history(householdId: String): MlResult<MlHistoryStatus> {
+        historyCalls++
+        return historyResult(householdId)
+    }
 }

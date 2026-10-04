@@ -97,4 +97,6 @@ data class MlHistoryStatus(
     @SerialName("min_history") val minHistory: Int,
     val ready: Boolean,
     @SerialName("model_version") val modelVersion: String? = null,
+    /** Fingerprint of the stored history; compare with [historyDigest]. Absent on older ML services. */
+    val digest: String? = null,
 )
