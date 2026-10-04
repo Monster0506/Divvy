@@ -56,6 +56,12 @@ interface ReceiptRepository {
      */
     suspend fun create(receipt: NewReceipt): Receipt
 
+    /**
+     * Inserts a receipt in `processing` status for an uploaded image, with no payer, items or
+     * amounts yet. The household must exist.
+     */
+    suspend fun createProcessing(householdId: Uuid, imageKey: String): Receipt
+
     /** The receipt with its items and their current owners. */
     suspend fun findById(id: Uuid): Receipt?
 
