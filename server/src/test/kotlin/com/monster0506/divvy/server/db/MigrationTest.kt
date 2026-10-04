@@ -5,7 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class MigrationTest {
-    private val coreTables = listOf("household", "person", "receipt", "receipt_item", "item_owner", "settlement")
+    private val coreTables = listOf("household", "person", "receipt", "receipt_item", "item_owner", "settlement", "ledger_entry")
 
     @Test
     fun `migrations apply cleanly to an empty database`() {
@@ -13,7 +13,7 @@ class MigrationTest {
         val history = TestDatabase.query(
             "SELECT version, success FROM flyway_schema_history WHERE version IS NOT NULL ORDER BY installed_rank",
         )
-        assertEquals(listOf("1", "2", "3"), history.map { it["version"] })
+        assertEquals(TestDatabase.migrationVersions().map { it.toString() }, history.map { it["version"] })
         assertTrue(history.all { it["success"] == true })
     }
 
@@ -22,7 +22,7 @@ class MigrationTest {
         TestDatabase.db
         DatabaseFactory.connect(TestDatabase.appConfig).close()
         val count = TestDatabase.query("SELECT count(*) AS n FROM flyway_schema_history").single()["n"]
-        assertEquals(3L, count)
+        assertEquals(TestDatabase.migrationVersions().size.toLong(), count)
     }
 
     @Test
