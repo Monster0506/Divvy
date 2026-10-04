@@ -6,6 +6,7 @@ from divvy_ml.embed.router import app_embedder
 from divvy_ml.models.abstain import MIN_HISTORY
 from divvy_ml.ownership import service
 from divvy_ml.ownership.config import data_dir, model_name, refit_delay
+from divvy_ml.ownership.demo import DEMO_POLICY, DemoModels, demo_enabled
 from divvy_ml.ownership.manager import DEFAULT_MODEL, ModelManager
 from divvy_ml.ownership.schemas import (
     HOUSEHOLD_ID_PATTERN,
@@ -56,18 +57,32 @@ def get_manager(request: Request, store: Store) -> ModelManager:
 Manager = Annotated[ModelManager, Depends(get_manager)]
 
 
+def get_demo(request: Request, manager: ModelManager) -> DemoModels:
+    demo = getattr(request.app.state, "demo", None)
+    if demo is None:
+        demo = request.app.state.demo = DemoModels(app_embedder(request), manager.model_name)
+
+    return demo
+
+
 @router.post("/predict", response_model=PredictResponse)
-def predict(body: PredictRequest, manager: Manager) -> PredictResponse:
+def predict(body: PredictRequest, request: Request, manager: Manager) -> PredictResponse:
     """Predict who owns each item from the household's stored history.
 
     Items come back as `unknown` while the household has too little history, or when nothing in it
-    resembles the item.
+    resembles the item. With DIVVY_DEMO_MODEL on, a household with too little history is answered by
+    the built-in demo model instead.
     """
     state = manager.get(body.household_id)
+    policy = manager.policy
+    if state is None and demo_enabled():
+        state = get_demo(request, manager).state_for([person.id for person in body.people])
+        policy = DEMO_POLICY
+
     if state is None:
         return service.unknown_response(body, manager.untrained_version)
 
-    return service.predict(state, body, manager.policy)
+    return service.predict(state, body, policy)
 
 
 @router.put("/households/{household_id}/observations", response_model=UpsertObservationsResponse)

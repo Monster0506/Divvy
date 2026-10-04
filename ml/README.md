@@ -185,6 +185,17 @@ Test exact-set accuracy on the synthetic household (hashing embedder, walk-forwa
 1,500 and 0.022 at 6,000, against 0.24 and 0.16 for `knn`), so it is the default for auto-assigning. All of them beat
 `frequency` by a wide margin. Use `--embedder minilm` to compare the semantic embedder.
 
+## Demo model
+
+Until a household has 30 confirmed items the ownership model answers "unknown" for everything, which makes a new
+household look broken. For demos, set `DIVVY_DEMO_MODEL=true` and a household with too little history is answered by a
+built-in model instead: the same combined, calibrated model, fitted on a fixed catalog of about 250 everyday item names
+and who usually owns them, spread over the members in the request (position in the member list, wrapped to its size).
+Familiar items come back with confidence near 1 (so they are auto-assigned), near matches are guessed, and nonsense is
+still unknown. Nothing is stored and no receipts are made up. The household's own model takes over once it has
+`MIN_HISTORY` items, and the response's `model_version` starts with `demo-` while the demo model is answering. Leave it
+off in production. The catalog is in `divvy_ml/ownership/demo.py`.
+
 ## Calibration and unknown
 
 The raw confidence assumes people are independent, which is only roughly true: `knn` says 0.9 when it is right about
