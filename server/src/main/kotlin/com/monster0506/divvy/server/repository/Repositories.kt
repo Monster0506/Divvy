@@ -89,6 +89,9 @@ interface ReceiptRepository {
 
     /** Marks a receipt void. Receipts are never deleted, so their history stays available. */
     suspend fun void(id: Uuid): Receipt?
+
+    /** Moves a confirmed receipt back to draft for correction and reverses its ledger entries. */
+    suspend fun reopen(id: Uuid): Receipt?
 }
 
 sealed interface ConfirmResult {
