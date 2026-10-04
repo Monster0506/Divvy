@@ -26,7 +26,7 @@ class ApplicationStartupTest {
 
         assertNotNull(households)
         val db = assertNotNull(database)
-        assertEquals("3", db.schemaVersion)
+        assertEquals("4", db.schemaVersion)
         assertEquals(1, transaction(db.database) { exec("SELECT 1") { rs -> rs.next(); rs.getInt(1) } })
     }
 }
