@@ -102,7 +102,9 @@ See JetBrains' guide on [running on a real iOS device](https://kotlinlang.org/do
 
 From Receipts, tap Scan receipt, then take a photo or choose one from Gallery. Review the prepared image and tap Upload photo. The app shows upload progress, keeps the image for retry after a failure, and displays the new receipt ID in `processing` state when the server saves it. Images are converted to a legible JPEG before upload. Receipt extraction and the review screen are still separate work; the review screen uses sample data.
 
-Start the Ktor server before uploading. The Android emulator uses `http://10.0.2.2:8080` by default; the iOS simulator uses `http://localhost:8080`. For a physical device or deployed server, set `-Pdivvy.apiBaseUrl=https://your-host` and `-Pdivvy.apiKey=your-key` when building. The app creates a server household on the first upload when onboarding has only stored a local placeholder ID.
+Start the Ktor server before uploading. The Android emulator uses `http://10.0.2.2:8080` by default; the iOS simulator uses `http://localhost:8080`. On a physical device, open **Account > Server**, enter a reachable server URL and its API key, then save. Use a deployed HTTPS URL, or for local development use `http://<your-computer-LAN-IP>:8080` while the phone and computer are on the same network. `localhost` on a phone points to the phone itself. iOS will request local-network access for a LAN server. You can also set build defaults with `-Pdivvy.apiBaseUrl=...` and `-Pdivvy.apiKey=...`; the in-app settings override them. The app creates a server household on the first upload when onboarding has only stored a local placeholder ID.
+
+The server must be built from a revision containing `POST /households/{id}/receipts` (this PR). If an older Docker server responds `404 Not Found` with an empty body, rebuild it from the updated source with `docker compose up -d --build server`. A current server responds to a nonexistent household with JSON like `{"code":"not_found","message":"household not found"}`. `GET /health` can confirm reachability, but does not verify the upload route. A proxy-generated `503 Service Unavailable` means the upstream service needs to be started or repaired before the app can upload. Do not share API or Qwen keys in issue comments.
 
 ## ML service
 
@@ -110,7 +112,7 @@ The Python ML service lives in `ml/`. See [ml/README.md](ml/README.md) for setup
 
 ## Deployment
 
-The backend runs as a Docker Compose stack on a single host (target: 4 vCPU / 8 GB / Linux). Only `server` is reachable from the host, and only on `127.0.0.1:8080`. `ml` and `db` live on an internal Docker network with no published ports.
+The backend runs as a Docker Compose stack on a single host (target: 4 vCPU / 8 GB / Linux). Only `server` is published to the host, on port 8080; `ml` and `db` live on an internal Docker network with no published ports.
 
 | Service | Image | Memory limit | CPU limit | Data |
 |---|---|---|---|---|

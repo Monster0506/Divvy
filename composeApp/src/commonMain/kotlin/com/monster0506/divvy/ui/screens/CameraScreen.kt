@@ -62,6 +62,7 @@ fun CameraScreen(
     onGallery: () -> Unit,
     onUpload: () -> Unit,
     onCancel: () -> Unit,
+    onServerSettings: () -> Unit = {},
 ) {
     val canChoose = stage == ReceiptPhotoStage.Empty || stage == ReceiptPhotoStage.Ready
     Column(Modifier.fillMaxSize().background(Color(0xFF111111)).windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -101,6 +102,14 @@ fun CameraScreen(
                 Text(if (errorMessage == null) "Upload photo" else "Retry upload")
             }
         }
+        if (errorMessage != null && stage == ReceiptPhotoStage.Ready) Text(
+            "Server settings",
+            Modifier.fillMaxWidth().clickable(onClick = onServerSettings).padding(vertical = 4.dp),
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            color = Color.White,
+            textAlign = TextAlign.Center,
+        )
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 36.dp, vertical = 26.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
