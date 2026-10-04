@@ -38,26 +38,70 @@ class DtoSerializationTest {
         val receipt = ReceiptDto(
             id = "r1",
             householdId = "h1",
-            status = ReceiptStatusDto.NeedsReview,
-            store = "Fresh Market",
-            purchasedAt = "2026-10-03",
-            payerId = "p2",
-            subtotalCents = 5942,
-            taxCents = 210,
-            discountCents = 0,
-            totalCents = 6152,
+            status = ReceiptStatusDto.Draft,
+            merchantName = "Fresh Market",
+            purchasedAt = "2026-10-03T12:00:00Z",
+            paidByPersonId = "p2",
+            subtotal = MoneyDto(5942),
+            tax = MoneyDto(210),
+            total = MoneyDto(6152),
             items = listOf(
                 ReceiptItemDto(
                     id = "i1",
                     rawText = "CILANTRO BNCH",
                     description = "Fresh Cilantro",
-                    totalPriceCents = 129,
-                    owners = listOf(ItemOwnerDto("p1"), ItemOwnerDto("p3", weight = 2)),
+                    total = MoneyDto(129),
+                    owners = listOf(
+                        ItemOwnerReadDto("p1"),
+                        ItemOwnerReadDto("p3", shareWeight = 2, source = "model", confidence = 0.93),
+                    ),
                 ),
-                ReceiptItemDto("i2", "EGGS LRG 18CT", "Eggs 18ct", quantity = 1.5, totalPriceCents = 549),
+                ReceiptItemDto("i2", "Eggs 18ct", MoneyDto(549), quantity = "1.5"),
             ),
         )
         assertEquals(receipt, roundTrip(receipt))
+    }
+
+    @Test
+    fun the_servers_receipt_response_decodes() {
+        val receipt = com.monster0506.divvy.data.api.ApiJson.decodeFromString<ReceiptDto>(
+            """
+            {"id":"r1","householdId":"h1","paidByPersonId":null,"merchantName":"Walmart",
+             "purchasedAt":"2026-09-18T12:00:00Z","subtotal":{"amountMinor":586,"currency":"USD"},
+             "tax":{"amountMinor":41,"currency":"USD"},"total":{"amountMinor":627,"currency":"USD"},
+             "status":"draft","confirmedAt":null,"hasImage":true,
+             "items":[{"id":"i1","lineNumber":1,"rawText":"BANANAS","description":"bananas","quantity":"3.920",
+               "unitPrice":{"amountMinor":48,"currency":"USD"},"discount":{"amountMinor":0,"currency":"USD"},
+               "total":{"amountMinor":188,"currency":"USD"},
+               "owners":[{"personId":"p1","shareWeight":1,"source":"model","confidence":0.93}],"labelSource":null}],
+             "createdAt":"2026-10-04T09:00:00Z","updatedAt":"2026-10-04T09:00:05Z","failureReason":null}
+            """.trimIndent(),
+        )
+        assertEquals(ReceiptStatusDto.Draft, receipt.status)
+        assertEquals(627L, receipt.total?.amountMinor)
+        assertEquals("bananas", receipt.items.single().description)
+        assertEquals("model", receipt.items.single().owners.single().source)
+        assertEquals(0.93, receipt.items.single().owners.single().confidence)
+    }
+
+    @Test
+    fun a_failed_receipt_carries_its_reason() {
+        val receipt = json.decodeFromString<ReceiptDto>(
+            """{"id":"r1","householdId":"h1","status":"failed","failureReason":"No items could be read from the photo."}""",
+        )
+        assertEquals(ReceiptStatusDto.Failed, receipt.status)
+        assertEquals("No items could be read from the photo.", receipt.failureReason)
+    }
+
+    @Test
+    fun predictions_decode_with_needs_confirmation() {
+        val predictions = com.monster0506.divvy.data.api.ApiJson.decodeFromString<PredictionsDto>(
+            """{"receiptId":"r1","mlAvailable":true,"modelVersion":"v1","items":[
+                {"itemId":"i1","state":"predicted","ownerIds":["p1"],"confidence":0.6,"alternatives":[],"needsConfirmation":true},
+                {"itemId":"i2","state":"unknown","ownerIds":[],"alternatives":[]}]}""",
+        )
+        assertEquals(listOf(true, false), predictions.items.map { it.needsConfirmation })
+        assertEquals(null, predictions.items[1].confidence)
     }
 
     @Test
@@ -74,7 +118,7 @@ class DtoSerializationTest {
 
     @Test
     fun receipt_status_uses_wire_names() {
-        assertEquals("\"needs_review\"", json.encodeToString(ReceiptStatusDto.NeedsReview))
+        assertEquals("\"draft\"", json.encodeToString(ReceiptStatusDto.Draft))
         assertEquals(ReceiptStatusDto.Processing, json.decodeFromString<ReceiptStatusDto>("\"processing\""))
         assertEquals(ReceiptStatusDto.Failed, json.decodeFromString<ReceiptStatusDto>("\"failed\""))
     }
@@ -102,8 +146,8 @@ class DtoSerializationTest {
         val receipt = json.decodeFromString<ReceiptDto>(
             """{"id":"r1","householdId":"h1","status":"processing"}""",
         )
-        assertEquals(DEFAULT_CURRENCY, receipt.currency)
         assertEquals(emptyList(), receipt.items)
-        assertEquals(null, receipt.totalCents)
+        assertEquals(null, receipt.total)
+        assertEquals(null, receipt.failureReason)
     }
 }
