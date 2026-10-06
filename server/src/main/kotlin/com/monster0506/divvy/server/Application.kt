@@ -162,7 +162,6 @@ fun Application.module(connectDatabase: Boolean = true) {
             receiptEditRoutes({ repositories.receipts }, { repositories.people })
             settlementRoutes({ repositories.households }, { repositories.people }, { repositories.settlements })
             receiptReadRoutes({ repositories.receipts }, { imageStorage })
-            settlementRoutes({ repositories.households }, { repositories.people }, { repositories.settlements })
             balanceRoutes({ repositories.households }, { repositories.people }, { repositories.ledger })
             listItemRoutes({ repositories.households }, { repositories.people }, { repositories.listItems })
         }
