@@ -8,7 +8,10 @@ import io.ktor.server.application.Application
 import io.ktor.server.config.MapApplicationConfig
 import io.ktor.server.config.HoconApplicationConfig
 import io.ktor.server.auth.authenticate
+import io.ktor.server.routing.RoutingNode
+import io.ktor.server.routing.RoutingRoot
 import io.ktor.server.routing.get
+import io.ktor.server.routing.getAllRoutes
 import io.ktor.server.routing.routing
 import io.ktor.server.response.respondText
 import io.ktor.server.testing.testApplication
@@ -96,6 +99,19 @@ class ApplicationTest {
     }
 
     @Test
+    fun everyRouteIsRegisteredOnce() = testApplication {
+        testConfig()
+        lateinit var root: RoutingRoot
+        application {
+            module(connectDatabase = false)
+            root = routing { }
+        }
+        startApplication()
+        val duplicates = root.getAllRoutes().filter { it.handlerCount() > 1 }.map { it.toString() }
+        assertEquals(emptyList(), duplicates, "routes registered more than once")
+    }
+
+    @Test
     fun authCheckReturns204WithCorrectKey() = testApplication {
         testConfig()
         application { module(connectDatabase = false) }
@@ -162,4 +178,11 @@ class ApplicationTest {
         assertEquals("k", app.apiKey)
         assertEquals("1.0", app.version)
     }
-}
+
+/**
+ * Registering the same method and path twice adds a second handler to the same node, and Ktor
+ * never runs it. Handlers are internal to Ktor, so this reads them reflectively; if Ktor renames
+ * the field, this fails loudly rather than passing silently.
+ */
+private fun RoutingNode.handlerCount(): Int =
+    (RoutingNode::class.java.getDeclaredField("handlers").apply { isAccessible = true }.get(this) as List<*>).size
