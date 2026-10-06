@@ -178,6 +178,7 @@ class ApplicationTest {
         assertEquals("k", app.apiKey)
         assertEquals("1.0", app.version)
     }
+}
 
 /**
  * Registering the same method and path twice adds a second handler to the same node, and Ktor
