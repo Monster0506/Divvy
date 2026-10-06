@@ -1,6 +1,7 @@
 package com.monster0506.divvy.balances
 
 import com.monster0506.divvy.data.api.ApiFailure
+import com.monster0506.divvy.data.api.OFFLINE_MESSAGE
 import com.monster0506.divvy.data.api.ApiResult
 import com.monster0506.divvy.data.api.venmoNotSupported
 import com.monster0506.divvy.data.dto.BalancesDto
@@ -299,7 +300,7 @@ class BalancesController(
     }
 
     private fun describe(failure: ApiFailure): String = when (failure) {
-        ApiFailure.Offline -> "Could not reach the server. Check the URL in Account > Server and try again."
+        ApiFailure.Offline -> OFFLINE_MESSAGE
         ApiFailure.Unauthorised -> "The server rejected the API key. Check Account > Server."
         is ApiFailure.Validation ->
             if (failure.error.code == "not_found") "This household was not found on the server." else failure.error.message

@@ -1,6 +1,7 @@
 package com.monster0506.divvy.history
 
 import com.monster0506.divvy.data.api.ApiFailure
+import com.monster0506.divvy.data.api.OFFLINE_MESSAGE
 import com.monster0506.divvy.data.api.ApiResult
 import com.monster0506.divvy.data.dto.ReceiptStatusDto
 import com.monster0506.divvy.data.dto.ReceiptSummaryDto
@@ -202,7 +203,7 @@ internal fun ReceiptSummaryDto.toRow(people: List<Person>): HistoryRow {
 }
 
 internal fun describeFailure(failure: ApiFailure): String = when (failure) {
-    ApiFailure.Offline -> "Could not reach the server."
+    ApiFailure.Offline -> OFFLINE_MESSAGE
     ApiFailure.Unauthorised -> "The server rejected the API key."
     is ApiFailure.Validation -> failure.error.message
     is ApiFailure.ServerError -> "The server had a problem (${failure.status})."

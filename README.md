@@ -66,7 +66,7 @@ The Ktor server listens on port 8080 by default. Configuration comes from enviro
 | `API_KEY` | yes | Shared API key, sent by clients in the `X-Api-Key` header |
 | `APP_VERSION` | no | Version reported by `/health` (default 1.0) |
 
-The server refuses to start if a required variable is missing. `GET /health` returns `{"status":"ok","version":"..."}` and is public. Every other route requires the `X-Api-Key` header to match `API_KEY`, otherwise the server returns 401. Locally, `API_KEY=dev-key` works with `curl -H "X-Api-Key: dev-key" http://localhost:8080/...`.
+The server refuses to start if a required variable is missing. `GET /health` returns `{"status":"ok","version":"..."}` and is public. Every other route requires the `X-Api-Key` header to match `API_KEY`, otherwise the server returns 401. `GET /auth/check` returns 204 when the key is accepted and 401 when it isn't; the app calls `/health` and then `/auth/check` on launch and whenever the server settings change, and shows one banner if the server is unreachable or rejects the key. Locally, `API_KEY=dev-key` works with `curl -H "X-Api-Key: dev-key" http://localhost:8080/...`.
 
 Receipt images are stored behind the `ImageStorage` interface (`put`, `get`, `delete`). `LocalFileImageStorage` writes files into a configured directory (a Docker volume in deployment) under generated UUID keys. Keys are validated as canonical UUIDs, so client filenames and path traversal never reach the filesystem.
 

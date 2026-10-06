@@ -96,6 +96,21 @@ class ApplicationTest {
     }
 
     @Test
+    fun authCheckReturns204WithCorrectKey() = testApplication {
+        testConfig()
+        application { module(connectDatabase = false) }
+        assertEquals(HttpStatusCode.NoContent, client.get("/auth/check") { header("X-Api-Key", "key") }.status)
+    }
+
+    @Test
+    fun authCheckReturns401WithWrongOrMissingKey() = testApplication {
+        testConfig()
+        application { module(connectDatabase = false) }
+        assertEquals(HttpStatusCode.Unauthorized, client.get("/auth/check") { header("X-Api-Key", "nope") }.status)
+        assertEquals(HttpStatusCode.Unauthorized, client.get("/auth/check").status)
+    }
+
+    @Test
     fun protectedRouteWithoutKeyReturns401() = testApplication {
         testConfig()
         application { testModule() }

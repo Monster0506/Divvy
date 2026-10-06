@@ -1,6 +1,7 @@
 package com.monster0506.divvy.review
 
 import com.monster0506.divvy.data.api.ApiFailure
+import com.monster0506.divvy.data.api.OFFLINE_MESSAGE
 import com.monster0506.divvy.data.api.ApiResult
 import com.monster0506.divvy.data.dto.EditedReceiptDto
 import com.monster0506.divvy.data.dto.ItemEditRequest
@@ -409,7 +410,7 @@ class ReceiptReviewController(
     }
 
     private fun describe(failure: ApiFailure): String = when (failure) {
-        ApiFailure.Offline -> "Could not reach the server."
+        ApiFailure.Offline -> OFFLINE_MESSAGE
         ApiFailure.Unauthorised -> "The server rejected the API key."
         is ApiFailure.Validation -> failure.error.message
         is ApiFailure.ServerError -> "The server had a problem (${failure.status})."
