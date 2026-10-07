@@ -141,6 +141,8 @@ fun Application.module(connectDatabase: Boolean = true) {
     routing {
         get("/health") { call.respond(HealthResponse("ok", config.version)) }
         authenticate(API_KEY_AUTH) {
+            // Lets clients tell a wrong API key apart from an unreachable server; /health is public.
+            get("/auth/check") { call.respond(HttpStatusCode.NoContent) }
             householdRoutes { repositories.households }
             personArchiveRoutes({ repositories.households }, { repositories.people })
             personRoutes({ repositories.households }, { repositories.people })
@@ -160,7 +162,6 @@ fun Application.module(connectDatabase: Boolean = true) {
             receiptEditRoutes({ repositories.receipts }, { repositories.people })
             settlementRoutes({ repositories.households }, { repositories.people }, { repositories.settlements })
             receiptReadRoutes({ repositories.receipts }, { imageStorage })
-            settlementRoutes({ repositories.households }, { repositories.people }, { repositories.settlements })
             balanceRoutes({ repositories.households }, { repositories.people }, { repositories.ledger })
             listItemRoutes({ repositories.households }, { repositories.people }, { repositories.listItems })
         }

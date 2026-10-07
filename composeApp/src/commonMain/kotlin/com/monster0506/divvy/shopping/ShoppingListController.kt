@@ -1,6 +1,7 @@
 package com.monster0506.divvy.shopping
 
 import com.monster0506.divvy.data.api.ApiFailure
+import com.monster0506.divvy.data.api.OFFLINE_MESSAGE
 import com.monster0506.divvy.data.api.ApiResult
 import com.monster0506.divvy.data.dto.CreateListItemRequest
 import com.monster0506.divvy.data.dto.ListItemDto
@@ -261,7 +262,7 @@ class ShoppingListController(
         }
 
     private fun describe(failure: ApiFailure, action: String): String = when (failure) {
-        ApiFailure.Offline -> "Could not reach the server to $action. Check the URL in Account > Server and try again."
+        ApiFailure.Offline -> "$OFFLINE_MESSAGE Could not $action."
         ApiFailure.Unauthorised -> "The server rejected the API key. Check Account > Server."
         is ApiFailure.Validation ->
             if (failure.error.code == "not_found") "Could not $action: it is no longer on the list." else failure.error.message

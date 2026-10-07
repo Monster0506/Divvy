@@ -40,6 +40,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import org.jetbrains.compose.resources.decodeToImageBitmap
 import com.monster0506.divvy.data.api.ApiException
 import com.monster0506.divvy.data.api.ApiFailure
+import com.monster0506.divvy.data.api.OFFLINE_MESSAGE
 import com.monster0506.divvy.data.api.ApiConfig
 import com.monster0506.divvy.data.api.ApiConfigStore
 import com.monster0506.divvy.data.api.DivvyApi
@@ -108,6 +109,10 @@ import com.monster0506.divvy.ui.theme.DivvyTheme
 import androidx.compose.ui.tooling.preview.Preview
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import com.monster0506.divvy.connection.ConnectionMonitor
+import com.monster0506.divvy.connection.ConnectionStatus
+import com.monster0506.divvy.connection.checkConnection
+import com.monster0506.divvy.ui.components.ConnectionFrame
 
 enum class Route { Launch, CreateHousehold, AddMembers, JoinHousehold, Setup, Camera, Review, History, Detail, Balances, Shopping, ShoppingItem, Account, EditPerson, HouseholdSettings }
 
@@ -121,7 +126,7 @@ private val sampleGroceries =
 
 private fun Throwable.uploadMessage(): String = when (this) {
     is ApiException -> when (val reason = failure) {
-        ApiFailure.Offline -> "Could not reach the server. Check the URL in Account > Server and try again."
+        ApiFailure.Offline -> OFFLINE_MESSAGE
         ApiFailure.Unauthorised -> "The server rejected the API key. Check Account > Server."
         is ApiFailure.Validation -> if (reason.error.code == "http_404") {
             "No receipt upload endpoint at this server address. Check the URL or update the server."
@@ -141,7 +146,21 @@ fun App(apiConfig: ApiConfig = ApiConfig()) {
     val router = remember(settings) { LaunchRouter(HouseholdStore(settings), LocalHouseholdLookup()) }
     val configStore = remember(settings) { ApiConfigStore(settings) }
     var activeConfig by remember(configStore) { mutableStateOf(configStore.load(apiConfig)) }
-    val client = remember(activeConfig) { createHttpClient(activeConfig) }
+    // The probe client has no connection hook, so the monitor's own checks never trigger a recheck.
+    val probeClient = remember(activeConfig) { createHttpClient(activeConfig) }
+    val connectionScope = rememberCoroutineScope()
+    val connection = remember(probeClient) { ConnectionMonitor(connectionScope, probeClient::checkConnection) }
+    DisposableEffect(connection) {
+        connection.refresh()
+        onDispose {
+            connection.stop()
+            probeClient.close()
+        }
+    }
+    val connectionStatus by connection.status.collectAsState()
+    val client = remember(activeConfig, connection) {
+        createHttpClient(activeConfig, onConnectionProblem = connection::reportFailure)
+    }
     DisposableEffect(client) { onDispose { client.close() } }
     val householdApi = remember(client) { HouseholdApi(client) }
     val peopleApi = remember(client) { PeopleApi(client) }
@@ -152,6 +171,9 @@ fun App(apiConfig: ApiConfig = ApiConfig()) {
                 start = Route.Launch,
                 router = router,
                 apiConfig = activeConfig,
+                connectionStatus = connectionStatus,
+                onConnectionProblem = connection::reportFailure,
+                onRetryConnection = connection::refresh,
                 onApiConfigChange = {
                     configStore.save(it)
                     activeConfig = it
@@ -171,6 +193,9 @@ fun DivvyApp(
     state: DivvyState = remember { DivvyState() },
     router: LaunchRouter? = null,
     apiConfig: ApiConfig = ApiConfig(),
+    connectionStatus: ConnectionStatus = ConnectionStatus.Unknown,
+    onConnectionProblem: (() -> Unit)? = null,
+    onRetryConnection: () -> Unit = {},
     onApiConfigChange: (ApiConfig) -> Unit = {},
     createHousehold: suspend (String) -> CreateHouseholdResult = {
         CreateHouseholdResult.Failure("Not connected")
@@ -198,7 +223,7 @@ fun DivvyApp(
     var uploadProgress by remember { mutableStateOf<Float?>(null) }
     var uploadedReceiptId by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
-    val client = remember(apiConfig) { createHttpClient(apiConfig) }
+    val client = remember(apiConfig) { createHttpClient(apiConfig, onConnectionProblem = onConnectionProblem) }
     DisposableEffect(client) { onDispose { client.close() } }
     val api = remember(client) { DivvyApi(client) }
     val payerStore = remember { PayerStore(Settings()) }
@@ -420,450 +445,456 @@ fun DivvyApp(
     val galleryPicker = rememberGalleryPicker { bytes ->
         if (bytes != null) selectPhoto(bytes)
     }
-    AnimatedContent(
-        targetState = route,
-        transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(120)) },
-    ) { current ->
-        when (current) {
-            Route.Launch -> Box(Modifier.fillMaxSize()) {
-                CircularProgressIndicator(Modifier.align(Alignment.Center))
-            }
+    ConnectionFrame(
+        status = connectionStatus,
+        onServerSettings = if (route == Route.Account) null else ({ route = Route.Account }),
+        onRetry = onRetryConnection,
+    ) {
+        AnimatedContent(
+            targetState = route,
+            transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(120)) },
+        ) { current ->
+            when (current) {
+                Route.Launch -> Box(Modifier.fillMaxSize()) {
+                    CircularProgressIndicator(Modifier.align(Alignment.Center))
+                }
 
-            Route.CreateHousehold -> {
-                val scope = rememberCoroutineScope()
-                val form = remember { CreateHouseholdState(createHousehold) }
-                CreateHouseholdScreen(
-                    state = form,
-                    onContinue = {
-                        scope.launch {
-                            val id = form.submit() ?: return@launch
-                            householdId = id
-                            state.householdName = form.name.trim()
-                            route = if (form.joiningExisting) Route.JoinHousehold else Route.AddMembers
-                        }
-                    },
-                )
-            }
+                Route.CreateHousehold -> {
+                    val scope = rememberCoroutineScope()
+                    val form = remember { CreateHouseholdState(createHousehold) }
+                    CreateHouseholdScreen(
+                        state = form,
+                        onContinue = {
+                            scope.launch {
+                                val id = form.submit() ?: return@launch
+                                householdId = id
+                                state.householdName = form.name.trim()
+                                route = if (form.joiningExisting) Route.JoinHousehold else Route.AddMembers
+                            }
+                        },
+                    )
+                }
 
-            Route.AddMembers -> {
-                val scope = rememberCoroutineScope()
-                val form = remember { AddMembersState { name -> createPerson(householdId.orEmpty(), name) } }
-                AddMembersScreen(
-                    state = form,
-                    onFinish = {
-                        scope.launch {
-                            if (!form.finish()) return@launch
-                            val personId = form.meId ?: return@launch
-                            memberStore.save(householdId.orEmpty(), personId)
+                Route.AddMembers -> {
+                    val scope = rememberCoroutineScope()
+                    val form = remember { AddMembersState { name -> createPerson(householdId.orEmpty(), name) } }
+                    AddMembersScreen(
+                        state = form,
+                        onFinish = {
+                            scope.launch {
+                                if (!form.finish()) return@launch
+                                val personId = form.meId ?: return@launch
+                                memberStore.save(householdId.orEmpty(), personId)
+                                state.setMe(personId)
+                                router?.onboardingCompleted(householdId.orEmpty())
+                                route = Route.History
+                            }
+                        },
+                    )
+                }
+
+                Route.JoinHousehold -> {
+                    val id = householdId.orEmpty()
+                    val form = remember(id, loadHouseholdMembers) { JoinHouseholdState(id, loadHouseholdMembers) }
+                    LaunchedEffect(form) { form.load() }
+                    JoinHouseholdScreen(
+                        state = form,
+                        onRetry = { scope.launch { form.load() } },
+                        onContinue = {
+                            val personId = form.selectedId ?: return@JoinHouseholdScreen
+                            memberStore.save(id, personId)
                             state.setMe(personId)
-                            router?.onboardingCompleted(householdId.orEmpty())
+                            router?.onboardingCompleted(id)
                             route = Route.History
-                        }
-                    },
-                )
-            }
+                        },
+                    )
+                }
 
-            Route.JoinHousehold -> {
-                val id = householdId.orEmpty()
-                val form = remember(id, loadHouseholdMembers) { JoinHouseholdState(id, loadHouseholdMembers) }
-                LaunchedEffect(form) { form.load() }
-                JoinHouseholdScreen(
-                    state = form,
-                    onRetry = { scope.launch { form.load() } },
-                    onContinue = {
-                        val personId = form.selectedId ?: return@JoinHouseholdScreen
-                        memberStore.save(id, personId)
-                        state.setMe(personId)
-                        router?.onboardingCompleted(id)
+                Route.Setup -> HouseholdSetupScreen(
+                    onStart = { route = Route.History },
+                    householdName = state.householdName,
+                    members = state.people,
+                    newMember = state.newMember,
+                    onNameChange = { state.householdName = it },
+                    onNewMemberChange = { state.newMember = it },
+                    onAddMember = state::addMember,
+                    onRemoveMember = state::removePerson,
+                    canRemove = state::canRemove,
+
+                )
+
+                Route.Camera -> CameraScreen(
+                    photo = selectedPhoto?.preview,
+                    stage = photoStage,
+                    uploadProgress = uploadProgress,
+                    uploadedReceiptId = uploadedReceiptId,
+                    errorMessage = cameraError,
+                    cameraSupported = cameraCapture.isSupported,
+                    onCapture = {
+                        cameraError = null
+                        cameraCapture.launch()
+                    },
+                    onGallery = { galleryPicker.launch() },
+                    onUpload = ::uploadPhoto,
+                    onCancel = {
+                        cameraError = null
+                        selectedPhoto = null
+                        photoStage = ReceiptPhotoStage.Empty
+                        uploadProgress = null
+                        uploadedReceiptId = null
                         route = Route.History
                     },
+                    onServerSettings = { route = Route.Account },
                 )
-            }
 
-            Route.Setup -> HouseholdSetupScreen(
-                onStart = { route = Route.History },
-                householdName = state.householdName,
-                members = state.people,
-                newMember = state.newMember,
-                onNameChange = { state.householdName = it },
-                onNewMemberChange = { state.newMember = it },
-                onAddMember = state::addMember,
-                onRemoveMember = state::removePerson,
-                canRemove = state::canRemove,
-
-            )
-
-            Route.Camera -> CameraScreen(
-                photo = selectedPhoto?.preview,
-                stage = photoStage,
-                uploadProgress = uploadProgress,
-                uploadedReceiptId = uploadedReceiptId,
-                errorMessage = cameraError,
-                cameraSupported = cameraCapture.isSupported,
-                onCapture = {
-                    cameraError = null
-                    cameraCapture.launch()
-                },
-                onGallery = { galleryPicker.launch() },
-                onUpload = ::uploadPhoto,
-                onCancel = {
-                    cameraError = null
-                    selectedPhoto = null
-                    photoStage = ReceiptPhotoStage.Empty
-                    uploadProgress = null
-                    uploadedReceiptId = null
-                    route = Route.History
-                },
-                onServerSettings = { route = Route.Account },
-            )
-
-            Route.Review -> {
-                val live = reviewState.draft
-                when {
-                    reviewState.phase == ReviewPhase.Idle -> ReviewReceiptScreen(
-                        draft = state.draft,
-                        autoExpanded = state.autoExpanded,
-                        onToggleOwner = state::toggleOwner,
-                        onConfirmLine = state::confirmLine,
-                        onToggleAuto = state::toggleAuto,
-                        onConfirmSplit = {
-                            state.confirmSplit()
-                            route = Route.Balances
-                        },
-                        onTab = onTab,
-                        onEditLine = state::editLine,
-                        onAddLine = state::addLine,
-                        onDeleteLine = state::deleteLine,
-                        onMergeLines = state::mergeLines,
-                        canUndo = state.canUndoDelete,
-                        onUndo = state::undoDelete,
-                    )
-
-                    live != null && (reviewState.phase == ReviewPhase.Ready || reviewState.phase == ReviewPhase.Confirming) ->
-                        ReviewReceiptScreen(
-                            draft = live,
+                Route.Review -> {
+                    val live = reviewState.draft
+                    when {
+                        reviewState.phase == ReviewPhase.Idle -> ReviewReceiptScreen(
+                            draft = state.draft,
                             autoExpanded = state.autoExpanded,
-                            onToggleOwner = review::toggleOwner,
-                            onConfirmLine = review::accept,
+                            onToggleOwner = state::toggleOwner,
+                            onConfirmLine = state::confirmLine,
                             onToggleAuto = state::toggleAuto,
-                            onConfirmSplit = review::confirm,
-                            onTab = onTab,
-                            onEditLine = review::editLine,
-                            onAddLine = review::addLine,
-                            onDeleteLine = review::deleteLine,
-                            onMergeLines = review::mergeLines,
-                            canUndo = reviewState.canUndo,
-                            onUndo = review::undoDelete,
-                            notice = reviewState.message ?: reviewState.warning,
-                            onChoosePayer = review::setPayer,
-                            onEditDetails = { store, date, tax, total ->
-                                review.editDetails(ReceiptDetailsEdit(store, date, tax, total))
+                            onConfirmSplit = {
+                                state.confirmSplit()
+                                route = Route.Balances
                             },
+                            onTab = onTab,
+                            onEditLine = state::editLine,
+                            onAddLine = state::addLine,
+                            onDeleteLine = state::deleteLine,
+                            onMergeLines = state::mergeLines,
+                            canUndo = state.canUndoDelete,
+                            onUndo = state::undoDelete,
                         )
 
-                    else -> ReviewStatusScreen(
-                        title = when (reviewState.phase) {
-                            ReviewPhase.Reading -> "Reading your receipt"
-                            ReviewPhase.Failed -> "Could not read the receipt"
-                            else -> "Could not open the receipt"
-                        },
-                        message = if (reviewState.phase == ReviewPhase.Reading) {
-                            "This usually takes under a minute."
-                        } else reviewState.message,
-                        busy = reviewState.phase == ReviewPhase.Reading,
-                        actionLabel = when (reviewState.phase) {
-                            ReviewPhase.Failed -> "Try again"
-                            ReviewPhase.Unreachable -> "Check again"
-                            else -> null
-                        },
-                        onAction = review::retry,
-                        onBack = {
-                            review.close()
-                            route = Route.History
-                        },
-                        onTab = onTab,
-                    )
+                        live != null && (reviewState.phase == ReviewPhase.Ready || reviewState.phase == ReviewPhase.Confirming) ->
+                            ReviewReceiptScreen(
+                                draft = live,
+                                autoExpanded = state.autoExpanded,
+                                onToggleOwner = review::toggleOwner,
+                                onConfirmLine = review::accept,
+                                onToggleAuto = state::toggleAuto,
+                                onConfirmSplit = review::confirm,
+                                onTab = onTab,
+                                onEditLine = review::editLine,
+                                onAddLine = review::addLine,
+                                onDeleteLine = review::deleteLine,
+                                onMergeLines = review::mergeLines,
+                                canUndo = reviewState.canUndo,
+                                onUndo = review::undoDelete,
+                                notice = reviewState.message ?: reviewState.warning,
+                                onChoosePayer = review::setPayer,
+                                onEditDetails = { store, date, tax, total ->
+                                    review.editDetails(ReceiptDetailsEdit(store, date, tax, total))
+                                },
+                            )
+
+                        else -> ReviewStatusScreen(
+                            title = when (reviewState.phase) {
+                                ReviewPhase.Reading -> "Reading your receipt"
+                                ReviewPhase.Failed -> "Could not read the receipt"
+                                else -> "Could not open the receipt"
+                            },
+                            message = if (reviewState.phase == ReviewPhase.Reading) {
+                                "This usually takes under a minute."
+                            } else reviewState.message,
+                            busy = reviewState.phase == ReviewPhase.Reading,
+                            actionLabel = when (reviewState.phase) {
+                                ReviewPhase.Failed -> "Try again"
+                                ReviewPhase.Unreachable -> "Check again"
+                                else -> null
+                            },
+                            onAction = review::retry,
+                            onBack = {
+                                review.close()
+                                route = Route.History
+                            },
+                            onTab = onTab,
+                        )
+                    }
                 }
-            }
 
-            Route.History -> {
-                val household = activeHousehold()
-                if (household == null) {
-                    ReceiptHistoryScreen(
-                        entries = state.history,
-                        onOpen = {
-                            route =
-                                if (it == 0 && state.history[0].status == ReceiptStatus.NeedsReview) Route.Review else Route.Detail
-                        },
-                        onScan = { route = Route.Camera },
-                        onTab = onTab,
-                    )
-                } else {
-                    val rows = historyState.rows
-                    ReceiptHistoryScreen(
-                        entries = rows.map { it.entry },
-                        onOpen = { index ->
-                            val row = rows.getOrNull(index) ?: return@ReceiptHistoryScreen
-                            when (row.status) {
-                                ReceiptStatusDto.Confirmed -> {
-                                    detail.open(household, row.id)
-                                    route = Route.Detail
+                Route.History -> {
+                    val household = activeHousehold()
+                    if (household == null) {
+                        ReceiptHistoryScreen(
+                            entries = state.history,
+                            onOpen = {
+                                route =
+                                    if (it == 0 && state.history[0].status == ReceiptStatus.NeedsReview) Route.Review else Route.Detail
+                            },
+                            onScan = { route = Route.Camera },
+                            onTab = onTab,
+                        )
+                    } else {
+                        val rows = historyState.rows
+                        ReceiptHistoryScreen(
+                            entries = rows.map { it.entry },
+                            onOpen = { index ->
+                                val row = rows.getOrNull(index) ?: return@ReceiptHistoryScreen
+                                when (row.status) {
+                                    ReceiptStatusDto.Confirmed -> {
+                                        detail.open(household, row.id)
+                                        route = Route.Detail
+                                    }
+
+                                    ReceiptStatusDto.Void -> Unit
+                                    else -> {
+                                        review.open(household, row.id)
+                                        route = Route.Review
+                                    }
                                 }
+                            },
+                            onScan = { route = Route.Camera },
+                            onTab = onTab,
+                            message = historyState.message ?: if (historyState.loaded && rows.isEmpty()) {
+                                if (historyState.filter.active) "No receipts match these filters." else "No receipts yet. Scan one to get started."
+                            } else null,
+                            scrollState = historyScroll,
+                                                    filters = HistoryFilters(
+                                store = historyState.filter.store,
+                                status = historyState.filter.status,
+                                fromIso = historyState.filter.fromIso,
+                                toIso = historyState.filter.toIso,
+                                active = historyState.filter.active,
+                                hasMore = historyState.hasMore,
+                                loadingMore = historyState.loadingMore,
+                                loadFailed = historyState.message != null,
+                                onStore = history::setStore,
+                                onStatus = history::setStatus,
+                                onFrom = { history.setDates(it, historyState.filter.toIso) },
+                                onTo = { history.setDates(historyState.filter.fromIso, it) },
+                                onClear = history::clearFilters,
+                                onLoadMore = history::loadMore,
+                            ),
+                        )
+                    }
+                }
 
-                                ReceiptStatusDto.Void -> Unit
-                                else -> {
-                                    review.open(household, row.id)
+                Route.Detail -> {
+                    val household = activeHousehold()
+                    val shown = detailState.receipt
+                    when {
+                        detailState.phase == DetailPhase.Idle -> ReceiptDetailScreen(
+                            receipt = state.resolvedDraft,
+                            shares = state.shares,
+                            onViewPhoto = {},
+                            onReopen = {},
+                            onTab = onTab,
+                        )
+
+                        shown != null && detailState.phase == DetailPhase.Ready -> ReceiptDetailScreen(
+                            receipt = shown,
+                            shares = detailState.shares,
+                            onViewPhoto = {
+                                if (detailState.hasPhoto) scope.launch {
+                                    detail.photo()?.let { bytes -> viewedPhoto = bytes.decodeToImageBitmap() }
+                                }
+                            },
+                            onReopen = {
+                                detail.reopen { id ->
+                                    if (household != null) review.open(household, id)
                                     route = Route.Review
                                 }
-                            }
-                        },
-                        onScan = { route = Route.Camera },
-                        onTab = onTab,
-                        message = historyState.message ?: if (historyState.loaded && rows.isEmpty()) {
-                            if (historyState.filter.active) "No receipts match these filters." else "No receipts yet. Scan one to get started."
-                        } else null,
-                        scrollState = historyScroll,
-                                                filters = HistoryFilters(
-                            store = historyState.filter.store,
-                            status = historyState.filter.status,
-                            fromIso = historyState.filter.fromIso,
-                            toIso = historyState.filter.toIso,
-                            active = historyState.filter.active,
-                            hasMore = historyState.hasMore,
-                            loadingMore = historyState.loadingMore,
-                            loadFailed = historyState.message != null,
-                            onStore = history::setStore,
-                            onStatus = history::setStatus,
-                            onFrom = { history.setDates(it, historyState.filter.toIso) },
-                            onTo = { history.setDates(historyState.filter.fromIso, it) },
-                            onClear = history::clearFilters,
-                            onLoadMore = history::loadMore,
-                        ),
-                    )
-                }
-            }
+                            },
+                            onTab = onTab,
+                            notice = detailState.message,
+                        )
 
-            Route.Detail -> {
-                val household = activeHousehold()
-                val shown = detailState.receipt
-                when {
-                    detailState.phase == DetailPhase.Idle -> ReceiptDetailScreen(
-                        receipt = state.resolvedDraft,
-                        shares = state.shares,
-                        onViewPhoto = {},
-                        onReopen = {},
-                        onTab = onTab,
-                    )
-
-                    shown != null && detailState.phase == DetailPhase.Ready -> ReceiptDetailScreen(
-                        receipt = shown,
-                        shares = detailState.shares,
-                        onViewPhoto = {
-                            if (detailState.hasPhoto) scope.launch {
-                                detail.photo()?.let { bytes -> viewedPhoto = bytes.decodeToImageBitmap() }
-                            }
-                        },
-                        onReopen = {
-                            detail.reopen { id ->
-                                if (household != null) review.open(household, id)
-                                route = Route.Review
-                            }
-                        },
-                        onTab = onTab,
-                        notice = detailState.message,
-                    )
-
-                    else -> ReviewStatusScreen(
-                        title = if (detailState.phase == DetailPhase.Loading) "Opening receipt" else "Could not open the receipt",
-                        message = detailState.message,
-                        busy = detailState.phase == DetailPhase.Loading,
-                        actionLabel = null,
-                        onAction = {},
-                        onBack = {
-                            detail.close()
-                            route = Route.History
-                        },
-                        onTab = onTab,
-                    )
-                }
-            }
-
-            Route.Balances -> {
-                val id = householdId ?: router?.currentHouseholdId()
-                val real = id != null && id != LOCAL_HOUSEHOLD_ID
-                LaunchedEffect(id) {
-                    if (real) {
-                        balancesController.open(id!!)
-                        // Works out who "you" are on this device, which decides where Venmo is offered.
-                        members.load(id)
+                        else -> ReviewStatusScreen(
+                            title = if (detailState.phase == DetailPhase.Loading) "Opening receipt" else "Could not open the receipt",
+                            message = detailState.message,
+                            busy = detailState.phase == DetailPhase.Loading,
+                            actionLabel = null,
+                            onAction = {},
+                            onBack = {
+                                detail.close()
+                                route = Route.History
+                            },
+                            onTab = onTab,
+                        )
                     }
                 }
-                LiveBalancesScreen(
-                    balancesState,
-                    hasHousehold = real,
-                    onRefresh = balancesController::refresh,
-                    onTab = onTab,
-                    onSettle = balancesController::settle,
-                    onUndo = balancesController::undo,
-                    onPayWithVenmo = { transfer ->
-                        transfer.toVenmo?.let { username ->
-                            scope.launch {
-                                urlOpener.payWithVenmo(username, transfer.amountCents.toLong(), VENMO_NOTE, venmoIds.idFor(username))
-                            }
-                        }
-                    },
-                    onRequestWithVenmo = { transfer ->
-                        transfer.fromVenmo?.let { username ->
-                            scope.launch {
-                                urlOpener.requestWithVenmo(username, transfer.amountCents.toLong(), VENMO_NOTE, venmoIds.idFor(username))
-                            }
-                        }
-                    },
-                    onSaveVenmo = balancesController::setVenmo,
-                    onEditVenmo = balancesController::dismissVenmoMessage,
-                    // The same "(you)" as the Account screen, once members have loaded from the server.
-                    meId = state.meId.takeIf { me -> state.people.any { it.id == me } && serverId.matches(me) },
-                )
-            }
 
-            Route.Shopping -> {
-                val household = activeHousehold()
-                val list = if (household != null) serverShopping else localShopping
-                LaunchedEffect(household) {
-                    list.open(household ?: LOCAL_HOUSEHOLD_ID)
-                    // Loads "me", who is recorded as having added items.
-                    if (household != null) members.load(household)
-                }
-                ShoppingListScreen(
-                    state = if (household != null) serverShoppingState else localShoppingState,
-                    suggestions = state.suggestions,
-                    onInput = list::type,
-                    onAdd = { list.add(it) },
-                    onToggle = list::toggle,
-                    onOpen = {
-                        list.dismissMessage()
-                        shoppingItemId = it
-                        route = Route.ShoppingItem
-                    },
-                    onRemove = { list.remove(it, offerUndo = true) },
-                    onUndoRemove = list::undoRemove,
-                    onAddSuggestion = { i -> state.addSuggestion(i)?.let { list.add(it) } },
-                    onRetry = list::refresh,
-                    onDismissMessage = list::dismissMessage,
-                    onTab = onTab,
-                )
-            }
-
-            Route.ShoppingItem -> {
-                val household = activeHousehold()
-                val list = if (household != null) serverShopping else localShopping
-                val listState = if (household != null) serverShoppingState else localShoppingState
-                val item = listState.items.find { it.id == shoppingItemId }
-                if (item == null) {
-                    // Removed, here or by someone else.
-                    LaunchedEffect(Unit) { route = Route.Shopping }
-                } else {
-                    ShoppingItemScreen(
-                        item = item,
-                        saving = listState.saving,
-                        message = listState.message,
-                        onSave = { name, quantity, notes ->
-                            list.save(item.id, name, quantity, notes) {
-                                route = Route.Shopping
+                Route.Balances -> {
+                    val id = householdId ?: router?.currentHouseholdId()
+                    val real = id != null && id != LOCAL_HOUSEHOLD_ID
+                    LaunchedEffect(id) {
+                        if (real) {
+                            balancesController.open(id!!)
+                            // Works out who "you" are on this device, which decides where Venmo is offered.
+                            members.load(id)
+                        }
+                    }
+                    LiveBalancesScreen(
+                        balancesState,
+                        hasHousehold = real,
+                        onRefresh = balancesController::refresh,
+                        onTab = onTab,
+                        onSettle = balancesController::settle,
+                        onUndo = balancesController::undo,
+                        onPayWithVenmo = { transfer ->
+                            transfer.toVenmo?.let { username ->
+                                scope.launch {
+                                    urlOpener.payWithVenmo(username, transfer.amountCents.toLong(), VENMO_NOTE, venmoIds.idFor(username))
+                                }
                             }
                         },
-                        onToggle = { list.toggle(item.id) },
-                        onRemove = { list.remove(item.id) },
+                        onRequestWithVenmo = { transfer ->
+                            transfer.fromVenmo?.let { username ->
+                                scope.launch {
+                                    urlOpener.requestWithVenmo(username, transfer.amountCents.toLong(), VENMO_NOTE, venmoIds.idFor(username))
+                                }
+                            }
+                        },
+                        onSaveVenmo = balancesController::setVenmo,
+                        onEditVenmo = balancesController::dismissVenmoMessage,
+                        // The same "(you)" as the Account screen, once members have loaded from the server.
+                        meId = state.meId.takeIf { me -> state.people.any { it.id == me } && serverId.matches(me) },
+                    )
+                }
+
+                Route.Shopping -> {
+                    val household = activeHousehold()
+                    val list = if (household != null) serverShopping else localShopping
+                    LaunchedEffect(household) {
+                        list.open(household ?: LOCAL_HOUSEHOLD_ID)
+                        // Loads "me", who is recorded as having added items.
+                        if (household != null) members.load(household)
+                    }
+                    ShoppingListScreen(
+                        state = if (household != null) serverShoppingState else localShoppingState,
+                        suggestions = state.suggestions,
+                        onInput = list::type,
+                        onAdd = { list.add(it) },
+                        onToggle = list::toggle,
+                        onOpen = {
+                            list.dismissMessage()
+                            shoppingItemId = it
+                            route = Route.ShoppingItem
+                        },
+                        onRemove = { list.remove(it, offerUndo = true) },
+                        onUndoRemove = list::undoRemove,
+                        onAddSuggestion = { i -> state.addSuggestion(i)?.let { list.add(it) } },
+                        onRetry = list::refresh,
+                        onDismissMessage = list::dismissMessage,
                         onTab = onTab,
                     )
                 }
-            }
 
-            Route.Account -> AccountScreen(
-                me = state.me,
-                householdName = state.householdName,
-                people = state.people,
-                settings = state.settings,
-                onHouseholdNameChange = nameSync::edit,
-                householdNameMessage = nameSync.message,
-                onEditPerson = {
-                    editingId = it
-                    route = Route.EditPerson
-                },
-                onAddMember = {
-                    if (activeHousehold() != null) {
-                        route = Route.HouseholdSettings
+                Route.ShoppingItem -> {
+                    val household = activeHousehold()
+                    val list = if (household != null) serverShopping else localShopping
+                    val listState = if (household != null) serverShoppingState else localShoppingState
+                    val item = listState.items.find { it.id == shoppingItemId }
+                    if (item == null) {
+                        // Removed, here or by someone else.
+                        LaunchedEffect(Unit) { route = Route.Shopping }
                     } else {
-                        editingId = state.addPerson("New member")
-                        route = Route.EditPerson
+                        ShoppingItemScreen(
+                            item = item,
+                            saving = listState.saving,
+                            message = listState.message,
+                            onSave = { name, quantity, notes ->
+                                list.save(item.id, name, quantity, notes) {
+                                    route = Route.Shopping
+                                }
+                            },
+                            onToggle = { list.toggle(item.id) },
+                            onRemove = { list.remove(item.id) },
+                            onTab = onTab,
+                        )
                     }
-                },
-                onSettingsChange = { updated ->
-                    val before = state.settings
-                    state.settings = updated
-                    if (updated.autoAssign != before.autoAssign || updated.autoAssignThreshold != before.autoAssignThreshold) {
-                        autoAssign.change(updated.autoAssign, updated.autoAssignThreshold)
-                    }
-                },
-                settingsMessage = autoState.message,
-                apiConfig = apiConfig,
-                onApiConfigChange = onApiConfigChange,
-                onTab = onTab,
-                onOpenHouseholdSettings = { route = Route.HouseholdSettings },
-            )
-
-            Route.HouseholdSettings -> {
-                val id = householdId ?: router?.currentHouseholdId()
-                val form = remember {
-                    HouseholdSettingsState(
-                        load = {
-                            if (id == null || settingsApi == null) SettingsResult.Failure("Not connected")
-                            else settingsApi.load(id)
-                        },
-                        rename = { name ->
-                            if (id == null || settingsApi == null) SettingsResult.Failure("Not connected")
-                            else settingsApi.rename(id, name)
-                        },
-                        create = { name -> createPerson(id.orEmpty(), name) },
-                        archive = { personId ->
-                            if (id == null || settingsApi == null) SettingsResult.Failure("Not connected")
-                            else settingsApi.archive(id, personId)
-                        },
-                        setVenmo = { personId, username ->
-                            if (id == null || settingsApi == null) SettingsResult.Failure("Not connected")
-                            else settingsApi.setVenmo(id, personId, username)
-                        },
-                    )
                 }
-                HouseholdSettingsScreen(
-                    state = form,
-                    onBack = { route = Route.Account },
-                    onTab = onTab,
-                )
-            }
 
-            Route.EditPerson -> state.person(editingId)?.let { person ->
-                val household = activeHousehold()
-                EditPersonScreen(
-                    person = person,
-                    isMe = person.id == state.meId,
-                    canRemove = state.canRemove(person.id) && !members.busy,
-                    onChange = { updated ->
-                        state.updatePerson(updated)
-                        if (household != null && updated.name != person.name) members.rename(updated.id, updated.name)
+                Route.Account -> AccountScreen(
+                    me = state.me,
+                    householdName = state.householdName,
+                    people = state.people,
+                    settings = state.settings,
+                    onHouseholdNameChange = nameSync::edit,
+                    householdNameMessage = nameSync.message,
+                    onEditPerson = {
+                        editingId = it
+                        route = Route.EditPerson
                     },
-                    onRemove = {
-                        if (household == null) {
-                            route = Route.Account
-                            state.removePerson(person.id)
+                    onAddMember = {
+                        if (activeHousehold() != null) {
+                            route = Route.HouseholdSettings
                         } else {
-                            members.archive(person.id) { route = Route.Account }
+                            editingId = state.addPerson("New member")
+                            route = Route.EditPerson
                         }
                     },
-                    onDone = { route = Route.Account },
+                    onSettingsChange = { updated ->
+                        val before = state.settings
+                        state.settings = updated
+                        if (updated.autoAssign != before.autoAssign || updated.autoAssignThreshold != before.autoAssignThreshold) {
+                            autoAssign.change(updated.autoAssign, updated.autoAssignThreshold)
+                        }
+                    },
+                    settingsMessage = autoState.message,
+                    apiConfig = apiConfig,
+                    onApiConfigChange = onApiConfigChange,
                     onTab = onTab,
-                    nameMessage = members.message,
+                    onOpenHouseholdSettings = { route = Route.HouseholdSettings },
                 )
+
+                Route.HouseholdSettings -> {
+                    val id = householdId ?: router?.currentHouseholdId()
+                    val form = remember {
+                        HouseholdSettingsState(
+                            load = {
+                                if (id == null || settingsApi == null) SettingsResult.Failure("Not connected")
+                                else settingsApi.load(id)
+                            },
+                            rename = { name ->
+                                if (id == null || settingsApi == null) SettingsResult.Failure("Not connected")
+                                else settingsApi.rename(id, name)
+                            },
+                            create = { name -> createPerson(id.orEmpty(), name) },
+                            archive = { personId ->
+                                if (id == null || settingsApi == null) SettingsResult.Failure("Not connected")
+                                else settingsApi.archive(id, personId)
+                            },
+                            setVenmo = { personId, username ->
+                                if (id == null || settingsApi == null) SettingsResult.Failure("Not connected")
+                                else settingsApi.setVenmo(id, personId, username)
+                            },
+                        )
+                    }
+                    HouseholdSettingsScreen(
+                        state = form,
+                        onBack = { route = Route.Account },
+                        onTab = onTab,
+                    )
+                }
+
+                Route.EditPerson -> state.person(editingId)?.let { person ->
+                    val household = activeHousehold()
+                    EditPersonScreen(
+                        person = person,
+                        isMe = person.id == state.meId,
+                        canRemove = state.canRemove(person.id) && !members.busy,
+                        onChange = { updated ->
+                            state.updatePerson(updated)
+                            if (household != null && updated.name != person.name) members.rename(updated.id, updated.name)
+                        },
+                        onRemove = {
+                            if (household == null) {
+                                route = Route.Account
+                                state.removePerson(person.id)
+                            } else {
+                                members.archive(person.id) { route = Route.Account }
+                            }
+                        },
+                        onDone = { route = Route.Account },
+                        onTab = onTab,
+                        nameMessage = members.message,
+                    )
+                }
             }
         }
     }

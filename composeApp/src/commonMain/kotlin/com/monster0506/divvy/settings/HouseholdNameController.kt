@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.monster0506.divvy.data.api.ApiException
 import com.monster0506.divvy.data.api.ApiFailure
+import com.monster0506.divvy.data.api.OFFLINE_MESSAGE
 import com.monster0506.divvy.ui.state.validateHouseholdName
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -127,7 +128,7 @@ class HouseholdNameController(
 
 private fun Throwable.renameMessage(): String = when (this) {
     is ApiException -> when (val reason = failure) {
-        ApiFailure.Offline -> "Could not reach the server, so the name was not changed."
+        ApiFailure.Offline -> "$OFFLINE_MESSAGE The name was not changed."
         ApiFailure.Unauthorised -> "The server rejected the API key, so the name was not changed."
         is ApiFailure.Validation -> reason.error.message.ifBlank { "The server did not accept that name." }
         is ApiFailure.ServerError -> "The server could not save the name. Please try again."
