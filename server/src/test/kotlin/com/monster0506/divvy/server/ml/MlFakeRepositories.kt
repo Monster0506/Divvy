@@ -70,8 +70,6 @@ class FakeReceipts(@Volatile var all: List<Receipt>) : ReceiptRepository {
 
     override suspend fun deleteItem(receiptId: Uuid, itemId: Uuid): Receipt? = error("not used")
 
-    override suspend fun mergeItems(receiptId: Uuid, itemIds: List<Uuid>, description: String?): Receipt? = error("not used")
-
     override suspend fun confirm(id: Uuid): Receipt? = error("not used")
 
     override suspend fun confirmAssigned(id: Uuid): ConfirmResult = error("not used")

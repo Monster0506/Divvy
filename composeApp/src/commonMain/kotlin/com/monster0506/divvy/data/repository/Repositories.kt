@@ -100,9 +100,6 @@ class ReceiptRepository(private val api: DivvyApi) {
     suspend fun deleteItem(receiptId: String, itemId: String): ApiResult<EditedReceiptDto> =
         apiCall { api.deleteItem(receiptId, itemId) }
 
-    suspend fun mergeItems(receiptId: String, itemIds: List<String>, description: String? = null): ApiResult<EditedReceiptDto> =
-        apiCall { api.mergeItems(receiptId, itemIds, description) }
-
     suspend fun reopen(id: String): ApiResult<ReceiptDto> = apiCall { api.reopenReceipt(id) }
 
     suspend fun image(id: String): ApiResult<ByteArray> = apiCall { api.getReceiptImage(id) }

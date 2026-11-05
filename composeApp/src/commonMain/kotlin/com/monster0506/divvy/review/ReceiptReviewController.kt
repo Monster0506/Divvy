@@ -10,6 +10,7 @@ import com.monster0506.divvy.data.dto.UpdateReceiptRequest
 import com.monster0506.divvy.data.dto.PersonDto
 import com.monster0506.divvy.data.dto.ReceiptDto
 import com.monster0506.divvy.data.dto.ReceiptStatusDto
+import com.monster0506.divvy.domain.edited
 import com.monster0506.divvy.ui.model.Person
 import com.monster0506.divvy.ui.model.ReceiptDraft
 import com.monster0506.divvy.ui.model.ReceiptLine
@@ -22,6 +23,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlin.math.roundToLong
 
 /** The receipt's own fields as a person typed them. [dateIso] is `YYYY-MM-DD`. */
 data class ReceiptDetailsEdit(val store: String, val dateIso: String, val taxCents: Int, val totalCents: Int)
@@ -205,24 +207,68 @@ class ReceiptReviewController(
         edit { api.updateDetails(receiptId, change) }
     }
 
-    /** Renames a line and changes its price. */
-    fun editLine(lineId: Int, name: String, priceCents: Int) {
+    /**
+     * Renames a line and sets how many were bought and the price of one; the total follows, less any discount.
+     * The change shows at once and is put back if the server refuses it.
+     */
+    fun editLine(lineId: Int, name: String, quantity: Double, eachCents: Int) {
         val itemId = itemIds[lineId] ?: return
-        edit { api.updateItem(receiptId, itemId, ItemEditRequest(description = name.trim(), totalMinor = priceCents.toLong())) }
+        val before = mutableState.value.draft?.lines?.find { it.id == lineId } ?: return
+        if (mutableState.value.phase != ReviewPhase.Ready || quantity <= 0) return
+        val after = before.edited(name.trim(), quantity, eachCents)
+        updateLine(lineId) { it.copy(name = after.name, quantity = after.quantity, unitCents = after.unitCents, priceCents = after.priceCents) }
+        val change = ItemEditRequest(
+            description = after.name,
+            totalMinor = after.priceCents.toLong(),
+            quantity = quantity,
+            unitPriceMinor = eachCents.toLong(),
+        )
+        edit(onFailure = {
+            updateLine(lineId) {
+                it.copy(name = before.name, quantity = before.quantity, unitCents = before.unitCents, priceCents = before.priceCents)
+            }
+        }) { api.updateItem(receiptId, itemId, change) }
     }
 
-    fun addLine(name: String, priceCents: Int) {
-        edit { api.addItem(receiptId, ItemEditRequest(description = name.trim(), totalMinor = priceCents.toLong())) }
+    fun addLine(name: String, quantity: Double, eachCents: Int) {
+        if (quantity <= 0) return
+        val item = ItemEditRequest(
+            description = name.trim(),
+            totalMinor = (eachCents * quantity).roundToLong(),
+            quantity = quantity,
+            unitPriceMinor = eachCents.toLong(),
+        )
+        edit { api.addItem(receiptId, item) }
     }
 
-    /** Removes a line. [undoDelete] puts it back (without its owners). */
+    /** Removes a line at once, or puts it back if the server refuses. [undoDelete] restores it (without its owners). */
     fun deleteLine(lineId: Int) {
         val itemId = itemIds[lineId] ?: return
-        val line = mutableState.value.draft?.lines?.find { it.id == lineId } ?: return
-        val removed = ItemEditRequest(description = line.name, totalMinor = line.priceCents.toLong())
-        edit(onSuccess = { lastDeleted = removed; mutableState.update { it.copy(canUndo = true) } }) {
-            api.deleteItem(receiptId, itemId)
+        val lines = mutableState.value.draft?.lines ?: return
+        val index = lines.indexOfFirst { it.id == lineId }
+        if (index < 0 || mutableState.value.phase != ReviewPhase.Ready) return
+        val line = lines[index]
+        val removed = ItemEditRequest(
+            description = line.name,
+            totalMinor = line.priceCents.toLong(),
+            quantity = line.quantity,
+            unitPriceMinor = line.unitCents?.toLong(),
+            discountMinor = line.discountCents.toLong().takeIf { it != 0L },
+        )
+        mutableState.update { state ->
+            state.copy(draft = state.draft?.let { d -> d.copy(lines = d.lines.filterNot { it.id == lineId }) })
         }
+        edit(
+            onSuccess = { lastDeleted = removed; mutableState.update { it.copy(canUndo = true) } },
+            onFailure = {
+                mutableState.update { state ->
+                    val draft = state.draft ?: return@update state
+                    if (draft.lines.any { it.id == lineId }) return@update state
+                    val back = draft.lines.toMutableList().apply { add(index.coerceAtMost(size), line) }
+                    state.copy(draft = draft.copy(lines = back))
+                }
+            },
+        ) { api.deleteItem(receiptId, itemId) }
     }
 
     fun undoDelete() {
@@ -230,13 +276,6 @@ class ReceiptReviewController(
         edit(onSuccess = { lastDeleted = null; mutableState.update { it.copy(canUndo = false) } }) {
             api.addItem(receiptId, removed)
         }
-    }
-
-    /** Combines lines into the first of them, adding their prices. */
-    fun mergeLines(lineIds: Set<Int>) {
-        val ids = lineIds.sorted().mapNotNull { itemIds[it] }
-        if (ids.size < 2) return
-        edit { api.mergeItems(receiptId, ids) }
     }
 
     fun confirm() {
@@ -263,7 +302,7 @@ class ReceiptReviewController(
     }
 
     /** Sends a change to the server and shows the receipt it answers with, or says why it could not be saved. */
-    private fun edit(onSuccess: () -> Unit = {}, call: suspend () -> ApiResult<EditedReceiptDto>) {
+    private fun edit(onSuccess: () -> Unit = {}, onFailure: () -> Unit = {}, call: suspend () -> ApiResult<EditedReceiptDto>) {
         if (mutableState.value.phase != ReviewPhase.Ready) return
         scope.launch {
             when (val result = writes.withLock { call() }) {
@@ -271,8 +310,10 @@ class ReceiptReviewController(
                     onSuccess()
                     applyEdited(result.value)
                 }
-                is ApiResult.Failure ->
+                is ApiResult.Failure -> {
+                    onFailure()
                     mutableState.update { it.copy(message = "Could not save that change. ${describe(result.failure)}") }
+                }
             }
         }
     }
@@ -299,6 +340,9 @@ class ReceiptReviewController(
                     confidence = old?.confidence ?: 0f,
                     confirmed = chosenOwners.isNotEmpty() && chosenOwners == persistedOwners &&
                         previousOwners[item.id] == persistedOwners && previousConfirmed[item.id] == true,
+                    quantity = item.quantity.takeIf { it > 0 } ?: 1.0,
+                    unitCents = item.unitPriceMinor?.toInt(),
+                    discountCents = item.discountMinor.toInt(),
                 )
             }
             itemIds = ids

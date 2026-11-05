@@ -35,7 +35,7 @@ object SampleData {
             line(4, "Basmati Rice 10lb", 1799, everyone, 0.90f),
             line(5, "Eggs 18ct", 549, everyone, 0.89f),
             line(6, "Fresh Cilantro", 129, setOf("su", "sv"), 0.58f),
-            line(7, "Serrano Peppers", 189, setOf("su", "sv"), 0.52f),
+            line(7, "Serrano Peppers", 189, setOf("su", "sv"), 0.52f).copy(quantity = 3.0, unitCents = 63),
             line(8, "Sandwich Bread", 429, setOf("an", "tj"), 0.61f),
         ),
     )

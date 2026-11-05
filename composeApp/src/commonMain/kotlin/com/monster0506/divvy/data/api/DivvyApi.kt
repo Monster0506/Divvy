@@ -14,7 +14,6 @@ import com.monster0506.divvy.data.dto.CreateSettlementRequest
 import com.monster0506.divvy.data.dto.SettlementDto
 import com.monster0506.divvy.data.dto.EditedReceiptDto
 import com.monster0506.divvy.data.dto.ItemEditRequest
-import com.monster0506.divvy.data.dto.MergeItemsRequest
 import com.monster0506.divvy.data.dto.MlSettingsDto
 import com.monster0506.divvy.data.dto.ReceiptPageDto
 import com.monster0506.divvy.data.dto.UpdateReceiptRequest
@@ -153,10 +152,6 @@ class DivvyApi(private val client: HttpClient) {
 
     suspend fun deleteItem(receiptId: String, itemId: String): EditedReceiptDto =
         send { client.delete("receipts/$receiptId/items/$itemId") }
-
-    /** Combines items into the first one (lowest line), summing their prices. */
-    suspend fun mergeItems(receiptId: String, itemIds: List<String>, description: String? = null): EditedReceiptDto =
-        send { client.post("receipts/$receiptId/items/merge") { setBody(MergeItemsRequest(itemIds, description)) } }
 
     suspend fun getMlSettings(householdId: String): MlSettingsDto =
         send { client.get("households/${householdId.seg()}/ml/settings") }

@@ -42,6 +42,10 @@ data class Settings(
     val autoAssignThreshold: Float = 0.85f,
 )
 
+/**
+ * One receipt line. [priceCents] is the line total after its discount; [quantity] can be fractional for weighed
+ * items. [unitCents] is the price of one when the receipt printed it or a person typed it.
+ */
 data class ReceiptLine(
     val id: Int,
     val name: String,
@@ -49,6 +53,9 @@ data class ReceiptLine(
     val owners: Set<String>,
     val confidence: Float,
     val confirmed: Boolean,
+    val quantity: Double = 1.0,
+    val unitCents: Int? = null,
+    val discountCents: Int = 0,
 )
 
 data class ReceiptDraft(

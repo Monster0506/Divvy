@@ -11,43 +11,77 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.monster0506.divvy.domain.centsToInput
-import com.monster0506.divvy.domain.parsePriceCents
+import com.monster0506.divvy.domain.eachCents
+import com.monster0506.divvy.domain.edited
+import com.monster0506.divvy.domain.formatQuantity
 import com.monster0506.divvy.domain.parseDateInput
+import com.monster0506.divvy.domain.parsePriceCents
+import com.monster0506.divvy.domain.totalFor
 import com.monster0506.divvy.ui.components.AppScaffold
 import com.monster0506.divvy.ui.components.DivvyIcons
 import com.monster0506.divvy.ui.components.OwnerPicker
@@ -64,7 +98,13 @@ import com.monster0506.divvy.ui.preview.SampleData
 import com.monster0506.divvy.ui.theme.DivvyColors
 import com.monster0506.divvy.ui.theme.DivvyTheme
 import androidx.compose.ui.tooling.preview.Preview
+import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
 
+/**
+ * Tapping a line's name or price opens it in place for typing; the ×N pill opens a quantity stepper whose − becomes
+ * delete at one; swiping a line either way deletes it, with an undo bar at the bottom.
+ */
 @Composable
 fun ReviewReceiptScreen(
     draft: ReceiptDraft,
@@ -74,10 +114,9 @@ fun ReviewReceiptScreen(
     onToggleAuto: () -> Unit,
     onConfirmSplit: () -> Unit,
     onTab: (Tab) -> Unit = {},
-    onEditLine: (lineId: Int, name: String, priceCents: Int) -> Unit = { _, _, _ -> },
-    onAddLine: (name: String, priceCents: Int) -> Unit = { _, _ -> },
+    onEditLine: (lineId: Int, name: String, quantity: Double, eachCents: Int) -> Unit = { _, _, _, _ -> },
+    onAddLine: (name: String, quantity: Double, eachCents: Int) -> Unit = { _, _, _ -> },
     onDeleteLine: (lineId: Int) -> Unit = {},
-    onMergeLines: (Set<Int>) -> Unit = {},
     canUndo: Boolean = false,
     onUndo: () -> Unit = {},
     notice: String? = null,
@@ -85,18 +124,133 @@ fun ReviewReceiptScreen(
     onEditDetails: ((String, String, Int, Int) -> Unit)? = null,
 ) {
     var choosingPayer by remember { mutableStateOf(false) }
-    var editing by remember { mutableStateOf<ReceiptLine?>(null) }
-    var adding by remember { mutableStateOf(false) }
-    var merging by remember { mutableStateOf(false) }
     var editingDetails by remember { mutableStateOf(false) }
-    var selected by remember { mutableStateOf(emptySet<Int>()) }
-    val onLineClick = { line: ReceiptLine ->
-        if (merging) selected = if (line.id in selected) selected - line.id else selected + line.id
-        else editing = line
+    var editor by remember { mutableStateOf<LineEditor?>(null) }
+    // The line whose ×N pill is open as a stepper; [stepTouches] restarts its close timer.
+    var stepping by remember { mutableStateOf<Int?>(null) }
+    var stepTouches by remember { mutableIntStateOf(0) }
+    // Stepper taps wait here briefly so a run of taps is saved once.
+    var pendingQuantity by remember { mutableStateOf(emptyMap<Int, Double>()) }
+    var deletedName by remember { mutableStateOf("") }
+    var undoShown by remember { mutableStateOf(false) }
+    var deletions by remember { mutableIntStateOf(0) }
+    val currentDraft by rememberUpdatedState(draft)
+    val editLine by rememberUpdatedState(onEditLine)
+    val addLine by rememberUpdatedState(onAddLine)
+
+    fun saveQuantities() {
+        pendingQuantity.forEach { (id, quantity) ->
+            val line = currentDraft.lines.find { it.id == id } ?: return@forEach
+            if (quantity != line.quantity) editLine(id, line.name, quantity, line.eachCents)
+        }
+        pendingQuantity = emptyMap()
     }
+
+    /** Saves what was typed. A blank name or an unreadable price leaves the line as it was. */
+    fun save(typed: LineEditor) {
+        val name = typed.name.text.trim()
+        val cents = parsePriceCents(typed.price.text) ?: return
+        if (name.isEmpty()) return
+        if (typed.lineId == null) return addLine(name, typed.quantity, cents)
+        val line = currentDraft.lines.find { it.id == typed.lineId } ?: return
+        if (name != line.name || typed.quantity != line.quantity || cents != line.eachCents) {
+            editLine(line.id, name, typed.quantity, cents)
+        }
+    }
+
+    fun openEditor(next: LineEditor?) {
+        editor?.let(::save)
+        editor = next
+        stepping = null
+    }
+
+    fun tapLine(line: ReceiptLine, field: LineField) {
+        val quantity = pendingQuantity[line.id] ?: line.quantity
+        pendingQuantity = pendingQuantity - line.id
+        openEditor(LineEditor.of(line, quantity, field))
+    }
+
+    fun delete(line: ReceiptLine) {
+        if (editor?.lineId == line.id) editor = null
+        stepping = null
+        pendingQuantity = pendingQuantity - line.id
+        deletedName = line.name
+        undoShown = true
+        deletions++
+        onDeleteLine(line.id)
+    }
+
+    fun step(line: ReceiptLine, quantity: Double) {
+        pendingQuantity = pendingQuantity + (line.id to quantity)
+        stepTouches++
+    }
+
+    LaunchedEffect(pendingQuantity) {
+        if (pendingQuantity.isEmpty()) return@LaunchedEffect
+        delay(600)
+        saveQuantities()
+    }
+    LaunchedEffect(stepping, stepTouches) {
+        if (stepping == null) return@LaunchedEffect
+        delay(2_600)
+        stepping = null
+    }
+    LaunchedEffect(deletions) {
+        if (!undoShown) return@LaunchedEffect
+        delay(6_000)
+        undoShown = false
+    }
+    // Leaving the screen keeps what was typed or stepped instead of dropping it.
+    DisposableEffect(Unit) {
+        onDispose {
+            editor?.let(::save)
+            saveQuantities()
+        }
+    }
+
     val pendingCount = draft.lines.count { !it.confirmed }
     val autoCount = draft.lines.size - pendingCount
-    AppScaffold(selected = Tab.Receipts, onSelect = onTab) {
+    val lineRow: @Composable (ReceiptLine) -> Unit = { saved ->
+        val line = pendingQuantity[saved.id]?.let { saved.edited(saved.name, it, saved.eachCents) } ?: saved
+        val open = editor?.takeIf { it.lineId == line.id }
+        if (open != null) {
+            LineEditorRow(
+                editor = open,
+                line = line,
+                onChange = { editor = it },
+                onDone = { if (open.priceIsReadable) openEditor(null) },
+                onDelete = { delete(line) },
+            ) {
+                OwnerPicker(draft.people, line.owners, onToggle = { onToggleOwner(line.id, it) }) {
+                    ConfirmButton(line, onConfirmLine)
+                }
+            }
+        } else {
+            SwipeToDelete(onDelete = { delete(line) }) {
+                LineRow(
+                    line = line,
+                    draft = draft,
+                    stepping = stepping == line.id,
+                    onName = { tapLine(saved, LineField.Name) },
+                    onPrice = { tapLine(saved, LineField.Price) },
+                    onQuantity = { openEditor(null); stepping = line.id; stepTouches++ },
+                    onFewer = { if (line.quantity <= 1.0) delete(line) else step(saved, line.quantity - 1) },
+                    onMore = { step(saved, line.quantity + 1) },
+                    onToggleOwner = onToggleOwner,
+                    onConfirmLine = onConfirmLine,
+                )
+            }
+        }
+    }
+    AppScaffold(
+        selected = Tab.Receipts,
+        onSelect = onTab,
+        bottomBar = {
+            AnimatedVisibility(canUndo && undoShown) {
+                DeletedBanner(deletedName, onUndo = { onUndo(); undoShown = false })
+            }
+        },
+    ) {
         ScreenHeader(
             title = draft.store,
             metaStart = draft.date,
@@ -114,34 +268,38 @@ fun ReviewReceiptScreen(
             action = if (onEditDetails != null) ({ TextButton(onClick = { editingDetails = true }) { Text("Edit") } }) else null,
         )
         if (notice != null) SectionHeader(notice, warn = true)
-        EditBar(
-            merging = merging,
-            selectedCount = selected.size,
-            canUndo = canUndo,
-            onAdd = { adding = true },
-            onToggleMerge = { merging = !merging; selected = emptySet() },
-            onMerge = { onMergeLines(selected); merging = false; selected = emptySet() },
-            onUndo = onUndo,
-        )
         AnimatedVisibility(pendingCount > 0) {
             SectionHeader("Needs confirmation", pendingCount.toString(), warn = true)
         }
         draft.lines.forEach { line ->
             key(line.id) {
-                AnimatedVisibility(visible = !line.confirmed) {
-                    LineRow(line, draft, line.id in selected, { onLineClick(line) }, onToggleOwner, onConfirmLine)
-                }
+                AnimatedVisibility(visible = !line.confirmed) { lineRow(line) }
             }
         }
         AutoHeader(autoCount, autoExpanded, onToggleAuto)
         draft.lines.forEach { line ->
             key(line.id) {
-                AnimatedVisibility(visible = line.confirmed && autoExpanded) {
-                    LineRow(line, draft, line.id in selected, { onLineClick(line) }, onToggleOwner, onConfirmLine)
-                }
+                AnimatedVisibility(visible = line.confirmed && autoExpanded) { lineRow(line) }
             }
         }
-        Totals(draft, pendingCount, onConfirmSplit, needsPayer = onChoosePayer != null && !draft.payerChosen)
+        val adding = editor?.takeIf { it.lineId == null }
+        if (adding != null) {
+            LineEditorRow(
+                editor = adding,
+                line = null,
+                onChange = { editor = it },
+                onDone = { if (adding.priceIsReadable) openEditor(null) },
+                onDelete = { editor = null },
+            )
+        } else {
+            AddLineButton(onClick = { openEditor(LineEditor.Blank) })
+        }
+        Totals(
+            draft,
+            pendingCount,
+            onConfirmSplit = { openEditor(null); saveQuantities(); onConfirmSplit() },
+            needsPayer = onChoosePayer != null && !draft.payerChosen,
+        )
     }
     if (choosingPayer && onChoosePayer != null) {
         PayerDialog(
@@ -156,25 +314,36 @@ fun ReviewReceiptScreen(
             editingDetails = false
         })
     }
-    editing?.let { line ->
-        LineDialog(
-            title = "Edit item",
-            initialName = line.name,
-            initialPrice = centsToInput(line.priceCents),
-            onDismiss = { editing = null },
-            onSave = { name, cents -> onEditLine(line.id, name, cents); editing = null },
-            onDelete = { onDeleteLine(line.id); editing = null },
-        )
-    }
-    if (adding) {
-        LineDialog(
-            title = "Add item",
-            initialName = "",
-            initialPrice = "",
-            onDismiss = { adding = false },
-            onSave = { name, cents -> onAddLine(name, cents); adding = false },
-            onDelete = null,
-        )
+}
+
+private enum class LineField { Name, Price }
+
+/** What is being typed into an open line; a null [lineId] is a line being added. */
+private data class LineEditor(
+    val lineId: Int?,
+    val name: TextFieldValue,
+    val price: TextFieldValue,
+    val quantity: Double,
+    val focus: LineField,
+) {
+    /** An empty price is allowed (it discards the edit); anything else must be an amount. */
+    val priceIsReadable get() = price.text.isBlank() || parsePriceCents(price.text) != null
+
+    companion object {
+        val Blank = LineEditor(null, TextFieldValue(), TextFieldValue(), 1.0, LineField.Name)
+
+        /** Opens [line] with the cursor after its name, or with its price selected so typing replaces it. */
+        fun of(line: ReceiptLine, quantity: Double, focus: LineField): LineEditor {
+            val price = centsToInput(line.eachCents)
+            val priceSelection = if (focus == LineField.Price) TextRange(0, price.length) else TextRange(price.length)
+            return LineEditor(
+                line.id,
+                TextFieldValue(line.name, TextRange(line.name.length)),
+                TextFieldValue(price, priceSelection),
+                quantity,
+                focus,
+            )
+        }
     }
 }
 
@@ -239,73 +408,192 @@ private fun PayerDialog(draft: ReceiptDraft, onDismiss: () -> Unit, onPick: (Str
 }
 
 @Composable
-private fun EditBar(
-    merging: Boolean,
-    selectedCount: Int,
-    canUndo: Boolean,
-    onAdd: () -> Unit,
-    onToggleMerge: () -> Unit,
-    onMerge: () -> Unit,
-    onUndo: () -> Unit,
-) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (merging) {
-            TextButton(onClick = onMerge, enabled = selectedCount >= 2) {
-                Text("Merge $selectedCount selected", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+private fun DeletedBanner(name: String, onUndo: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().background(DivvyColors.Page).padding(horizontal = 20.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("Deleted $name", Modifier.weight(1f), fontSize = 13.sp, color = DivvyColors.Ink, maxLines = 1)
+        TextButton(onClick = onUndo) { Text("Undo") }
+    }
+}
+
+@Composable
+private fun AddLineButton(onClick: () -> Unit) {
+    val shape = RoundedCornerShape(10.dp)
+    Box(
+        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)
+            .drawBehind {
+                drawRoundRect(
+                    color = DivvyColors.Outline,
+                    style = Stroke(1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 4.dp.toPx()))),
+                    cornerRadius = CornerRadius(10.dp.toPx()),
+                )
             }
-            TextButton(onClick = onToggleMerge) { Text("Cancel", fontSize = 13.sp, color = DivvyColors.Dim) }
-        } else {
-            TextButton(onClick = onAdd) { Text("Add item", fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
-            TextButton(onClick = onToggleMerge) { Text("Merge", fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
-            if (canUndo) {
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = onUndo) { Text("Undo delete", fontSize = 13.sp, color = DivvyColors.Accent) }
+            .clip(shape)
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text("+ Add item", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = DivvyColors.Accent)
+    }
+}
+
+/** Swiping the line either way deletes it; screen readers get a Delete action instead. */
+@Composable
+private fun SwipeToDelete(onDelete: () -> Unit, content: @Composable () -> Unit) {
+    val swipe = rememberSwipeToDismissBoxState()
+    SwipeToDismissBox(
+        state = swipe,
+        onDismiss = { onDelete() },
+        modifier = Modifier.semantics {
+            customActions = listOf(CustomAccessibilityAction("Delete") { onDelete(); true })
+        },
+        backgroundContent = {
+            val toEnd = swipe.dismissDirection == SwipeToDismissBoxValue.StartToEnd
+            val armed = swipe.targetValue != SwipeToDismissBoxValue.Settled
+            Box(
+                Modifier.fillMaxSize().background(DivvyColors.Warn.copy(alpha = if (armed) 1f else 0.7f)).padding(horizontal = 20.dp),
+                contentAlignment = if (toEnd) Alignment.CenterStart else Alignment.CenterEnd,
+            ) {
+                Text("Delete", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
             }
+        },
+    ) {
+        Box(Modifier.background(DivvyColors.Surface)) { content() }
+    }
+}
+
+@Composable
+private fun QuantityPill(quantity: Double, onClick: () -> Unit) {
+    Box(
+        Modifier.clip(CircleShape).border(1.dp, DivvyColors.Outline, CircleShape)
+            .clickable(onClickLabel = "Change quantity", onClick = onClick)
+            .padding(horizontal = 9.dp, vertical = 3.dp),
+    ) {
+        Text("×${formatQuantity(quantity)}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = DivvyColors.Ink)
+    }
+}
+
+/** At one or less, − deletes the line. */
+@Composable
+private fun QuantityStepper(quantity: Double, onFewer: () -> Unit, onMore: () -> Unit, compact: Boolean = false) {
+    val side = if (compact) 30.dp else 36.dp
+    Row(
+        Modifier.height(side).clip(CircleShape).border(1.dp, DivvyColors.Outline, CircleShape).background(DivvyColors.Surface),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val last = quantity <= 1.0
+        Box(
+            Modifier.size(side).clickable(onClickLabel = if (last) "Delete item" else "One fewer", onClick = onFewer),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (last) Icon(DivvyIcons.Delete, contentDescription = "Delete item", Modifier.size(17.dp), tint = DivvyColors.Warn)
+            else Text("−", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = DivvyColors.Ink)
+        }
+        Text(
+            formatQuantity(quantity),
+            Modifier.widthIn(min = 18.dp),
+            textAlign = TextAlign.Center,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+            color = DivvyColors.Ink,
+        )
+        Box(Modifier.size(side).clickable(onClickLabel = "One more", onClick = onMore), contentAlignment = Alignment.Center) {
+            Text("+", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = DivvyColors.Ink)
         }
     }
 }
 
 @Composable
-private fun LineDialog(
-    title: String,
-    initialName: String,
-    initialPrice: String,
-    onDismiss: () -> Unit,
-    onSave: (name: String, priceCents: Int) -> Unit,
-    onDelete: (() -> Unit)?,
+private fun FieldLabel(text: String) {
+    Text(text, Modifier.padding(bottom = 4.dp), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = DivvyColors.Dim)
+}
+
+/** A line open for typing. [line] is null for a new line, which has no owners yet. */
+@Composable
+private fun LineEditorRow(
+    editor: LineEditor,
+    line: ReceiptLine?,
+    onChange: (LineEditor) -> Unit,
+    onDone: () -> Unit,
+    onDelete: () -> Unit,
+    owners: (@Composable () -> Unit)? = null,
 ) {
-    var name by remember { mutableStateOf(initialName) }
-    var price by remember { mutableStateOf(initialPrice) }
-    val cents = parsePriceCents(price)
-    val canSave = cents != null && name.isNotBlank()
-    val save = { onSave(name.trim(), cents!!) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(name, { name = it }, label = { Text("Description") }, singleLine = true)
-                OutlinedTextField(
-                    price,
-                    { price = it },
-                    label = { Text("Price") },
-                    singleLine = true,
-                    isError = price.isNotEmpty() && cents == null,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = { if (canSave) save() }),
+    val nameFocus = remember { FocusRequester() }
+    val priceFocus = remember { FocusRequester() }
+    LaunchedEffect(editor.lineId) {
+        (if (editor.focus == LineField.Name) nameFocus else priceFocus).requestFocus()
+    }
+    val cents = parsePriceCents(editor.price.text)
+    val discount = line?.discountCents ?: 0
+    val total = cents?.let { line?.totalFor(editor.quantity, it) ?: (it * editor.quantity).roundToInt() }
+    Column(
+        Modifier.fillMaxWidth().background(DivvyColors.Page.copy(alpha = 0.45f))
+            .drawBehind { drawRect(DivvyColors.Accent, size = Size(3.dp.toPx(), size.height)) }
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+    ) {
+        OutlinedTextField(
+            value = editor.name,
+            onValueChange = { onChange(editor.copy(name = it)) },
+            placeholder = { Text("Item name") },
+            singleLine = true,
+            shape = RoundedCornerShape(8.dp),
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Next),
+            keyboardActions = KeyboardActions(onNext = {
+                onChange(editor.copy(price = editor.price.copy(selection = TextRange(0, editor.price.text.length))))
+                priceFocus.requestFocus()
+            }),
+            modifier = Modifier.fillMaxWidth().focusRequester(nameFocus),
+        )
+        Spacer(Modifier.height(10.dp))
+        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedTextField(
+                value = editor.price,
+                onValueChange = { onChange(editor.copy(price = it)) },
+                label = { Text(if (editor.quantity == 1.0 && discount == 0) "Price" else "Price each") },
+                placeholder = { Text("0.00") },
+                singleLine = true,
+                isError = !editor.priceIsReadable,
+                shape = RoundedCornerShape(8.dp),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { onDone() }),
+                modifier = Modifier.weight(1f).focusRequester(priceFocus),
+            )
+            Column(Modifier.padding(bottom = 10.dp)) {
+                FieldLabel("Qty")
+                QuantityStepper(
+                    editor.quantity,
+                    onFewer = { if (editor.quantity <= 1.0) onDelete() else onChange(editor.copy(quantity = editor.quantity - 1)) },
+                    onMore = { onChange(editor.copy(quantity = editor.quantity + 1)) },
                 )
             }
-        },
-        confirmButton = {
-            TextButton(onClick = save, enabled = canSave) { Text("Save") }
-        },
-        dismissButton = {
-            Row {
-                if (onDelete != null) TextButton(onClick = onDelete) { Text("Delete", color = DivvyColors.Warn) }
-                TextButton(onClick = onDismiss) { Text("Cancel") }
+            Column(Modifier.padding(bottom = 10.dp), horizontalAlignment = Alignment.End) {
+                FieldLabel("Total")
+                Text(
+                    total?.toMoney() ?: "—",
+                    Modifier.padding(vertical = 6.dp),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = DivvyColors.Ink,
+                )
             }
-        },
-    )
+        }
+        if (discount != 0) {
+            Text("After a ${discount.toMoney()} discount", fontSize = 12.sp, color = DivvyColors.Dim)
+        }
+        if (owners != null) {
+            Spacer(Modifier.height(10.dp))
+            owners()
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = onDone) {
+                Text("Done", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = DivvyColors.Accent)
+            }
+        }
+    }
+    RowDivider()
 }
 
 @Composable
@@ -334,19 +622,39 @@ private fun AutoHeader(count: Int, expanded: Boolean, onClick: () -> Unit) {
 private fun LineRow(
     line: ReceiptLine,
     draft: ReceiptDraft,
-    selected: Boolean,
-    onClick: () -> Unit,
+    stepping: Boolean,
+    onName: () -> Unit,
+    onPrice: () -> Unit,
+    onQuantity: () -> Unit,
+    onFewer: () -> Unit,
+    onMore: () -> Unit,
     onToggleOwner: (Int, String) -> Unit,
     onConfirmLine: (Int) -> Unit,
 ) {
     Column {
         Column(
-            Modifier.fillMaxWidth().background(if (selected) DivvyColors.Page else Color.Transparent)
-                .padding(horizontal = 20.dp, vertical = 12.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
         ) {
-            Row(Modifier.fillMaxWidth().clickable(onClick = onClick), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(line.name, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = DivvyColors.Ink)
-                Text(line.priceCents.toMoney(), fontSize = 15.sp, fontWeight = FontWeight.Medium, color = DivvyColors.Ink)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    line.name,
+                    Modifier.weight(1f).clickable(onClickLabel = "Edit name", onClick = onName),
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = DivvyColors.Ink,
+                )
+                Spacer(Modifier.size(8.dp))
+                if (stepping) QuantityStepper(line.quantity, onFewer, onMore, compact = true)
+                else QuantityPill(line.quantity, onQuantity)
+                Text(
+                    line.priceCents.toMoney(),
+                    Modifier.padding(start = 4.dp).clip(RoundedCornerShape(6.dp))
+                        .clickable(onClickLabel = "Edit price", onClick = onPrice)
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = DivvyColors.Ink,
+                )
             }
             if (line.confirmed) {
                 Text(line.ownersLabel(draft.people), fontSize = 12.sp, color = DivvyColors.Dim)
@@ -360,15 +668,19 @@ private fun LineRow(
             }
             Spacer(Modifier.height(9.dp))
             OwnerPicker(draft.people, line.owners, onToggle = { onToggleOwner(line.id, it) }) {
-                if (!line.confirmed) {
-                    Spacer(Modifier.weight(1f))
-                    TextButton(onClick = { onConfirmLine(line.id) }, enabled = line.owners.isNotEmpty()) {
-                        Text("Confirm", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = DivvyColors.Accent)
-                    }
-                }
+                ConfirmButton(line, onConfirmLine)
             }
         }
         RowDivider()
+    }
+}
+
+@Composable
+private fun RowScope.ConfirmButton(line: ReceiptLine, onConfirmLine: (Int) -> Unit) {
+    if (line.confirmed) return
+    Spacer(Modifier.weight(1f))
+    TextButton(onClick = { onConfirmLine(line.id) }, enabled = line.owners.isNotEmpty()) {
+        Text("Confirm", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = DivvyColors.Accent)
     }
 }
 

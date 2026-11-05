@@ -38,6 +38,8 @@ private fun person(id: String, name: String, archived: Boolean = false) =
 private fun item(id: String, line: Int, name: String, cents: Long, vararg owners: ItemOwnerReadDto) =
     ReceiptItemDto(id, name, MoneyDto(cents), lineNumber = line, rawText = name.uppercase(), owners = owners.toList())
 
+private fun EditedItemDto.times(quantity: Double, unitMinor: Long) = copy(quantity = quantity, unitPriceMinor = unitMinor)
+
 private fun guess(person: String, confidence: Double) = ItemOwnerReadDto(person, source = "model", confidence = confidence)
 
 private fun receipt(
@@ -83,6 +85,8 @@ private class FakeApi : ReviewApi {
     var retryResult: ApiResult<ReceiptUploadDto> = ApiResult.Success(ReceiptUploadDto("r1", "processing"))
 
     val calls = mutableListOf<String>()
+    /** Every line sent to add or update, to check the quantity and price of one. */
+    val sentItems = mutableListOf<ItemEditRequest>()
     var pollCount = 0
 
     override suspend fun receipt(id: String): ApiResult<ReceiptDto> {
@@ -129,21 +133,18 @@ private class FakeApi : ReviewApi {
 
     override suspend fun addItem(receiptId: String, item: ItemEditRequest): ApiResult<EditedReceiptDto> {
         calls += "add:${item.description}:${item.totalMinor}"
+        sentItems += item
         return editResult
     }
 
     override suspend fun updateItem(receiptId: String, itemId: String, change: ItemEditRequest): ApiResult<EditedReceiptDto> {
         calls += "update:$itemId:${change.description}:${change.totalMinor}"
+        sentItems += change
         return editResult
     }
 
     override suspend fun deleteItem(receiptId: String, itemId: String): ApiResult<EditedReceiptDto> {
         calls += "delete:$itemId"
-        return editResult
-    }
-
-    override suspend fun mergeItems(receiptId: String, itemIds: List<String>): ApiResult<EditedReceiptDto> {
-        calls += "merge:$itemIds"
         return editResult
     }
 }
@@ -546,7 +547,7 @@ class ReceiptReviewControllerTest {
             line("i3", 3, "mystery thing", 250),
         ))
 
-        c.editLine(2, "milk", 398)
+        c.editLine(2, "milk", 1.0, 398)
         advanceUntilIdle()
 
         assertEquals(setOf("p1", "p2"), c.state.value.draft!!.lines[1].owners)
@@ -685,7 +686,7 @@ class ReceiptReviewControllerTest {
             ),
         )
 
-        c.editLine(2, "  whole milk ", 410)
+        c.editLine(2, "  whole milk ", 1.0, 410)
         advanceUntilIdle()
 
         assertEquals("update:i2:whole milk:410", api.calls.last())
@@ -705,7 +706,7 @@ class ReceiptReviewControllerTest {
         val c = ready(api)
         val before = c.state.value.draft
 
-        c.editLine(1, "x", 1)
+        c.editLine(1, "x", 1.0, 1)
         advanceUntilIdle()
 
         assertEquals(before, c.state.value.draft)
@@ -768,7 +769,7 @@ class ReceiptReviewControllerTest {
             ),
         )
 
-        c.addLine("paper towels", 899)
+        c.addLine("paper towels", 1.0, 899)
         advanceUntilIdle()
 
         assertEquals("add:paper towels:899", api.calls.last())
@@ -809,6 +810,65 @@ class ReceiptReviewControllerTest {
     }
 
     @Test
+    fun changing_the_quantity_shows_at_once_and_sends_the_count_the_price_of_one_and_the_total() = runTest {
+        val api = FakeApi().apply {
+            lastPoll = ApiResult.Success(receipt(items = listOf(
+                item("i1", 1, "bananas", 188, guess("p1", 0.95)),
+                item("i2", 2, "yogurt", 500).copy(quantity = "4", unitPrice = MoneyDto(125)),
+            )))
+        }
+        val c = ready(api)
+        assertEquals(4.0, c.state.value.draft!!.lines[1].quantity)
+        api.editResult = ApiResult.Success(edited(line("i1", 1, "bananas", 188, "p1"), line("i2", 2, "yogurt", 625).times(5.0, 125)))
+
+        c.editLine(2, "yogurt", 5.0, 125)
+        assertEquals(625, c.state.value.draft!!.lines[1].priceCents)
+        advanceUntilIdle()
+
+        val sent = api.sentItems.last()
+        assertEquals(5.0, sent.quantity)
+        assertEquals(125L, sent.unitPriceMinor)
+        assertEquals(625L, sent.totalMinor)
+        assertEquals(5.0, c.state.value.draft!!.lines[1].quantity)
+    }
+
+    @Test
+    fun a_refused_quantity_change_puts_the_old_count_and_total_back() = runTest {
+        val api = FakeApi().apply { editResult = failure(ApiFailure.Offline) }
+        val c = ready(api)
+
+        c.editLine(2, "great value milk", 3.0, 398)
+        assertEquals(1194, c.state.value.draft!!.lines[1].priceCents)
+        advanceUntilIdle()
+
+        assertEquals(398, c.state.value.draft!!.lines[1].priceCents)
+        assertEquals(1.0, c.state.value.draft!!.lines[1].quantity)
+    }
+
+    @Test
+    fun a_deleted_line_goes_at_once_and_undo_brings_back_its_quantity() = runTest {
+        val api = FakeApi().apply {
+            lastPoll = ApiResult.Success(receipt(items = listOf(
+                item("i1", 1, "bananas", 188, guess("p1", 0.95)),
+                item("i2", 2, "yogurt", 500).copy(quantity = "4", unitPrice = MoneyDto(125)),
+            )))
+        }
+        val c = ready(api)
+        api.editResult = ApiResult.Success(edited(line("i1", 1, "bananas", 188, "p1")))
+
+        c.deleteLine(2)
+        assertEquals(listOf("bananas"), c.state.value.draft!!.lines.map { it.name })
+        advanceUntilIdle()
+        c.undoDelete()
+        advanceUntilIdle()
+
+        val restored = api.sentItems.last()
+        assertEquals(4.0, restored.quantity)
+        assertEquals(125L, restored.unitPriceMinor)
+        assertEquals(500L, restored.totalMinor)
+    }
+
+    @Test
     fun undo_with_nothing_deleted_does_nothing() = runTest {
         val api = FakeApi()
         val c = ready(api)
@@ -826,36 +886,11 @@ class ReceiptReviewControllerTest {
         val c = ready(api)
 
         c.deleteLine(2)
+        assertEquals(2, c.state.value.draft!!.lines.size)
         advanceUntilIdle()
 
         assertFalse(c.state.value.canUndo)
-        assertEquals(3, c.state.value.draft!!.lines.size)
-    }
-
-    @Test
-    fun merging_lines_sends_their_items_in_order_and_shows_the_combined_line() = runTest {
-        val api = FakeApi()
-        val c = ready(api)
-        api.editResult = ApiResult.Success(edited(line("i1", 1, "bananas", 188, "p1"), line("i3", 2, "mystery thing", 250)))
-
-        c.mergeLines(setOf(3, 2))
-        advanceUntilIdle()
-
-        assertEquals("merge:[i2, i3]", api.calls.last())
-        assertEquals(2, c.state.value.draft!!.lines.size)
-    }
-
-    @Test
-    fun merging_fewer_than_two_known_lines_does_nothing() = runTest {
-        val api = FakeApi()
-        val c = ready(api)
-        val calls = api.calls.size
-
-        c.mergeLines(setOf(2))
-        c.mergeLines(setOf(2, 99))
-        advanceUntilIdle()
-
-        assertEquals(calls, api.calls.size)
+        assertEquals(listOf("bananas", "great value milk", "mystery thing"), c.state.value.draft!!.lines.map { it.name })
     }
 
     @Test
@@ -864,7 +899,7 @@ class ReceiptReviewControllerTest {
         val c = controller(api, readTimeout = 100_000)
         c.open("h1", "r1")
 
-        c.addLine("x", 1)
+        c.addLine("x", 1.0, 1)
         advanceUntilIdle()
         assertTrue(api.calls.none { it.startsWith("add") })
         c.close()
@@ -872,7 +907,7 @@ class ReceiptReviewControllerTest {
         val ready = FakeApi()
         val d = ready(ready)
         val calls = ready.calls.size
-        d.editLine(99, "x", 1)
+        d.editLine(99, "x", 1.0, 1)
         d.deleteLine(99)
         advanceUntilIdle()
         assertEquals(calls, ready.calls.size)
@@ -905,7 +940,7 @@ class ReceiptReviewControllerTest {
         api.editResult = ApiResult.Success(
             edited(line("i1", 1, "bananas", 188, "p1"), reconciled = false, subtotalGap = -20),
         )
-        c.editLine(1, "bananas", 188)
+        c.editLine(1, "bananas", 1.0, 188)
         advanceUntilIdle()
         assertEquals(
             "The lines add up to \$1.88, which is \$0.20 more than the receipt subtotal.",
@@ -913,7 +948,7 @@ class ReceiptReviewControllerTest {
         )
 
         api.editResult = ApiResult.Success(edited(line("i1", 1, "bananas", 188, "p1")))
-        c.editLine(1, "bananas", 188)
+        c.editLine(1, "bananas", 1.0, 188)
         advanceUntilIdle()
         assertNull(c.state.value.warning)
     }

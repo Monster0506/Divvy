@@ -70,7 +70,6 @@ import org.jetbrains.exposed.v1.jdbc.update
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.updateReturning
 import org.jetbrains.exposed.v1.jdbc.upsert
-import java.math.BigDecimal
 import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
@@ -471,26 +470,6 @@ class ExposedReceiptRepository(private val db: Database) : ReceiptRepository {
         lockDraft(receiptId) ?: return@dbQuery null
         if (!itemExists(receiptId, itemId)) return@dbQuery null
         ReceiptItemTable.deleteWhere { ReceiptItemTable.id eq itemId }
-        loadReceipts(listOf(receiptId)).single()
-    }
-
-    override suspend fun mergeItems(receiptId: Uuid, itemIds: List<Uuid>, description: String?): Receipt? = db.dbQuery {
-        lockDraft(receiptId) ?: return@dbQuery null
-        val rows = ReceiptItemTable.selectAll()
-            .where { (ReceiptItemTable.receiptId eq receiptId) and (ReceiptItemTable.id inList itemIds) }
-            .orderBy(ReceiptItemTable.lineNumber)
-            .toList()
-        if (rows.size != itemIds.distinct().size || rows.size < 2) return@dbQuery null
-        val target = rows.first()
-        ReceiptItemTable.update({ ReceiptItemTable.id eq target[ReceiptItemTable.id] }) {
-            it[ReceiptItemTable.description] = description ?: target[ReceiptItemTable.description]
-            it[quantity] = rows.fold(BigDecimal.ZERO) { sum, row -> sum + row[ReceiptItemTable.quantity] }
-            it[unitPriceMinor] = null
-            it[discountMinor] = rows.sumOf { row -> row[ReceiptItemTable.discountMinor] }
-            it[totalMinor] = rows.sumOf { row -> row[ReceiptItemTable.totalMinor] }
-        }
-        val others = rows.drop(1).map { it[ReceiptItemTable.id] }
-        ReceiptItemTable.deleteWhere { ReceiptItemTable.id inList others }
         loadReceipts(listOf(receiptId)).single()
     }
 

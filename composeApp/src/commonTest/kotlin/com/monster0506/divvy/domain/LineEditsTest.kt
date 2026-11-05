@@ -37,25 +37,28 @@ class LineEditsTest {
 
     @Test
     fun editsOnlyTheTargetLine() {
-        val out = listOf(line(1, 100), line(2, 200)).editLine(2, "milk", 350)
+        val out = listOf(line(1, 100), line(2, 200)).editLine(2, "milk", 1.0, 350)
         assertEquals(listOf("item1", "milk"), out.map { it.name })
         assertEquals(listOf(100, 350), out.map { it.priceCents })
     }
 
     @Test
-    fun mergeSumsPricesAndUnionsOwners() {
-        val out = listOf(line(1, 100, "a"), line(2, 200, "b"), line(3, 300, "a", conf = 0.5f))
-            .mergeLines(setOf(1, 3))
-        assertEquals(listOf(1, 2), out.map { it.id })
-        assertEquals(400, out[0].priceCents)
-        assertEquals(setOf("a"), out[0].owners)
-        assertEquals(0.5f, out[0].confidence)
+    fun changingTheQuantityKeepsThePriceOfOneAndTheDiscount() {
+        // "2 @ 3.99" with 0.50 off: 7.48 printed.
+        val yogurt = line(1, 748).copy(quantity = 2.0, discountCents = 50)
+        assertEquals(399, yogurt.eachCents)
+        val three = yogurt.edited(yogurt.name, 3.0, yogurt.eachCents)
+        assertEquals(1147, three.priceCents)
+        assertEquals(399, three.unitCents)
+        // A printed unit price wins over the one worked out from the total.
+        assertEquals(125, line(2, 500).copy(quantity = 3.0, unitCents = 125).eachCents)
     }
 
     @Test
-    fun mergeNeedsTwoLines() {
-        val lines = listOf(line(1, 100), line(2, 200))
-        assertEquals(lines, lines.mergeLines(setOf(1)))
+    fun formatsWeighedAndWholeQuantities() {
+        assertEquals("2", formatQuantity(2.0))
+        assertEquals("1.235", formatQuantity(1.235))
+        assertEquals("0.5", formatQuantity(0.5))
     }
 
     @Test

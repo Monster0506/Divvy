@@ -58,9 +58,6 @@ data class UpdateReceiptItemRequest(
 )
 
 @Serializable
-data class MergeItemsRequest(val itemIds: List<String>? = null, val description: String? = null)
-
-@Serializable
 data class EditItemOwnerResponse(val personId: String, val shareWeight: Int)
 
 @Serializable
@@ -216,23 +213,6 @@ fun Route.receiptEditRoutes(receipts: () -> ReceiptRepository, people: () -> Per
                     discountMinor = body.discountMinor ?: 0,
                 )
                 respondEdit(HttpStatusCode.Created) { receipts().addItem(id, item) }
-            }
-
-            post("/merge") {
-                val id = parseUuid(call.parameters["id"]) ?: return@post call.respond(HttpStatusCode.NotFound, receiptNotFound)
-                val body = runCatching { call.receive<MergeItemsRequest>() }.getOrNull()
-                    ?: return@post call.respond(HttpStatusCode.BadRequest, badJson)
-                val itemIds = body.itemIds.orEmpty().map { parseUuid(it) }
-                if (itemIds.size < 2 || itemIds.any { it == null } || itemIds.toSet().size != itemIds.size) {
-                    return@post call.respond(
-                        HttpStatusCode.BadRequest,
-                        invalid("itemIds must be two or more distinct item ids"),
-                    )
-                }
-                val description = body.description?.let {
-                    cleanText(it, MAX_DESCRIPTION_LENGTH) ?: return@post call.respond(HttpStatusCode.BadRequest, badDescription)
-                }
-                respondEdit(notFound = itemNotFound) { receipts().mergeItems(id, itemIds.filterNotNull(), description) }
             }
 
             route("/{itemId}") {

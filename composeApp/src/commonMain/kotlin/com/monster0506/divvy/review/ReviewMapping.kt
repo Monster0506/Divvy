@@ -39,6 +39,9 @@ fun buildReviewLines(
             owners = owners,
             confidence = confidenceOf(item),
             confirmed = owners.isNotEmpty() && item.id !in needsConfirmation,
+            quantity = item.quantity.toDoubleOrNull()?.takeIf { it > 0 } ?: 1.0,
+            unitCents = item.unitPrice?.amountMinor?.toInt(),
+            discountCents = item.discount?.amountMinor?.toInt() ?: 0,
         )
     }
     val draft = ReceiptDraft(

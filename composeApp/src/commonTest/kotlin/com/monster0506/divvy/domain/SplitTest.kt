@@ -20,7 +20,7 @@ class SplitTest {
         val before = draft().shares().toMap()
         val d = draft()
         val pizza = d.lines.first { it.name == "Frozen Pizza" } // owned by Andrew alone
-        val after = d.copy(lines = d.lines.editLine(pizza.id, pizza.name, pizza.priceCents + 10_000)).shares()
+        val after = d.copy(lines = d.lines.editLine(pizza.id, pizza.name, 1.0, pizza.priceCents + 10_000)).shares()
         assertEquals(d.totalCents + 10_000, after.sumOf { it.second })
         val andrewBefore = before.getValue(SampleData.andrew)
         val andrewAfter = after.toMap().getValue(SampleData.andrew)
