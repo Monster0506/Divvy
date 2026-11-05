@@ -90,6 +90,7 @@ kotlin {
             implementation("org.jetbrains.compose.ui:ui:${libs.versions.compose.multiplatform.get()}")
             implementation("org.jetbrains.compose.ui:ui-tooling-preview:${libs.versions.compose.multiplatform.get()}")
             implementation(libs.multiplatform.settings.no.arg)
+            implementation(libs.lifecycle.runtime.compose)
         }
         androidMain.dependencies {
             implementation(libs.ktor.client.okhttp)
