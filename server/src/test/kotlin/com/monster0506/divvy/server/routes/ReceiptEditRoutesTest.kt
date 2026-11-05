@@ -221,48 +221,15 @@ class ReceiptEditRoutesTest {
     }
 
     @Test
-    fun `merging items sums them into the first and keeps its owners`() = withApp {
-        val f = fixture()
-        val (milk, bread, eggs) = f.receipt.items
-        val res = post(
-            "/receipts/${f.receipt.id}/items/merge",
-            """{"itemIds":["${eggs.id}","${milk.id}"],"description":"Dairy"}""",
-        )
-        assertEquals(HttpStatusCode.OK, res.status)
-        assertEquals(listOf("Dairy", "Bread"), res.json().itemDescriptions())
-        val merged = repos.receipts.findById(f.receipt.id)!!.items.first()
-        assertEquals(milk.id, merged.id)
-        assertEquals(700, merged.total.amountMinor)
-        assertEquals(0, BigDecimal(2).compareTo(merged.quantity))
-        assertEquals(listOf(f.people[0].id), merged.owners.map { it.personId })
-        assertEquals(950, res.json().reconciliation().getValue("itemsTotalMinor").jsonPrimitive.long)
-        assertEquals(bread.id, repos.receipts.findById(f.receipt.id)!!.items.last().id)
-    }
-
-    @Test
-    fun `merge rejects bad item lists`() = withApp {
-        val f = fixture()
-        val path = "/receipts/${f.receipt.id}/items/merge"
-        val milk = f.receipt.items.first().id
-        assertEquals(HttpStatusCode.BadRequest, post(path, """{"itemIds":["$milk"]}""").status)
-        assertEquals(HttpStatusCode.BadRequest, post(path, """{"itemIds":["$milk","$milk"]}""").status)
-        assertEquals(HttpStatusCode.BadRequest, post(path, """{"itemIds":["$milk","nope"]}""").status)
-        assertEquals(HttpStatusCode.NotFound, post(path, """{"itemIds":["$milk","00000000-0000-0000-0000-000000000001"]}""").status)
-        assertEquals(3, repos.receipts.findById(f.receipt.id)!!.items.size)
-    }
-
-    @Test
     fun `confirmed receipts reject every edit with 409`() = withApp {
         val f = fixture()
         repos.receipts.confirm(f.receipt.id)
         val id = f.receipt.id
         val milk = f.receipt.items.first().id
-        val bread = f.receipt.items[1].id
         assertEquals(HttpStatusCode.Conflict, patch("/receipts/$id", """{"totalMinor":1}""").status)
         assertEquals(HttpStatusCode.Conflict, post("/receipts/$id/items", """{"description":"A","totalMinor":1}""").status)
         assertEquals(HttpStatusCode.Conflict, patch("/receipts/$id/items/$milk", """{"totalMinor":1}""").status)
         assertEquals(HttpStatusCode.Conflict, client.delete("/receipts/$id/items/$milk").status)
-        assertEquals(HttpStatusCode.Conflict, post("/receipts/$id/items/merge", """{"itemIds":["$milk","$bread"]}""").status)
         val stored = repos.receipts.findById(id)!!
         assertEquals(1000, stored.total.amountMinor)
         assertEquals(3, stored.items.size)

@@ -124,12 +124,6 @@ interface ReceiptRepository {
     suspend fun deleteItem(receiptId: Uuid, itemId: Uuid): Receipt?
 
     /**
-     * Combines two or more items into the first (lowest line number): totals, discounts and
-     * quantities are summed and the first item's owners are kept. The others are removed.
-     */
-    suspend fun mergeItems(receiptId: Uuid, itemIds: List<Uuid>, description: String? = null): Receipt?
-
-    /**
      * Confirms a draft receipt in one transaction if every item has at least one active owner.
      * Model-suggested owners become user-confirmed, which is recorded in the ownership history.
      */
