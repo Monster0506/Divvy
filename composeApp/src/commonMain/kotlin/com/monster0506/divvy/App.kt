@@ -564,7 +564,6 @@ fun DivvyApp(
                             onEditLine = state::editLine,
                             onAddLine = state::addLine,
                             onDeleteLine = state::deleteLine,
-                            onMergeLines = state::mergeLines,
                             canUndo = state.canUndoDelete,
                             onUndo = state::undoDelete,
                         )
@@ -581,7 +580,6 @@ fun DivvyApp(
                                 onEditLine = review::editLine,
                                 onAddLine = review::addLine,
                                 onDeleteLine = review::deleteLine,
-                                onMergeLines = review::mergeLines,
                                 canUndo = reviewState.canUndo,
                                 onUndo = review::undoDelete,
                                 notice = reviewState.message ?: reviewState.warning,

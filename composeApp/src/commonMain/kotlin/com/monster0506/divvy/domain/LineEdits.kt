@@ -38,20 +38,4 @@ fun formatQuantity(quantity: Double): String {
     return if (part == 0L) "$whole" else "$whole." + part.toString().padStart(3, '0').trimEnd('0')
 }
 
-/** Merges the lines in [ids] into the first of them: prices, quantities and discounts add up and owners are combined. */
-fun List<ReceiptLine>.mergeLines(ids: Set<Int>): List<ReceiptLine> {
-    val picked = filter { it.id in ids }
-    if (picked.size < 2) return this
-    val target = picked.first()
-    val merged = target.copy(
-        priceCents = picked.sumOf { it.priceCents },
-        owners = picked.flatMapTo(linkedSetOf()) { it.owners },
-        confidence = picked.minOf { it.confidence },
-        quantity = picked.sumOf { it.quantity },
-        unitCents = null,
-        discountCents = picked.sumOf { it.discountCents },
-    )
-    return mapNotNull { if (it.id == target.id) merged else if (it.id in ids) null else it }
-}
-
 fun List<ReceiptLine>.nextLineId(): Int = (maxOfOrNull { it.id } ?: -1) + 1

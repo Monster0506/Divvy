@@ -62,24 +62,6 @@ class LineEditsTest {
     }
 
     @Test
-    fun mergeSumsPricesAndUnionsOwners() {
-        val out = listOf(line(1, 100, "a"), line(2, 200, "b"), line(3, 300, "a", conf = 0.5f).copy(quantity = 2.0, unitCents = 150))
-            .mergeLines(setOf(1, 3))
-        assertEquals(listOf(1, 2), out.map { it.id })
-        assertEquals(400, out[0].priceCents)
-        assertEquals(setOf("a"), out[0].owners)
-        assertEquals(0.5f, out[0].confidence)
-        assertEquals(3.0, out[0].quantity)
-        assertNull(out[0].unitCents)
-    }
-
-    @Test
-    fun mergeNeedsTwoLines() {
-        val lines = listOf(line(1, 100), line(2, 200))
-        assertEquals(lines, lines.mergeLines(setOf(1)))
-    }
-
-    @Test
     fun nextIdIsUnused() {
         assertEquals(0, emptyList<ReceiptLine>().nextLineId())
         assertEquals(8, listOf(line(3, 1), line(7, 1)).nextLineId())

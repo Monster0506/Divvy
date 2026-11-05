@@ -39,8 +39,6 @@ interface ReviewApi {
 
     suspend fun deleteItem(receiptId: String, itemId: String): ApiResult<EditedReceiptDto>
 
-    suspend fun mergeItems(receiptId: String, itemIds: List<String>): ApiResult<EditedReceiptDto>
-
     suspend fun retry(householdId: String, receiptId: String): ApiResult<ReceiptUploadDto>
 }
 
@@ -74,8 +72,6 @@ class RepositoryReviewApi(
         receipts.updateItem(receiptId, itemId, change)
 
     override suspend fun deleteItem(receiptId: String, itemId: String) = receipts.deleteItem(receiptId, itemId)
-
-    override suspend fun mergeItems(receiptId: String, itemIds: List<String>) = receipts.mergeItems(receiptId, itemIds)
 
     override suspend fun retry(householdId: String, receiptId: String) = receipts.retry(householdId, receiptId)
 }

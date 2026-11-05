@@ -147,11 +147,6 @@ private class FakeApi : ReviewApi {
         calls += "delete:$itemId"
         return editResult
     }
-
-    override suspend fun mergeItems(receiptId: String, itemIds: List<String>): ApiResult<EditedReceiptDto> {
-        calls += "merge:$itemIds"
-        return editResult
-    }
 }
 
 private fun edited(
@@ -896,32 +891,6 @@ class ReceiptReviewControllerTest {
 
         assertFalse(c.state.value.canUndo)
         assertEquals(listOf("bananas", "great value milk", "mystery thing"), c.state.value.draft!!.lines.map { it.name })
-    }
-
-    @Test
-    fun merging_lines_sends_their_items_in_order_and_shows_the_combined_line() = runTest {
-        val api = FakeApi()
-        val c = ready(api)
-        api.editResult = ApiResult.Success(edited(line("i1", 1, "bananas", 188, "p1"), line("i3", 2, "mystery thing", 250)))
-
-        c.mergeLines(setOf(3, 2))
-        advanceUntilIdle()
-
-        assertEquals("merge:[i2, i3]", api.calls.last())
-        assertEquals(2, c.state.value.draft!!.lines.size)
-    }
-
-    @Test
-    fun merging_fewer_than_two_known_lines_does_nothing() = runTest {
-        val api = FakeApi()
-        val c = ready(api)
-        val calls = api.calls.size
-
-        c.mergeLines(setOf(2))
-        c.mergeLines(setOf(2, 99))
-        advanceUntilIdle()
-
-        assertEquals(calls, api.calls.size)
     }
 
     @Test

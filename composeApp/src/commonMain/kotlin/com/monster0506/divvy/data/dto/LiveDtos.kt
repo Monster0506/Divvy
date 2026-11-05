@@ -84,9 +84,6 @@ data class UpdateReceiptRequest(
     val totalMinor: Long? = null,
 )
 
-@Serializable
-data class MergeItemsRequest(val itemIds: List<String>, val description: String? = null)
-
 /** `GET` and `PUT /households/{id}/ml/settings`. The threshold is a fraction between 0 and 1. */
 @Serializable
 data class MlSettingsDto(val autoAssign: Boolean = true, val autoAssignThreshold: Double = 0.85)

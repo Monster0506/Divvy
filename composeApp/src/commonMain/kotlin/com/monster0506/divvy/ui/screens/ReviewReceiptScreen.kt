@@ -117,7 +117,6 @@ fun ReviewReceiptScreen(
     onEditLine: (lineId: Int, name: String, quantity: Double, eachCents: Int) -> Unit = { _, _, _, _ -> },
     onAddLine: (name: String, quantity: Double, eachCents: Int) -> Unit = { _, _, _ -> },
     onDeleteLine: (lineId: Int) -> Unit = {},
-    onMergeLines: (Set<Int>) -> Unit = {},
     canUndo: Boolean = false,
     onUndo: () -> Unit = {},
     notice: String? = null,
@@ -125,9 +124,7 @@ fun ReviewReceiptScreen(
     onEditDetails: ((String, String, Int, Int) -> Unit)? = null,
 ) {
     var choosingPayer by remember { mutableStateOf(false) }
-    var merging by remember { mutableStateOf(false) }
     var editingDetails by remember { mutableStateOf(false) }
-    var selected by remember { mutableStateOf(emptySet<Int>()) }
     var editor by remember { mutableStateOf<LineEditor?>(null) }
     // The line whose ×N pill is open as a stepper; [stepTouches] restarts its close timer.
     var stepping by remember { mutableStateOf<Int?>(null) }
@@ -168,10 +165,6 @@ fun ReviewReceiptScreen(
     }
 
     fun tapLine(line: ReceiptLine, field: LineField) {
-        if (merging) {
-            selected = if (line.id in selected) selected - line.id else selected + line.id
-            return
-        }
         val quantity = pendingQuantity[line.id] ?: line.quantity
         pendingQuantity = pendingQuantity - line.id
         openEditor(LineEditor.of(line, quantity, field))
@@ -233,15 +226,14 @@ fun ReviewReceiptScreen(
                 }
             }
         } else {
-            SwipeToDelete(enabled = !merging, onDelete = { delete(line) }) {
+            SwipeToDelete(onDelete = { delete(line) }) {
                 LineRow(
                     line = line,
                     draft = draft,
-                    selected = line.id in selected,
                     stepping = stepping == line.id,
                     onName = { tapLine(saved, LineField.Name) },
                     onPrice = { tapLine(saved, LineField.Price) },
-                    onQuantity = if (merging) null else ({ openEditor(null); stepping = line.id; stepTouches++ }),
+                    onQuantity = { openEditor(null); stepping = line.id; stepTouches++ },
                     onFewer = { if (line.quantity <= 1.0) delete(line) else step(saved, line.quantity - 1) },
                     onMore = { step(saved, line.quantity + 1) },
                     onToggleOwner = onToggleOwner,
@@ -276,12 +268,6 @@ fun ReviewReceiptScreen(
             action = if (onEditDetails != null) ({ TextButton(onClick = { editingDetails = true }) { Text("Edit") } }) else null,
         )
         if (notice != null) SectionHeader(notice, warn = true)
-        EditBar(
-            merging = merging,
-            selectedCount = selected.size,
-            onToggleMerge = { openEditor(null); merging = !merging; selected = emptySet() },
-            onMerge = { onMergeLines(selected); merging = false; selected = emptySet() },
-        )
         AnimatedVisibility(pendingCount > 0) {
             SectionHeader("Needs confirmation", pendingCount.toString(), warn = true)
         }
@@ -305,7 +291,7 @@ fun ReviewReceiptScreen(
                 onDone = { if (adding.priceIsReadable) openEditor(null) },
                 onDelete = { editor = null },
             )
-        } else if (!merging) {
+        } else {
             AddLineButton(onClick = { openEditor(LineEditor.Blank) })
         }
         Totals(
@@ -422,27 +408,6 @@ private fun PayerDialog(draft: ReceiptDraft, onDismiss: () -> Unit, onPick: (Str
 }
 
 @Composable
-private fun EditBar(
-    merging: Boolean,
-    selectedCount: Int,
-    onToggleMerge: () -> Unit,
-    onMerge: () -> Unit,
-) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (merging) {
-            TextButton(onClick = onMerge, enabled = selectedCount >= 2) {
-                Text("Merge $selectedCount selected", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-            }
-            TextButton(onClick = onToggleMerge) { Text("Cancel", fontSize = 13.sp, color = DivvyColors.Dim) }
-        } else {
-            TextButton(onClick = onToggleMerge) { Text("Merge", fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
-            Spacer(Modifier.weight(1f))
-            Text("Tap to edit · swipe to delete", Modifier.padding(end = 8.dp), fontSize = 12.sp, color = DivvyColors.Dim)
-        }
-    }
-}
-
-@Composable
 private fun DeletedBanner(name: String, onUndo: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().background(DivvyColors.Page).padding(horizontal = 20.dp, vertical = 6.dp),
@@ -476,14 +441,13 @@ private fun AddLineButton(onClick: () -> Unit) {
 
 /** Swiping the line either way deletes it; screen readers get a Delete action instead. */
 @Composable
-private fun SwipeToDelete(enabled: Boolean, onDelete: () -> Unit, content: @Composable () -> Unit) {
+private fun SwipeToDelete(onDelete: () -> Unit, content: @Composable () -> Unit) {
     val swipe = rememberSwipeToDismissBoxState()
     SwipeToDismissBox(
         state = swipe,
-        gesturesEnabled = enabled,
         onDismiss = { onDelete() },
         modifier = Modifier.semantics {
-            if (enabled) customActions = listOf(CustomAccessibilityAction("Delete") { onDelete(); true })
+            customActions = listOf(CustomAccessibilityAction("Delete") { onDelete(); true })
         },
         backgroundContent = {
             val toEnd = swipe.dismissDirection == SwipeToDismissBoxValue.StartToEnd
@@ -501,10 +465,10 @@ private fun SwipeToDelete(enabled: Boolean, onDelete: () -> Unit, content: @Comp
 }
 
 @Composable
-private fun QuantityPill(quantity: Double, onClick: (() -> Unit)?) {
-    val tap = if (onClick != null) Modifier.clickable(onClickLabel = "Change quantity", onClick = onClick) else Modifier
+private fun QuantityPill(quantity: Double, onClick: () -> Unit) {
     Box(
-        Modifier.clip(CircleShape).border(1.dp, DivvyColors.Outline, CircleShape).then(tap)
+        Modifier.clip(CircleShape).border(1.dp, DivvyColors.Outline, CircleShape)
+            .clickable(onClickLabel = "Change quantity", onClick = onClick)
             .padding(horizontal = 9.dp, vertical = 3.dp),
     ) {
         Text("×${formatQuantity(quantity)}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = DivvyColors.Ink)
@@ -658,11 +622,10 @@ private fun AutoHeader(count: Int, expanded: Boolean, onClick: () -> Unit) {
 private fun LineRow(
     line: ReceiptLine,
     draft: ReceiptDraft,
-    selected: Boolean,
     stepping: Boolean,
     onName: () -> Unit,
     onPrice: () -> Unit,
-    onQuantity: (() -> Unit)?,
+    onQuantity: () -> Unit,
     onFewer: () -> Unit,
     onMore: () -> Unit,
     onToggleOwner: (Int, String) -> Unit,
@@ -670,8 +633,7 @@ private fun LineRow(
 ) {
     Column {
         Column(
-            Modifier.fillMaxWidth().background(if (selected) DivvyColors.Page else Color.Transparent)
-                .padding(horizontal = 20.dp, vertical = 12.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(

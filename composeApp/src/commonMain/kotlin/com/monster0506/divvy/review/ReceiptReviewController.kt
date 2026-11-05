@@ -278,13 +278,6 @@ class ReceiptReviewController(
         }
     }
 
-    /** Combines lines into the first of them, adding their prices. */
-    fun mergeLines(lineIds: Set<Int>) {
-        val ids = lineIds.sorted().mapNotNull { itemIds[it] }
-        if (ids.size < 2) return
-        edit { api.mergeItems(receiptId, ids) }
-    }
-
     fun confirm() {
         val current = mutableState.value
         if (current.phase != ReviewPhase.Ready) return

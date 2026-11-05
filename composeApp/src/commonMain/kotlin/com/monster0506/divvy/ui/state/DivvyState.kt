@@ -6,7 +6,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.monster0506.divvy.domain.DebouncedSaver
 import com.monster0506.divvy.domain.editLine
-import com.monster0506.divvy.domain.mergeLines
 import com.monster0506.divvy.domain.nextLineId
 import com.monster0506.divvy.domain.shares as splitShares
 import com.monster0506.divvy.ui.model.AvatarColor
@@ -160,10 +159,6 @@ class DivvyState(private val ownerSaver: DebouncedSaver<Int, Set<String>>? = nul
         val lines = rawDraft.lines.toMutableList().apply { add(index.coerceAtMost(size), line) }
         rawDraft = rawDraft.copy(lines = lines)
         lastDeleted = null
-    }
-
-    fun mergeLines(ids: Set<Int>) {
-        rawDraft = rawDraft.copy(lines = rawDraft.lines.mergeLines(ids))
     }
 
     fun toggleAuto() {
