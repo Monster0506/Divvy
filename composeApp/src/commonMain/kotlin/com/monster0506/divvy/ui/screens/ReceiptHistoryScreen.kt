@@ -160,6 +160,7 @@ private fun FilterBar(f: HistoryFilters) {
             onValueChange = f.onStore,
             modifier = Modifier.fillMaxWidth(),
             label = { Text("Search stores") },
+            placeholder = { Text("Part of a name, or * for anything") },
             singleLine = true,
         )
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
