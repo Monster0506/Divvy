@@ -41,6 +41,7 @@ import com.monster0506.divvy.server.domain.ReceiptItem
 import com.monster0506.divvy.server.domain.ReceiptItemPatch
 import com.monster0506.divvy.server.domain.ReceiptPatch
 import com.monster0506.divvy.server.domain.ReceiptStatus
+import com.monster0506.divvy.server.domain.StoreSearch
 import com.monster0506.divvy.server.domain.Settlement
 import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.ResultRow
@@ -298,7 +299,15 @@ class ExposedReceiptRepository(private val db: Database) : ReceiptRepository {
         val query = ReceiptTable.select(ReceiptTable.id, ReceiptTable.purchasedAt)
             .where { ReceiptTable.householdId eq householdId }
         filter.status?.let { s -> query.andWhere { ReceiptTable.status eq s.dbValue } }
-        filter.merchant?.let { m -> query.andWhere { ReceiptTable.merchantName.lowerCase() eq m.lowercase() } }
+        filter.merchant?.let { typed ->
+            // Store names are few per household, so they are matched here, where typos and `*` are simple to handle.
+            val search = StoreSearch(typed)
+            val names = ReceiptTable.select(ReceiptTable.merchantName).withDistinct()
+                .where { (ReceiptTable.householdId eq householdId) and ReceiptTable.merchantName.isNotNull() }
+                .mapNotNull { it[ReceiptTable.merchantName] }
+                .filter(search::matches)
+            query.andWhere { ReceiptTable.merchantName inList names }
+        }
         filter.from?.let { f -> query.andWhere { ReceiptTable.purchasedAt greaterEq f.toUtc() } }
         filter.to?.let { t -> query.andWhere { ReceiptTable.purchasedAt less t.toUtc() } }
         filter.paidByPersonId?.let { p -> query.andWhere { ReceiptTable.paidByPersonId eq p } }

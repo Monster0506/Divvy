@@ -18,7 +18,8 @@ Errors use the standard ApiError body. All routes require the X-Api-Key header.
 ## Receipts
 - GET /households/{id}/receipts -> 200 | 400 | 404
 Newest first by purchase time, with cursor pagination. Query parameters, all optional:
-`status` (draft, confirmed or void), `merchant` (exact name, ignoring case), `from` (inclusive) and `to` (exclusive) as an ISO-8601 date or time, `paidBy` (person id), `limit` (1-100, default 50) and `cursor` (the `nextCursor` of the previous page).
+`status` (draft, confirmed or void), `merchant` (store search, below), `from` (inclusive) and `to` (exclusive) as an ISO-8601 date or time, `paidBy` (person id), `limit` (1-100, default 50) and `cursor` (the `nextCursor` of the previous page).
+`merchant` finds any part of the store name, ignoring case, spaces and punctuation (`trader joes` finds "Trader Joe's"). `*` stands for anything (`cost*sale`). Without a `*`, a search of 4-7 letters and digits allows one typo (a wrong, missing, extra or swapped character) and 8 or more allow two (`walmrt` finds "Walmart"). A search with no letters or digits (`%`) is found as typed.
 Response: `{"items": [{"id", "merchantName", "purchasedAt", "paidByPersonId", "currency", "totalMinor", "status", "itemCount"}], "nextCursor": "..." | absent on the last page}`.
 - POST /households/{id}/receipts  multipart/form-data with a file part named `image` -> 201 {"id": "...", "status": "processing"}
   - 400 if the body is not multipart or has no `image` part

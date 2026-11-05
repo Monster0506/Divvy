@@ -106,11 +106,35 @@ class ReceiptListRoutesTest {
         suspend fun ids(query: String) = client.get("/households/${home.id}/receipts?$query").json().ids()
 
         assertEquals(listOf(costco.id.toString()), ids("status=confirmed"))
-        assertEquals(listOf(aldi.id.toString()), ids("merchant=ALDI"))
+        assertEquals(listOf(aldi.id.toString()), ids("merchant=al"))
         assertEquals(listOf(costco.id.toString()), ids("from=2026-09-05"))
         assertEquals(listOf(aldi.id.toString()), ids("to=2026-09-05"))
         assertEquals(listOf(costco.id.toString()), ids("paidBy=${people[1].id}"))
         assertEquals(emptyList(), ids("status=void"))
+    }
+
+    @Test
+    fun `store search finds part of a name, a star pattern or a typo, newest first and paged`() = withApp {
+        val (home, people) = setup()
+        val older = add(home, people[0], "COSTCO WHOLESALE", "2026-09-01T10:00:00Z")
+        add(home, people[0], "Aldi", "2026-09-02T10:00:00Z")
+        val newer = add(home, people[1], "Costco Wholesale #482", "2026-09-03T10:00:00Z")
+        val juice = add(home, people[0], "100% Juice", "2026-09-04T10:00:00Z")
+        add(home, people[0], null, "2026-09-05T10:00:00Z")
+        val both = listOf(newer.id.toString(), older.id.toString())
+
+        suspend fun ids(query: String) = client.get("/households/${home.id}/receipts?$query").json().ids()
+
+        assertEquals(both, ids("merchant=whole"))
+        assertEquals(both, ids("merchant=cost*sale"))
+        assertEquals(both, ids("merchant=cosco"))
+        assertEquals(emptyList(), ids("merchant=target"))
+        assertEquals(listOf(juice.id.toString()), ids("merchant=%25"))
+
+        val first = client.get("/households/${home.id}/receipts?merchant=cost&limit=1").json()
+        assertEquals(listOf(newer.id.toString()), first.ids())
+        val cursor = assertNotNull(first["nextCursor"]).jsonPrimitive.content
+        assertEquals(listOf(older.id.toString()), ids("merchant=cost&limit=1&cursor=$cursor"))
     }
 
     @Test
