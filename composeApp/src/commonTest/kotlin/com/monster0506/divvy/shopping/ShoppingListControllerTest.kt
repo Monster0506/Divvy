@@ -8,6 +8,7 @@ import com.monster0506.divvy.data.dto.LIST_ITEM_OPEN
 import com.monster0506.divvy.data.dto.LIST_ITEM_PURCHASED
 import com.monster0506.divvy.data.dto.ListItemDto
 import com.monster0506.divvy.data.dto.UpdateListItemRequest
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -29,6 +30,10 @@ private class FakeListServer : ShoppingListApi {
     val queries = mutableListOf<String>()
     var known = listOf<String>()
     var failNext: ApiFailure? = null
+    /** While set, a load answers with the list as it was when asked, once this completes. */
+    var holdItems: CompletableDeferred<Unit>? = null
+    /** While set, an update waits for this before it changes anything. */
+    var holdUpdates: CompletableDeferred<Unit>? = null
     private var clock = 0
 
     fun seed(text: String, purchased: Boolean = false, quantity: String? = null, notes: String? = null) =
@@ -52,23 +57,30 @@ private class FakeListServer : ShoppingListApi {
         return ApiResult.Failure(failure)
     }
 
-    override suspend fun items(householdId: String) = answer { items.sortedBy { it.purchased }.toList() }
+    override suspend fun items(householdId: String): ApiResult<List<ListItemDto>> {
+        val asked = items.sortedBy { it.purchased }.toList()
+        holdItems?.await()
+        return answer { asked }
+    }
 
     override suspend fun add(householdId: String, request: CreateListItemRequest) = answer {
         added += request
         newItem(request.text, request.quantity, request.notes, request.addedByPersonId).also { items += it }
     }
 
-    override suspend fun update(householdId: String, itemId: String, change: UpdateListItemRequest) = answer {
-        updates += itemId to change
-        val i = items.indexOfFirst { it.id == itemId }
-        val old = items[i]
-        old.copy(
-            text = change.text ?: old.text,
-            quantity = if (change.quantity != null) change.quantity.ifEmpty { null } else old.quantity,
-            notes = if (change.notes != null) change.notes.ifEmpty { null } else old.notes,
-            status = change.purchased?.let { if (it) LIST_ITEM_PURCHASED else LIST_ITEM_OPEN } ?: old.status,
-        ).also { items[i] = it }
+    override suspend fun update(householdId: String, itemId: String, change: UpdateListItemRequest): ApiResult<ListItemDto> {
+        holdUpdates?.await()
+        return answer {
+            updates += itemId to change
+            val i = items.indexOfFirst { it.id == itemId }
+            val old = items[i]
+            old.copy(
+                text = change.text ?: old.text,
+                quantity = if (change.quantity != null) change.quantity.ifEmpty { null } else old.quantity,
+                notes = if (change.notes != null) change.notes.ifEmpty { null } else old.notes,
+                status = change.purchased?.let { if (it) LIST_ITEM_PURCHASED else LIST_ITEM_OPEN } ?: old.status,
+            ).also { items[i] = it }
+        }
     }
 
     override suspend fun remove(householdId: String, itemId: String) = answer { items.removeAll { it.id == itemId }; Unit }
@@ -361,6 +373,113 @@ class ShoppingListControllerTest {
 
         assertEquals(ListPhase.Failed, c.state.value.phase)
         assertTrue(c.names.isEmpty())
+    }
+
+    // --- other people's changes -------------------------------------------------------------------
+
+    @Test
+    fun syncing_shows_what_others_added_and_checked_off() = runTest {
+        val eggs = server.seed("Eggs")
+        val c = opened()
+        server.seed("Bread")
+        server.items[0] = eggs.copy(status = LIST_ITEM_PURCHASED)
+
+        c.sync()
+        advanceUntilIdle()
+
+        assertEquals(listOf("Bread"), c.state.value.open.map { it.name })
+        assertEquals(listOf("Eggs"), c.state.value.purchased.map { it.name })
+        assertFalse(c.state.value.refreshing)
+    }
+
+    @Test
+    fun a_sync_that_fails_keeps_the_list_and_says_nothing() = runTest {
+        server.seed("Eggs")
+        val c = opened()
+
+        server.failNext = ApiFailure.Offline
+        c.sync()
+        advanceUntilIdle()
+
+        assertEquals(ListPhase.Ready, c.state.value.phase)
+        assertEquals(listOf("Eggs"), c.names)
+        assertNull(c.state.value.message)
+    }
+
+    @Test
+    fun pulling_down_shows_the_indicator_and_says_why_it_failed() = runTest {
+        server.seed("Eggs")
+        val c = opened()
+        server.holdItems = CompletableDeferred()
+
+        c.refresh()
+        runCurrent()
+        assertTrue(c.state.value.refreshing)
+        server.failNext = ApiFailure.Offline
+        server.holdItems!!.complete(Unit)
+        advanceUntilIdle()
+
+        assertFalse(c.state.value.refreshing)
+        assertEquals(listOf("Eggs"), c.names)
+        assertTrue(c.state.value.message!!.startsWith("Could not reach the server"))
+    }
+
+    @Test
+    fun a_sync_asked_before_a_check_off_was_saved_does_not_undo_it() = runTest {
+        server.seed("Eggs")
+        val c = opened()
+        val eggs = c.state.value.items.single().id
+        server.holdItems = CompletableDeferred()
+
+        c.sync()
+        runCurrent()
+        c.toggle(eggs)
+        advanceUntilIdle()
+        server.holdItems!!.complete(Unit)
+        advanceUntilIdle()
+
+        assertTrue(c.state.value.items.single().done)
+    }
+
+    @Test
+    fun pulling_down_while_a_check_off_is_saving_waits_for_it() = runTest {
+        server.seed("Eggs")
+        val c = opened()
+        val eggs = c.state.value.items.single().id
+        server.holdUpdates = CompletableDeferred()
+
+        c.toggle(eggs)
+        runCurrent()
+        c.refresh()
+        runCurrent()
+        assertTrue(c.state.value.items.single().done)
+        assertTrue(c.state.value.refreshing)
+
+        server.holdUpdates!!.complete(Unit)
+        advanceUntilIdle()
+
+        assertTrue(c.state.value.items.single().done)
+        assertFalse(c.state.value.refreshing)
+    }
+
+    @Test
+    fun only_items_removed_on_another_phone_are_reported_as_removed_elsewhere() = runTest {
+        server.seed("Eggs")
+        server.seed("Milk")
+        val c = opened()
+        val (eggs, milk) = c.state.value.items
+
+        c.remove(eggs.id)
+        advanceUntilIdle()
+        server.items.removeAll { it.id == milk.id }
+        c.sync()
+        advanceUntilIdle()
+
+        assertEquals(mapOf(milk.id to "Milk"), c.state.value.removedElsewhere)
+        c.noteRemovedElsewhere(eggs.id)
+        assertNull(c.state.value.message)
+        c.noteRemovedElsewhere(milk.id)
+        assertEquals("Milk was removed from the list by someone else.", c.state.value.message)
     }
 }
 

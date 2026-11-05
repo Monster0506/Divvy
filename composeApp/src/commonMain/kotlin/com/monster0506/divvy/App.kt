@@ -49,6 +49,7 @@ import com.monster0506.divvy.launch.LOCAL_HOUSEHOLD_ID
 import com.monster0506.divvy.platform.rememberCameraCapture
 import com.monster0506.divvy.platform.rememberGalleryPicker
 import com.monster0506.divvy.ui.components.Tab
+import com.monster0506.divvy.ui.components.RepeatWhileInForeground
 import com.monster0506.divvy.ui.model.ReceiptStatus
 import com.monster0506.divvy.ui.screens.AccountScreen
 import com.monster0506.divvy.ui.screens.AddMembersScreen
@@ -123,6 +124,9 @@ private val serverId = Regex("^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12
 /** Things to offer while typing on the list before the household is on a server. */
 private val sampleGroceries =
     listOf("Eggs", "Large eggs", "Eggplant", "Milk", "Oat milk", "Sandwich bread", "Bananas", "Paper towels")
+
+/** How often an open shopping list reloads to show other people's changes. */
+private const val LIST_SYNC_MILLIS = 8_000L
 
 private fun Throwable.uploadMessage(): String = when (this) {
     is ApiException -> when (val reason = failure) {
@@ -762,6 +766,8 @@ fun DivvyApp(
                         // Loads "me", who is recorded as having added items.
                         if (household != null) members.load(household)
                     }
+                    // Other people's changes show up within seconds while the list is open.
+                    RepeatWhileInForeground(LIST_SYNC_MILLIS, list::sync)
                     ShoppingListScreen(
                         state = if (household != null) serverShoppingState else localShoppingState,
                         suggestions = state.suggestions,
@@ -776,7 +782,7 @@ fun DivvyApp(
                         onRemove = { list.remove(it, offerUndo = true) },
                         onUndoRemove = list::undoRemove,
                         onAddSuggestion = { i -> state.addSuggestion(i)?.let { list.add(it) } },
-                        onRetry = list::refresh,
+                        onRefresh = list::refresh,
                         onDismissMessage = list::dismissMessage,
                         onTab = onTab,
                     )
@@ -787,9 +793,13 @@ fun DivvyApp(
                     val list = if (household != null) serverShopping else localShopping
                     val listState = if (household != null) serverShoppingState else localShoppingState
                     val item = listState.items.find { it.id == shoppingItemId }
+                    RepeatWhileInForeground(LIST_SYNC_MILLIS, list::sync)
                     if (item == null) {
                         // Removed, here or by someone else.
-                        LaunchedEffect(Unit) { route = Route.Shopping }
+                        LaunchedEffect(Unit) {
+                            shoppingItemId?.let(list::noteRemovedElsewhere)
+                            route = Route.Shopping
+                        }
                     } else {
                         ShoppingItemScreen(
                             item = item,

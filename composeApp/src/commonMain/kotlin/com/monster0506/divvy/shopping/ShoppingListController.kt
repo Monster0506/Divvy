@@ -34,6 +34,10 @@ data class ShoppingListState(
     val message: String? = null,
     /** An item just swiped away, which [ShoppingListController.undoRemove] can bring back for a short while. */
     val removed: ShoppingItem? = null,
+    /** True while a reload the person asked for, by pulling down, is running. */
+    val refreshing: Boolean = false,
+    /** Items the last reload found gone because someone else removed them: id to name. */
+    val removedElsewhere: Map<String, String> = emptyMap(),
 ) {
     val open get() = items.filter { !it.done }
     val purchased get() = items.filter { it.done }
@@ -41,7 +45,8 @@ data class ShoppingListState(
 
 /**
  * The household's shared grocery list. Changes show at once and are sent to the server; one that the
- * server refuses is put back with a message saying why.
+ * server refuses is put back with a message saying why. [sync] picks up other people's changes; a reload
+ * that overlaps one of this device's own changes is not shown, so it cannot undo that change on screen.
  */
 class ShoppingListController(
     private val api: ShoppingListApi,
@@ -59,32 +64,79 @@ class ShoppingListController(
     private var autocompleteJob: Job? = null
     private var undoJob: Job? = null
 
+    /** This device's changes still being saved. */
+    private var writes = 0
+    /** Goes up whenever one of this device's changes starts or finishes saving. */
+    private var changes = 0
+    /** A reload the person asked for, held back until this device's changes have been saved. */
+    private var reloadWhenSaved: Reload? = null
+
+    private enum class Reload { Open, Pull, Background }
+
     fun item(id: String): ShoppingItem? = mutableState.value.items.find { it.id == id }
 
     /** Shows [householdId]'s list, loading it afresh. */
     fun open(householdId: String) {
         if (this.householdId != householdId) mutableState.value = ShoppingListState()
         this.householdId = householdId
-        refresh()
+        load(Reload.Open)
     }
 
-    fun refresh() {
+    /** Loads the list again because the person asked: pulling down, or Try again after a failed load. */
+    fun refresh() = load(Reload.Pull)
+
+    /**
+     * Loads the list again to show other people's changes. It says nothing when it fails, keeps what is shown,
+     * and does not run while another load or one of this device's changes is still going.
+     */
+    fun sync() = load(Reload.Background)
+
+    private fun load(kind: Reload) {
         val id = householdId ?: return
+        if (kind == Reload.Background && (loadJob?.isActive == true || writes > 0)) return
         loadJob?.cancel()
-        mutableState.update { if (it.phase == ListPhase.Ready) it.copy(message = null) else it.copy(phase = ListPhase.Loading, message = null) }
+        if (kind != Reload.Background) mutableState.update {
+            if (it.phase == ListPhase.Ready) it.copy(message = null, refreshing = kind == Reload.Pull)
+            else it.copy(phase = ListPhase.Loading, message = null)
+        }
+        val startedAt = changes
         loadJob = scope.launch {
-            when (val result = safely { api.items(id) }) {
+            val result = safely { api.items(id) }
+            if (changes != startedAt || writes > 0) {
+                // The answer may predate a change this device was saving meanwhile; showing it would undo that change.
+                if (kind != Reload.Background) {
+                    if (writes == 0) load(kind) else reloadWhenSaved = kind
+                }
+                return@launch
+            }
+            when (result) {
                 is ApiResult.Success -> mutableState.update {
-                    it.copy(phase = ListPhase.Ready, items = result.value.map { dto -> dto.toItem() }.ordered())
+                    val items = result.value.map { dto -> dto.toItem() }.ordered()
+                    val ids = items.mapTo(HashSet()) { item -> item.id }
+                    val gone = if (it.phase == ListPhase.Ready) it.items.filter { old -> old.id !in ids } else emptyList()
+                    it.copy(
+                        phase = ListPhase.Ready,
+                        items = items,
+                        refreshing = false,
+                        removedElsewhere = gone.associate { old -> old.id to old.name },
+                    )
                 }
                 is ApiResult.Failure -> mutableState.update {
-                    it.copy(
+                    if (kind == Reload.Background) it
+                    else it.copy(
                         phase = if (it.phase == ListPhase.Ready) ListPhase.Ready else ListPhase.Failed,
+                        refreshing = false,
                         message = describe(result.failure, "load the list"),
                     )
                 }
             }
         }
+    }
+
+    /** Leaving an item's screen because someone else removed it says so on the list. */
+    fun noteRemovedElsewhere(itemId: String) {
+        val name = mutableState.value.removedElsewhere[itemId] ?: return
+        mutableState.update { it.copy(message = "$name was removed from the list by someone else.") }
     }
 
     /** Updates the add field and, after a short pause in typing, what it suggests. */
@@ -116,7 +168,7 @@ class ShoppingListController(
         if (name.isEmpty() || mutableState.value.adding) return
         autocompleteJob?.cancel()
         mutableState.update { it.copy(adding = true, message = null) }
-        scope.launch {
+        write {
             val request = CreateListItemRequest(name, addedByPersonId = currentPerson(id))
             when (val result = safely { api.add(id, request) }) {
                 is ApiResult.Success -> mutableState.update { s ->
@@ -141,7 +193,7 @@ class ShoppingListController(
         val id = householdId ?: return
         val before = item(itemId) ?: return
         setItem(before.copy(done = !before.done))
-        scope.launch {
+        write {
             when (val result = safely { api.update(id, itemId, UpdateListItemRequest(purchased = !before.done)) }) {
                 is ApiResult.Success -> setItem(result.value.toItem())
                 is ApiResult.Failure -> {
@@ -175,7 +227,7 @@ class ShoppingListController(
             return
         }
         mutableState.update { it.copy(saving = true, message = null) }
-        scope.launch {
+        write {
             when (val result = safely { api.update(id, itemId, change) }) {
                 is ApiResult.Success -> {
                     setItem(result.value.toItem())
@@ -200,7 +252,7 @@ class ShoppingListController(
         if (index < 0) return
         val item = items[index]
         mutableState.update { s -> s.copy(items = s.items.filterNot { it.id == itemId }, message = null) }
-        scope.launch {
+        write {
             when (val result = safely { api.remove(id, itemId) }) {
                 is ApiResult.Success -> {
                     onRemoved()
@@ -222,13 +274,13 @@ class ShoppingListController(
         val item = mutableState.value.removed ?: return
         undoJob?.cancel()
         mutableState.update { it.copy(removed = null, message = null) }
-        scope.launch {
+        write {
             val request = CreateListItemRequest(item.name, item.quantity, item.notes, item.addedById)
             var restored = when (val result = safely { api.add(id, request) }) {
                 is ApiResult.Success -> result.value
                 is ApiResult.Failure -> {
                     mutableState.update { it.copy(message = describe(result.failure, "put ${item.name} back")) }
-                    return@launch
+                    return@write
                 }
             }
             if (item.done) {
@@ -246,6 +298,24 @@ class ShoppingListController(
         undoJob = scope.launch {
             delay(undoWindowMillis)
             mutableState.update { it.copy(removed = null) }
+        }
+    }
+
+    /** Saves one of this device's changes, holding back reloads that overlap it. */
+    private fun write(change: suspend () -> Unit) {
+        writes++
+        changes++
+        scope.launch {
+            try {
+                change()
+            } finally {
+                writes--
+                changes++
+                if (writes == 0) reloadWhenSaved?.let { kind ->
+                    reloadWhenSaved = null
+                    load(kind)
+                }
+            }
         }
     }
 

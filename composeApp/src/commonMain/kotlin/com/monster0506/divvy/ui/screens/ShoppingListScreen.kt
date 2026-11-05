@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -28,6 +29,7 @@ import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -66,7 +68,9 @@ import com.monster0506.divvy.ui.theme.DivvyTheme
 /**
  * The household's grocery list. Type to add (with names the household has bought before offered as
  * you go), tick the box to check an item off, tap an item for its details, or swipe it left to remove it.
+ * Pull down to load other people's changes now.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ShoppingListScreen(
     state: ShoppingListState,
@@ -78,49 +82,51 @@ fun ShoppingListScreen(
     onRemove: (id: String) -> Unit,
     onUndoRemove: () -> Unit,
     onAddSuggestion: (index: Int) -> Unit,
-    onRetry: () -> Unit = {},
+    onRefresh: () -> Unit = {},
     onDismissMessage: () -> Unit = {},
     onTab: (Tab) -> Unit = {},
 ) {
     var showPurchased by rememberSaveable { mutableStateOf(false) }
-    AppScaffold(selected = Tab.Shopping, onSelect = onTab) {
-        val toBuy = state.open.size
-        ScreenHeader("Shopping list", metaStart = if (state.phase == ListPhase.Ready) "$toBuy to buy" else null)
-        AddField(state.input, state.adding, onInput) { onAdd(state.input) }
-        state.suggestions.forEach { name -> AutocompleteRow(name) { onAdd(name) } }
-        state.message?.let { SectionHeader(it, "Dismiss", warn = true, onClick = onDismissMessage) }
-        state.removed?.let { RemovedBanner(it, onUndoRemove) }
+    PullToRefreshBox(isRefreshing = state.refreshing, onRefresh = onRefresh) {
+        AppScaffold(selected = Tab.Shopping, onSelect = onTab) {
+            val toBuy = state.open.size
+            ScreenHeader("Shopping list", metaStart = if (state.phase == ListPhase.Ready) "$toBuy to buy" else null)
+            AddField(state.input, state.adding, onInput) { onAdd(state.input) }
+            state.suggestions.forEach { name -> AutocompleteRow(name) { onAdd(name) } }
+            state.message?.let { SectionHeader(it, "Dismiss", warn = true, onClick = onDismissMessage) }
+            state.removed?.let { RemovedBanner(it, onUndoRemove) }
 
-        when (state.phase) {
-            ListPhase.Idle, ListPhase.Loading ->
-                Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-            ListPhase.Failed -> {
-                ListNote("Could not load the list.")
-                TextButton(onClick = onRetry, Modifier.padding(horizontal = 12.dp)) { Text("Try again") }
-            }
-            ListPhase.Ready -> {
-                if (state.items.isEmpty()) ListNote("Nothing on the list. Add something above.")
-                state.open.forEach { item ->
-                    key(item.id) {
-                        val enter = remember { MutableTransitionState(false).apply { targetState = true } }
-                        AnimatedVisibility(enter) {
-                            SwipeToRemove(onRemove = { onRemove(item.id) }) {
-                                ItemRow(item, onToggle = { onToggle(item.id) }, onOpen = { onOpen(item.id) })
+            when (state.phase) {
+                ListPhase.Idle, ListPhase.Loading ->
+                    Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                ListPhase.Failed -> {
+                    ListNote("Could not load the list.")
+                    TextButton(onClick = onRefresh, Modifier.padding(horizontal = 12.dp)) { Text("Try again") }
+                }
+                ListPhase.Ready -> {
+                    if (state.items.isEmpty()) ListNote("Nothing on the list. Add something above.")
+                    state.open.forEach { item ->
+                        key(item.id) {
+                            val enter = remember { MutableTransitionState(false).apply { targetState = true } }
+                            AnimatedVisibility(enter) {
+                                SwipeToRemove(onRemove = { onRemove(item.id) }) {
+                                    ItemRow(item, onToggle = { onToggle(item.id) }, onOpen = { onOpen(item.id) })
+                                }
                             }
                         }
                     }
-                }
-                val bought = state.purchased
-                if (bought.isNotEmpty()) {
-                    SectionHeader("Purchased (${bought.size})", if (showPurchased) "Hide" else "Show") {
-                        showPurchased = !showPurchased
-                    }
-                    AnimatedVisibility(showPurchased) {
-                        Column {
-                            bought.forEach { item ->
-                                key(item.id) {
-                                    SwipeToRemove(onRemove = { onRemove(item.id) }) {
-                                        ItemRow(item, onToggle = { onToggle(item.id) }, onOpen = { onOpen(item.id) })
+                    val bought = state.purchased
+                    if (bought.isNotEmpty()) {
+                        SectionHeader("Purchased (${bought.size})", if (showPurchased) "Hide" else "Show") {
+                            showPurchased = !showPurchased
+                        }
+                        AnimatedVisibility(showPurchased) {
+                            Column {
+                                bought.forEach { item ->
+                                    key(item.id) {
+                                        SwipeToRemove(onRemove = { onRemove(item.id) }) {
+                                            ItemRow(item, onToggle = { onToggle(item.id) }, onOpen = { onOpen(item.id) })
+                                        }
                                     }
                                 }
                             }
@@ -128,11 +134,11 @@ fun ShoppingListScreen(
                     }
                 }
             }
-        }
 
-        AnimatedVisibility(suggestions.any { !it.added }) { SectionHeader("You may also need") }
-        suggestions.forEachIndexed { i, s ->
-            key(s.name) { AnimatedVisibility(!s.added) { SuggestionRow(s) { onAddSuggestion(i) } } }
+            AnimatedVisibility(suggestions.any { !it.added }) { SectionHeader("You may also need") }
+            suggestions.forEachIndexed { i, s ->
+                key(s.name) { AnimatedVisibility(!s.added) { SuggestionRow(s) { onAddSuggestion(i) } } }
+            }
         }
     }
 }
