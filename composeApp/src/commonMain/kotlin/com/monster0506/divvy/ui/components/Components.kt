@@ -46,15 +46,18 @@ import com.monster0506.divvy.ui.theme.DivvyColors
 
 enum class Tab(val label: String) { Receipts("Receipts"), Balances("Balances"), Shopping("List"), Account("Account") }
 
+/** [bottomBar] stays above the tabs while the content scrolls, for things like an undo bar. */
 @Composable
 fun AppScaffold(
     selected: Tab?,
     onSelect: (Tab) -> Unit = {},
     scrollState: ScrollState = rememberScrollState(),
+    bottomBar: @Composable () -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(Modifier.fillMaxSize().background(DivvyColors.Surface).windowInsetsPadding(WindowInsets.safeDrawing)) {
         Column(Modifier.weight(1f).verticalScroll(scrollState), content = content)
+        bottomBar()
         if (selected != null) {
             HorizontalDivider(color = DivvyColors.Line)
             Row(Modifier.fillMaxWidth()) {

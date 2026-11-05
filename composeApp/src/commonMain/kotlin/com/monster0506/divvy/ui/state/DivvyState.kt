@@ -20,6 +20,7 @@ import com.monster0506.divvy.ui.model.Settings
 import com.monster0506.divvy.ui.model.Transfer
 import com.monster0506.divvy.ui.model.initialsFor
 import com.monster0506.divvy.ui.preview.SampleData
+import kotlin.math.roundToInt
 
 /** In-memory stand-in for the repository layer (#6) so the screens can be driven live. */
 class DivvyState(private val ownerSaver: DebouncedSaver<Int, Set<String>>? = null, ) {
@@ -135,13 +136,15 @@ class DivvyState(private val ownerSaver: DebouncedSaver<Int, Set<String>>? = nul
     private var lastDeleted by mutableStateOf<Pair<Int, ReceiptLine>?>(null)
     val canUndoDelete get() = lastDeleted != null
 
-    fun editLine(lineId: Int, name: String, priceCents: Int) {
-        rawDraft = rawDraft.copy(lines = rawDraft.lines.editLine(lineId, name, priceCents))
+    fun editLine(lineId: Int, name: String, quantity: Double, eachCents: Int) {
+        rawDraft = rawDraft.copy(lines = rawDraft.lines.editLine(lineId, name, quantity, eachCents))
     }
 
-    fun addLine(name: String, priceCents: Int) {
-        val line =
-            ReceiptLine(rawDraft.lines.nextLineId(), name, priceCents, emptySet(), confidence = 0f, confirmed = false)
+    fun addLine(name: String, quantity: Double, eachCents: Int) {
+        val line = ReceiptLine(
+            rawDraft.lines.nextLineId(), name, (eachCents * quantity).roundToInt(), emptySet(),
+            confidence = 0f, confirmed = false, quantity = quantity, unitCents = eachCents,
+        )
         rawDraft = rawDraft.copy(lines = rawDraft.lines + line)
     }
 
