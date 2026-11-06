@@ -1,0 +1,11 @@
+[Unit]
+Description=Check for Divvy server updates about once a minute
+
+[Timer]
+OnBootSec=1min
+OnUnitInactiveSec=1min
+AccuracySec=10s
+Unit=divvy-auto-update.service
+
+[Install]
+WantedBy=timers.target

@@ -180,11 +180,66 @@ api.example.com {
 ### Updating
 
 ```bash
-git pull
+git pull --ff-only origin main
 docker compose up -d --build
 ```
 
 Named volumes survive this. Never run `docker compose down -v`, which deletes the database and uploaded images.
+
+### Automatic server updates
+
+The server can check public GitHub `main` about once a minute using a systemd timer. Setup runs directly in the server console: no SSH key, GitHub token or inbound webhook is needed. See the [console deployment guide](docs/hosting.md) for first setup.
+
+For an existing Git checkout at `~/divvy`, with the stack already configured and running:
+
+```bash
+git -C "$HOME/divvy" remote set-url origin https://github.com/Monster0506/Divvy.git
+sudo bash "$HOME/divvy/deploy/install-auto-update.sh"
+```
+
+The installer requires Linux/systemd, Git, Docker Compose v2 and `flock` (from `util-linux`). It resolves the checkout path and runs the service as its owner, with Docker group access when available. It runs an initial build immediately. After that, the timer fetches main and fast-forwards the checkout, then runs exactly:
+
+```bash
+docker compose up -d --build
+```
+
+It rebuilds only if `server/`, `gradle/`, `gradlew`, the root Gradle files, `.dockerignore` or `docker-compose.yml` changed since the last successful Compose run. App-only and docs-only commits are pulled without restarting containers. A lock prevents overlapping runs; a dirty checkout, another branch or local/diverged commits stop deployment rather than discarding changes.
+
+`.env` stays on the server, and named volumes are not deleted. The deployed revision is recorded in `.git/divvy-server-deployed` only after Compose succeeds. Failed builds are tried again on the next timer tick, even though the checkout has already moved forward. This is not an automatic rollback: detached startup does not guarantee application health, and database migrations are not undone.
+
+If the existing deployment was uploaded as an archive and has no `.git`, preserve it and its secrets before cloning. Run this once in the server console, only if `~/divvy-archive` does not exist:
+
+```bash
+test ! -e "$HOME/divvy-archive" &&
+  mv "$HOME/divvy" "$HOME/divvy-archive" &&
+  git clone --branch main https://github.com/Monster0506/Divvy.git "$HOME/divvy" &&
+  sudo install -o "$(id -u)" -g "$(id -g)" -m 600 "$HOME/divvy-archive/.env" "$HOME/divvy/.env"
+sudo bash "$HOME/divvy/deploy/install-auto-update.sh"
+```
+
+The archive remains as a backup; review any other local customizations before enabling updates. The Compose project stays named `divvy`, so the existing database and image volumes are reused. Once enabled, update through main rather than uploading an archive over the managed checkout.
+
+Check the timer, read logs, or run a check immediately:
+
+```bash
+sudo systemctl list-timers divvy-auto-update.timer
+sudo journalctl -u divvy-auto-update.service -n 100 --no-pager
+sudo systemctl start divvy-auto-update.service
+```
+
+To pause updates, run `sudo systemctl disable --now divvy-auto-update.timer`. To uninstall, also stop the service and remove only the installed updater files:
+
+```bash
+sudo systemctl stop divvy-auto-update.service
+sudo rm -f /etc/systemd/system/divvy-auto-update.service \
+  /etc/systemd/system/divvy-auto-update.timer \
+  /etc/systemd/system/divvy-auto-update.service.d/user.conf \
+  /usr/local/libexec/divvy-auto-update /etc/divvy/auto-update.env
+sudo systemctl daemon-reload
+```
+
+The service executes trusted code from main with Docker access. Keep backups and restrict who can merge there. If the updater scripts or unit files change later, rerun the installer to replace the installed copies.
+
 
 ### Backups
 

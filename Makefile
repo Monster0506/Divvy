@@ -2,24 +2,24 @@
 #
 #   make deploy HOST=203.0.113.5
 #
-# It installs Docker, opens the firewall for SSH and HTTPS, uploads the code, creates the secrets, starts everything
-# behind Caddy and waits until https://<name>/health answers. HOST is remembered in deploy/local.mk after the first run.
+# It installs Docker, opens the firewall for SSH and HTTPS, uploads the code, creates the secrets, starts the stack
+# with Docker Compose and waits until https://<name>/health answers. HOST is remembered after the first run.
 # Needs: make, ssh, scp, git, openssl, curl. On Windows run it from Git Bash or WSL.
 
 -include deploy/local.mk
 
 HOST     ?=
 SSH_USER ?= root
-SSH_KEY  ?= ~/.ssh/divvy_vultr
-APP_DIR  ?= /opt/divvy
+SSH_KEY  ?= ~/.ssh/divvy_deploy
+APP_DIR  ?= ~/divvy
 # A free name that already points at HOST. Set DOMAIN=api.example.com to use your own domain instead.
 DOMAIN   ?= $(subst .,-,$(HOST)).sslip.io
 
 SSH_OPTS := -i $(SSH_KEY) -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30
 SSH      := ssh $(SSH_OPTS) $(SSH_USER)@$(HOST)
-COMPOSE  := cd $(APP_DIR) && docker compose -f docker-compose.yml -f docker-compose.prod.yml
+COMPOSE  := cd $(APP_DIR) && docker compose
 
-.PHONY: deploy check remember env bootstrap upload up verify ssh logs status backup restart down
+.PHONY: deploy check remember env bootstrap upload up auto-update verify ssh logs status backup restart down
 
 deploy: check remember env bootstrap upload up verify
 
@@ -52,7 +52,11 @@ upload:
 	$(SSH) 'chmod 600 $(APP_DIR)/.env'
 
 up:
-	$(SSH) '$(COMPOSE) up -d --build --remove-orphans'
+	$(SSH) '$(COMPOSE) up -d --build'
+
+# Run this target in the server console on an already configured Git checkout.
+auto-update:
+	bash deploy/install-auto-update.sh
 
 verify:
 	@echo "Waiting for https://$(DOMAIN)/health (the first certificate takes a minute)..."

@@ -25,4 +25,4 @@ if ! swapon --show | grep -q .; then
   grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
 fi
 
-mkdir -p "${1:-/opt/divvy}"
+mkdir -p "${1:-$HOME/divvy}"
