@@ -86,7 +86,7 @@ fun AccountScreen(
     if (serverStatus != null) {
         AppScaffold(selected = null) {
             ScreenHeader("Server")
-            ServerProblemMessage(serverStatus, onRetryConnection)
+            ServerProblemMessage(serverStatus, onRetryConnection, keyMissing = apiConfig.apiKey.isBlank())
             ServerSettings(apiConfig, onApiConfigChange)
         }
         return

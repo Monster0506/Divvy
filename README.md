@@ -48,6 +48,19 @@ From the command line, with a device or emulator connected:
 ./gradlew :androidApp:installDebug
 ```
 
+Debug builds install as a separate app, **Divvy Dev** (`com.monster0506.divvy.debug`), so they sit next to a release install.
+
+### Installing a release
+
+Signed APKs are on the [Releases](https://github.com/Monster0506/Divvy/releases) page:
+
+- **Tagged releases** (`Divvy 1.2.0`, file `divvy-1.2.0.apk`) are deliberate versions.
+- **Latest from main** (`latest-main`, file `divvy-main.apk`) is rebuilt on every merge to `main` that touches the app: [direct download](https://github.com/Monster0506/Divvy/releases/download/latest-main/divvy-main.apk).
+
+Open the APK on the phone and allow installing from that source. Any newer release or main build installs over an older one.
+
+Release APKs know the server address but not the API key, because releases are public. On first launch the app opens Account > Server and asks for the key. Paste it and save. To join an existing household, enter its name on the next screen and pick who you are.
+
 ### Server
 
 ```bash
@@ -217,5 +230,31 @@ GitHub Actions runs each workflow only when its files change, so a docs-only cha
 | **Gradle** (`.github/workflows/gradle.yml`) | PRs and pushes to `main` touching `composeApp/`, `androidApp/`, `server/`, `gradle/` or the build scripts | `./gradlew :composeApp:check :androidApp:assembleDebug :server:test` on JDK 17; uploads test reports on failure | ~4-5 min |
 | **ML service** (`.github/workflows/ml.yml`) | PRs and pushes to `main` touching `ml/` | ruff, pytest and a Docker build with a `/health` check. See [ml/README.md](ml/README.md). | ~20 s per job (parallel) |
 | **iOS** (`.github/workflows/ios.yml`) | Nightly at 06:17 UTC, manual trigger, and PRs touching `composeApp/src/iosMain/` or `iosApp/` | `:composeApp:linkDebugFrameworkIosSimulatorArm64` on macOS | IOS_TIME |
+| **Android release** (`.github/workflows/android-release.yml`) | `v*` tags; pushes to `main` touching the app or build scripts; manual trigger | Builds a signed release APK without the API key, checks its signature, then publishes a release for the tag, or replaces the `latest-main` pre-release | not measured yet |
 
 To run the iOS build by hand, use **Actions > iOS > Run workflow**, or run `gh workflow run ios.yml`.
+
+### Releases
+
+To publish a version, tag a commit on `main` and push the tag:
+
+```bash
+git tag v1.2.0
+git push origin v1.2.0
+```
+
+The release is named after the tag, with notes generated from the merged PRs. `versionName` is the tag without the `v`, and `versionCode` is the number of commits up to it, so later builds always install over earlier ones.
+
+The workflow needs these repository settings:
+
+| Name | Kind | Value |
+|------|------|-------|
+| `ANDROID_KEYSTORE_BASE64` | secret | The release keystore, base64-encoded |
+| `ANDROID_KEYSTORE_PASSWORD` | secret | Keystore password |
+| `ANDROID_KEY_ALIAS` | secret | Key alias in the keystore |
+| `ANDROID_KEY_PASSWORD` | secret | Key password |
+| `DIVVY_API_BASE_URL` | variable | The server address built into the APK |
+
+**Keep a backup of the keystore and its password outside GitHub.** Secrets can't be read back. If the key is lost, installed apps can't be updated, and everyone has to uninstall (losing the app's settings) and install again.
+
+To build a signed release locally, set `DIVVY_SIGNING_STORE_FILE`, `DIVVY_SIGNING_STORE_PASSWORD`, `DIVVY_SIGNING_KEY_ALIAS` and `DIVVY_SIGNING_KEY_PASSWORD`, then run `./gradlew :androidApp:assembleRelease "-Pdivvy.apiKey="`. Without the `DIVVY_SIGNING_*` variables the release APK is unsigned.

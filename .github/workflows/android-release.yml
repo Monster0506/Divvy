@@ -1,0 +1,139 @@
+name: Android release
+
+# A v* tag publishes a release for that tag. A push to main that touches the app replaces the
+# "latest-main" pre-release. Both are signed with the same key, so either installs over the other.
+on:
+  push:
+    tags: ["v*"]
+    branches: [main]
+    # Not checked for tag pushes; a tag always builds.
+    paths:
+      - "composeApp/**"
+      - "androidApp/**"
+      - "gradle/**"
+      - "*.gradle.kts"
+      - "gradle.properties"
+      - "gradlew"
+      - ".github/workflows/android-release.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  # A newer main build replaces an older one; tag builds always finish.
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the commit count is the versionCode
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+
+      - name: Work out the version
+        id: version
+        run: |
+          code=$(git rev-list --count HEAD)
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            name="${GITHUB_REF_NAME#v}"
+            apk="divvy-${name}.apk"
+          else
+            name="main-$(git rev-parse --short=7 HEAD)"
+            apk="divvy-main.apk"
+          fi
+          {
+            echo "code=$code"
+            echo "name=$name"
+            echo "apk=$apk"
+          } >> "$GITHUB_OUTPUT"
+          echo "Version $name ($code)"
+
+      - name: Restore the signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          API_BASE_URL: ${{ vars.DIVVY_API_BASE_URL }}
+        run: |
+          missing=""
+          for name in KEYSTORE_BASE64 STORE_PASSWORD KEY_ALIAS KEY_PASSWORD API_BASE_URL; do
+            [ -n "${!name}" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing:$missing. Set the ANDROID_* repository secrets and the DIVVY_API_BASE_URL variable (see README, Releases)."
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.jks"
+
+      # The repo is public, so the APK must not carry the API key; people enter it on first launch.
+      - name: Build the release APK
+        env:
+          DIVVY_SIGNING_STORE_FILE: ${{ runner.temp }}/release.jks
+          DIVVY_SIGNING_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          DIVVY_SIGNING_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          DIVVY_SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          API_BASE_URL: ${{ vars.DIVVY_API_BASE_URL }}
+        run: >-
+          ./gradlew :androidApp:assembleRelease
+          "-Pdivvy.apiBaseUrl=$API_BASE_URL"
+          "-Pdivvy.apiKey="
+          "-Pdivvy.versionCode=${{ steps.version.outputs.code }}"
+          "-Pdivvy.versionName=${{ steps.version.outputs.name }}"
+
+      - name: Check no API key is built in
+        run: |
+          config=composeApp/build/generated/apiConfig/com/monster0506/divvy/data/api/BuildApiConfig.kt
+          grep -q 'const val API_KEY = ""' "$config" || { echo "::error::The APK would contain an API key"; exit 1; }
+
+      - name: Check the signature
+        run: |
+          apk=androidApp/build/outputs/apk/release/androidApp-release.apk
+          [ -f "$apk" ] || { echo "::error::No signed APK at $apk"; exit 1; }
+          apksigner="$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -name apksigner | sort -V | tail -n 1)"
+          "$apksigner" verify --print-certs "$apk" | tee "$RUNNER_TEMP/certs.txt"
+          grep -q "SHA-256 digest" "$RUNNER_TEMP/certs.txt"
+          cp "$apk" "${{ steps.version.outputs.apk }}"
+
+      - name: Publish the tag release
+        if: github.ref_type == 'tag'
+        env:
+          APK: ${{ steps.version.outputs.apk }}
+          NAME: ${{ steps.version.outputs.name }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$APK" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "$APK" --verify-tag --title "Divvy $NAME" --generate-notes
+          fi
+
+      # A manual run on another branch builds and checks the APK but publishes nothing.
+      - name: Replace the latest-main pre-release
+        if: github.ref == 'refs/heads/main'
+        env:
+          APK: ${{ steps.version.outputs.apk }}
+          NAME: ${{ steps.version.outputs.name }}
+        run: |
+          gh release delete latest-main --cleanup-tag --yes || true
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/latest-main" > /dev/null 2>&1 || true
+          gh release create latest-main "$APK" \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "Latest from main" \
+            --notes "Built from ${GITHUB_SHA} on main (version ${NAME}). Installs over a tagged release or an older main build; enter the server's API key on first launch."

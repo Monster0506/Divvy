@@ -21,13 +21,17 @@ fun ConnectionStatus.isServerProblem(): Boolean =
 
 /**
  * The one message the app shows when it can't use the server, above the server settings on Account. While
- * [status] is still being checked (for example, right after the settings were saved) it says so.
+ * [status] is still being checked (for example, right after the settings were saved) it says so. [keyMissing] is
+ * true when no API key has been entered yet, as on a fresh install of a release build.
  */
 @Composable
-fun ServerProblemMessage(status: ConnectionStatus, onRetry: () -> Unit, modifier: Modifier = Modifier) {
+fun ServerProblemMessage(status: ConnectionStatus, onRetry: () -> Unit, modifier: Modifier = Modifier, keyMissing: Boolean = false) {
     val (title, detail) = when (status) {
-        ConnectionStatus.KeyRejected ->
+        ConnectionStatus.KeyRejected -> if (keyMissing) {
+            "Enter the server's API key" to "Ask whoever runs the server for its key (API_KEY in its .env), paste it below, then save."
+        } else {
             "The server rejected the API key" to "Enter the key the server was set up with (API_KEY in its .env), then save."
+        }
         ConnectionStatus.Unreachable ->
             "Can't reach the server" to "Check the server URL and API key below, and that this phone is online. Divvy keeps trying in the background."
         else -> "Checking the server…" to "This takes a moment."
@@ -57,4 +61,5 @@ fun ServerProblemMessage(status: ConnectionStatus, onRetry: () -> Unit, modifier
 private fun ServerProblemMessagePreview() = Column {
     ServerProblemMessage(ConnectionStatus.Unreachable, onRetry = {})
     ServerProblemMessage(ConnectionStatus.KeyRejected, onRetry = {})
+    ServerProblemMessage(ConnectionStatus.KeyRejected, onRetry = {}, keyMissing = true)
 }
