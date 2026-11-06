@@ -770,7 +770,7 @@ fun DivvyApp(
                     RepeatWhileInForeground(LIST_SYNC_MILLIS, list::sync)
                     ShoppingListScreen(
                         state = if (household != null) serverShoppingState else localShoppingState,
-                        suggestions = state.suggestions,
+                        suggestions = if (FeatureFlags.YOU_MAY_ALSO_NEED) state.suggestions else emptyList(),
                         onInput = list::type,
                         onAdd = { list.add(it) },
                         onToggle = list::toggle,
