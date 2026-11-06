@@ -86,7 +86,7 @@ class BalancesController(
     /** The person this device last acted as in the household, to put their payments first. */
     private val currentPerson: (householdId: String) -> String? = { null },
     private val undoWindowMillis: Long = 8_000,
-    /** Saves where a person receives payments, as Household settings does. */
+    /** Saves where a person receives payments, as Account does. */
     private val saveVenmo: suspend (householdId: String, personId: String, username: String) -> ApiResult<PersonDto> =
         { _, _, _ -> ApiResult.Failure(ApiFailure.Offline) },
 ) {

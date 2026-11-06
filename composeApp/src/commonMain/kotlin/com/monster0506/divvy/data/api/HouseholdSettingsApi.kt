@@ -12,8 +12,6 @@ data class HouseholdMember(
     val venmoUsername: String? = null,
 )
 
-data class HouseholdDetails(val name: String, val members: List<HouseholdMember>)
-
 sealed interface SettingsResult<out T> {
     data class Ok<T>(val value: T) : SettingsResult<T>
     /** The server rejected the request; [message] is safe to show to the user. */
@@ -22,13 +20,14 @@ sealed interface SettingsResult<out T> {
     data class Failure(val message: String) : SettingsResult<Nothing>
 }
 
+/** The household's members for Account, with their Venmo usernames. */
 class HouseholdSettingsApi(client: HttpClient) {
     private val api = DivvyApi(client)
 
-    suspend fun load(householdId: String): SettingsResult<HouseholdDetails> = settingsCall {
-        val household = api.getHousehold(householdId)
-        val people = api.listPeople(householdId, includeArchived = true)
-        HouseholdDetails(household.name, people.map { HouseholdMember(it.id, it.displayName, it.isArchived, it.venmoUsername) })
+    /** Every member, archived ones included. */
+    suspend fun members(householdId: String): SettingsResult<List<HouseholdMember>> = settingsCall {
+        api.listPeople(householdId, includeArchived = true)
+            .map { HouseholdMember(it.id, it.displayName, it.isArchived, it.venmoUsername) }
     }
 
     /** Saves [personId]'s Venmo username, or removes it when [username] is empty. Returns it as the server stored it. */
@@ -37,16 +36,6 @@ class HouseholdSettingsApi(client: HttpClient) {
             is SettingsResult.Invalid -> SettingsResult.Invalid(venmoNotSupported(result.message) ?: result.message)
             else -> result
         }
-
-    suspend fun rename(householdId: String, name: String): SettingsResult<Unit> = settingsCall {
-        api.renameHousehold(householdId, name)
-        Unit
-    }
-
-    suspend fun archive(householdId: String, personId: String): SettingsResult<Unit> = settingsCall {
-        api.archivePerson(householdId, personId)
-        Unit
-    }
 }
 
 /** Shown when the server is older than Venmo usernames and so demands a name on every person update. */

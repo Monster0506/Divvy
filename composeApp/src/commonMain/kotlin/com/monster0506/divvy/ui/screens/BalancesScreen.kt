@@ -183,7 +183,7 @@ private fun SettleRow(
     RowDivider()
 }
 
-/** Asks for [person]'s Venmo username and saves it for the household, the same as Household settings. */
+/** Asks for [person]'s Venmo username and saves it for the household, the same as Account does. */
 @Composable
 private fun VenmoUsernameDialog(
     person: Person,

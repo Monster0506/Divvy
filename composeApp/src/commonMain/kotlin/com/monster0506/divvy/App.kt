@@ -58,7 +58,6 @@ import com.monster0506.divvy.ui.screens.CameraScreen
 import com.monster0506.divvy.ui.screens.ReceiptPhotoStage
 import com.monster0506.divvy.ui.screens.CreateHouseholdScreen
 import com.monster0506.divvy.ui.screens.EditPersonScreen
-import com.monster0506.divvy.ui.screens.HouseholdSettingsScreen
 import com.monster0506.divvy.ui.screens.ReceiptDetailScreen
 import com.monster0506.divvy.ui.screens.ReceiptHistoryScreen
 import com.monster0506.divvy.ui.screens.ReviewReceiptScreen
@@ -101,7 +100,7 @@ import com.monster0506.divvy.ui.state.AddMembersState
 import com.monster0506.divvy.ui.state.CreateHouseholdState
 import com.monster0506.divvy.ui.state.JoinHouseholdState
 import com.monster0506.divvy.ui.state.DivvyState
-import com.monster0506.divvy.ui.state.HouseholdSettingsState
+import com.monster0506.divvy.ui.state.HouseholdMembersState
 import com.monster0506.divvy.ui.theme.DivvyTheme
 import androidx.compose.ui.tooling.preview.Preview
 import kotlinx.coroutines.CancellationException
@@ -112,12 +111,12 @@ import com.monster0506.divvy.connection.checkConnection
 import com.monster0506.divvy.ui.components.isServerProblem
 import com.monster0506.divvy.ui.model.Settings as AssignSettings
 
-enum class Route { Launch, CreateHousehold, AddMembers, JoinHousehold, Camera, Review, History, Detail, Balances, Shopping, ShoppingItem, Account, EditPerson, HouseholdSettings }
+enum class Route { Launch, CreateHousehold, AddMembers, JoinHousehold, Camera, Review, History, Detail, Balances, Shopping, ShoppingItem, Account, EditPerson }
 
 /** Screens that only make sense inside a household; Account is left out so a server problem can always show there. */
 private val householdRoutes = setOf(
     Route.Camera, Route.Review, Route.History, Route.Detail, Route.Balances,
-    Route.Shopping, Route.ShoppingItem, Route.EditPerson, Route.HouseholdSettings,
+    Route.Shopping, Route.ShoppingItem, Route.EditPerson,
 )
 
 private data class SelectedReceiptPhoto(val jpeg: ByteArray, val preview: ImageBitmap)
@@ -322,6 +321,20 @@ fun DivvyApp(
     val autoState by autoAssign.state.collectAsState()
     var viewedPhoto by remember { mutableStateOf<ImageBitmap?>(null) }
     fun activeHousehold(): String? = router?.currentHouseholdId()
+    val householdMembers = remember(settingsApi) {
+        HouseholdMembersState(
+            load = {
+                val id = activeHousehold()
+                if (id == null || settingsApi == null) SettingsResult.Failure("Not connected") else settingsApi.members(id)
+            },
+            create = { name -> createPerson(activeHousehold().orEmpty(), name) },
+            setVenmo = { personId, username ->
+                val id = activeHousehold()
+                if (id == null || settingsApi == null) SettingsResult.Failure("Not connected")
+                else settingsApi.setVenmo(id, personId, username)
+            },
+        )
+    }
     LaunchedEffect(route) {
         val household = activeHousehold() ?: return@LaunchedEffect
         when (route) {
@@ -335,6 +348,7 @@ fun DivvyApp(
                 autoAssign.load(household)
                 nameSync.open(household)
                 members.load(household)
+                householdMembers.refresh()
             }
 
             else -> Unit
@@ -767,6 +781,7 @@ fun DivvyApp(
                     householdName = state.householdName,
                     nameLoaded = nameSync.loaded,
                     people = state.people,
+                    household = householdMembers,
                     settings = state.settings,
                     onHouseholdNameChange = nameSync::edit,
                     householdNameMessage = nameSync.message,
@@ -774,7 +789,7 @@ fun DivvyApp(
                         editingId = it
                         route = Route.EditPerson
                     },
-                    onAddMember = { route = Route.HouseholdSettings },
+                    onMembersChanged = { activeHousehold()?.let(members::load) },
                     onSettingsChange = { updated ->
                         val before = state.settings
                         state.settings = updated
@@ -788,40 +803,9 @@ fun DivvyApp(
                     apiConfig = apiConfig,
                     onApiConfigChange = onApiConfigChange,
                     onTab = onTab,
-                    onOpenHouseholdSettings = { route = Route.HouseholdSettings },
                     serverStatus = connectionStatus.takeIf { it.isServerProblem() || returnTo != null },
                     onRetryConnection = onRetryConnection,
                 )
-
-                Route.HouseholdSettings -> {
-                    val id = householdId ?: router?.currentHouseholdId()
-                    val form = remember {
-                        HouseholdSettingsState(
-                            load = {
-                                if (id == null || settingsApi == null) SettingsResult.Failure("Not connected")
-                                else settingsApi.load(id)
-                            },
-                            rename = { name ->
-                                if (id == null || settingsApi == null) SettingsResult.Failure("Not connected")
-                                else settingsApi.rename(id, name)
-                            },
-                            create = { name -> createPerson(id.orEmpty(), name) },
-                            archive = { personId ->
-                                if (id == null || settingsApi == null) SettingsResult.Failure("Not connected")
-                                else settingsApi.archive(id, personId)
-                            },
-                            setVenmo = { personId, username ->
-                                if (id == null || settingsApi == null) SettingsResult.Failure("Not connected")
-                                else settingsApi.setVenmo(id, personId, username)
-                            },
-                        )
-                    }
-                    HouseholdSettingsScreen(
-                        state = form,
-                        onBack = { route = Route.Account },
-                        onTab = onTab,
-                    )
-                }
 
                 Route.EditPerson -> editingId?.let(state::person)?.let { person ->
                     EditPersonScreen(
