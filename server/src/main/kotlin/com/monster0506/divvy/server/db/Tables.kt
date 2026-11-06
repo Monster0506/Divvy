@@ -33,6 +33,11 @@ object PersonTable : TimestampedTable("person") {
     val displayName = text("display_name")
     val archivedAt = timestampWithTimeZone("archived_at").nullable()
     val venmoUsername = text("venmo_username").nullable()
+    val shortName = text("short_name").nullable()
+    val emoji = text("emoji").nullable()
+    val avatarColor = text("avatar_color").nullable()
+    val photoKey = text("photo_key").nullable()
+    val photoUpdatedAt = timestampWithTimeZone("photo_updated_at").nullable()
 
     override val primaryKey = PrimaryKey(id)
 }

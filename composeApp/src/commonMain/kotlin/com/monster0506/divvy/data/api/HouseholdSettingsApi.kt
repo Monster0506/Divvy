@@ -1,5 +1,6 @@
 package com.monster0506.divvy.data.api
 
+import com.monster0506.divvy.data.dto.PersonDto
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.CancellationException
 
@@ -10,9 +11,16 @@ data class HouseholdMember(
     val archived: Boolean = false,
     /** Where they receive payments, without the "@"; null if they have not said. */
     val venmoUsername: String? = null,
+    /** Their avatar choices as the server keeps them; null when not chosen. */
+    val shortName: String? = null,
+    val emoji: String? = null,
+    val color: String? = null,
+    /** Set when they have a photo; changes whenever it is replaced. */
+    val photoUpdatedAt: String? = null,
 )
 
-data class HouseholdDetails(val name: String, val members: List<HouseholdMember>)
+fun PersonDto.toMember() =
+    HouseholdMember(id, displayName, isArchived, venmoUsername, shortName, emoji, color, photoUpdatedAt)
 
 sealed interface SettingsResult<out T> {
     data class Ok<T>(val value: T) : SettingsResult<T>
@@ -22,13 +30,13 @@ sealed interface SettingsResult<out T> {
     data class Failure(val message: String) : SettingsResult<Nothing>
 }
 
+/** The household's members for Account, with their Venmo usernames. */
 class HouseholdSettingsApi(client: HttpClient) {
     private val api = DivvyApi(client)
 
-    suspend fun load(householdId: String): SettingsResult<HouseholdDetails> = settingsCall {
-        val household = api.getHousehold(householdId)
-        val people = api.listPeople(householdId, includeArchived = true)
-        HouseholdDetails(household.name, people.map { HouseholdMember(it.id, it.displayName, it.isArchived, it.venmoUsername) })
+    /** Every member, archived ones included. */
+    suspend fun members(householdId: String): SettingsResult<List<HouseholdMember>> = settingsCall {
+        api.listPeople(householdId, includeArchived = true).map { it.toMember() }
     }
 
     /** Saves [personId]'s Venmo username, or removes it when [username] is empty. Returns it as the server stored it. */
@@ -37,16 +45,6 @@ class HouseholdSettingsApi(client: HttpClient) {
             is SettingsResult.Invalid -> SettingsResult.Invalid(venmoNotSupported(result.message) ?: result.message)
             else -> result
         }
-
-    suspend fun rename(householdId: String, name: String): SettingsResult<Unit> = settingsCall {
-        api.renameHousehold(householdId, name)
-        Unit
-    }
-
-    suspend fun archive(householdId: String, personId: String): SettingsResult<Unit> = settingsCall {
-        api.archivePerson(householdId, personId)
-        Unit
-    }
 }
 
 /** Shown when the server is older than Venmo usernames and so demands a name on every person update. */

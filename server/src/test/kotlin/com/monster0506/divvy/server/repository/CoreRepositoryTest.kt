@@ -65,6 +65,55 @@ class CoreRepositoryTest : RepositoryTestBase() {
     }
 
     @Test
+    fun `appearance fields are saved, kept and cleared`() = runBlocking {
+        val (_, people) = household("Sumedh")
+        val id = people.single().id
+        val saved = assertNotNull(repos.people.update(id, PersonPatch(shortName = "SJ", emoji = "🍕", color = "teal")))
+        assertEquals("SJ", saved.shortName)
+        assertEquals("🍕", saved.emoji)
+        assertEquals("teal", saved.color)
+
+        val renamed = assertNotNull(repos.people.update(id, PersonPatch(displayName = "Sumedh J")))
+        assertEquals(Triple("SJ", "🍕", "teal"), Triple(renamed.shortName, renamed.emoji, renamed.color))
+
+        val cleared = assertNotNull(repos.people.update(id, PersonPatch(shortName = "", emoji = "", color = "")))
+        assertNull(cleared.shortName)
+        assertNull(cleared.emoji)
+        assertNull(cleared.color)
+    }
+
+    @Test
+    fun `the database rejects bad appearance values`() = runBlocking {
+        val (_, people) = household("Sumedh")
+        val id = people.single().id
+        assertFailsWith<ExposedSQLException> { repos.people.update(id, PersonPatch(shortName = "ABC")) }
+        assertFailsWith<ExposedSQLException> { repos.people.update(id, PersonPatch(emoji = "x".repeat(17))) }
+        assertFailsWith<ExposedSQLException> { repos.people.update(id, PersonPatch(color = "red")) }
+        Unit
+    }
+
+    @Test
+    fun `setPhoto stamps the upload time and clears both fields`() = runBlocking {
+        val (_, people) = household("Sumedh")
+        val id = people.single().id
+        assertNull(people.single().photoKey)
+
+        val first = assertNotNull(repos.people.setPhoto(id, "key-1"))
+        assertEquals("key-1", first.photoKey)
+        val firstStamp = assertNotNull(first.photoUpdatedAt)
+        assertEquals(first, repos.people.findById(id))
+
+        val second = assertNotNull(repos.people.setPhoto(id, "key-2"))
+        assertEquals("key-2", second.photoKey)
+        assertTrue(assertNotNull(second.photoUpdatedAt) > firstStamp)
+
+        val cleared = assertNotNull(repos.people.setPhoto(id, null))
+        assertNull(cleared.photoKey)
+        assertNull(cleared.photoUpdatedAt)
+        assertNull(repos.people.setPhoto(kotlin.uuid.Uuid.random(), "key-3"))
+    }
+
+    @Test
     fun `active member names are unique per household, ignoring case`() = runBlocking {
         val (home, people) = household("Sumedh")
         assertFailsWith<ExposedSQLException> { repos.people.add(home.id, "sumedh") }

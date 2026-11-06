@@ -2,6 +2,7 @@ package com.monster0506.divvy.server.routes
 
 import com.monster0506.divvy.server.ApiError
 import com.monster0506.divvy.server.db.TestDatabase
+import com.monster0506.divvy.server.ml.MemoryStorage
 import com.monster0506.divvy.server.repository.ExposedRepositories
 import io.ktor.client.request.get
 import io.ktor.client.request.patch
@@ -40,7 +41,7 @@ class HouseholdApiErrorsTest {
             val repos = ExposedRepositories(TestDatabase.db.database)
             routing {
                 householdRoutes { repos.households }
-                personRoutes({ repos.households }, { repos.people })
+                personRoutes({ repos.households }, { repos.people }, { MemoryStorage() })
                 personArchiveRoutes({ repos.households }, { repos.people })
             }
         }

@@ -85,6 +85,8 @@ class FakePeople(private val everyone: List<Person>) : PersonRepository {
     override suspend fun update(id: Uuid, patch: PersonPatch) = error("not used")
 
     override suspend fun archive(id: Uuid) = error("not used")
+
+    override suspend fun setPhoto(id: Uuid, key: String?) = error("not used")
 }
 
 /** Records every call and answers with a configurable result. */

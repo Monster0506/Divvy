@@ -30,5 +30,5 @@ class HouseholdApi(client: HttpClient) {
     }
 
     suspend fun members(householdId: String): List<HouseholdMember> =
-        api.listPeople(householdId).filter { it.archivedAt == null }.map { HouseholdMember(it.id, it.displayName) }
+        api.listPeople(householdId).filter { it.archivedAt == null }.map { it.toMember() }
 }

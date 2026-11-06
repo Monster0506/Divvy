@@ -5,6 +5,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.monster0506.divvy.data.api.HouseholdMember
 import com.monster0506.divvy.data.api.apiMessage
+import com.monster0506.divvy.data.dto.AppearanceRequest
+import com.monster0506.divvy.ui.model.Appearance
+import com.monster0506.divvy.ui.model.AvatarColor
 import com.monster0506.divvy.ui.state.validateMemberName
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -15,8 +18,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /**
- * Keeps the household's members in step with the server: loads them, saves renames after a short pause,
- * and archives people. A refused change puts the last saved value back and sets [message].
+ * Keeps the household's members in step with the server: loads them, saves renames and avatar changes after a
+ * short pause, saves photos, and archives people. A refused change puts the last saved value back and sets [message].
  */
 class MemberSyncController(
     private val scope: CoroutineScope,
@@ -27,9 +30,18 @@ class MemberSyncController(
     private val applyMembers: (List<HouseholdMember>) -> Unit,
     /** Puts one person's name back on screen (after a refusal, or if the server changed it). */
     private val applyName: (personId: String, name: String) -> Unit,
+    /** Saves avatar choices; see [AppearanceRequest]. */
+    private val saveAppearance: suspend (householdId: String, personId: String, change: AppearanceRequest) -> HouseholdMember,
+    /** Puts one person's avatar choices back on screen (after a refusal, or if the server changed them). */
+    private val applyAppearance: (personId: String, appearance: Appearance) -> Unit,
+    /** Replaces a person's photo with JPEG bytes, or removes it when they are null. */
+    private val savePhoto: suspend (householdId: String, personId: String, jpeg: ByteArray?) -> HouseholdMember,
     private val debounceMillis: Long = 600,
 ) {
     var message by mutableStateOf<String?>(null)
+        private set
+    /** Why the last photo, short name, icon or color change was refused. */
+    var lookMessage by mutableStateOf<String?>(null)
         private set
     var busy by mutableStateOf(false)
         private set
@@ -37,6 +49,8 @@ class MemberSyncController(
     private var householdId: String? = null
     private val saved = mutableMapOf<String, String>()
     private val latest = mutableMapOf<String, String>()
+    private val savedLook = mutableMapOf<String, Appearance>()
+    private val latestLook = mutableMapOf<String, Appearance>()
     private val pending = mutableMapOf<String, Job>()
     private val lock = Mutex()
 
@@ -52,9 +66,13 @@ class MemberSyncController(
                 if (editing) return@launch
                 saved.clear()
                 latest.clear()
+                savedLook.clear()
+                latestLook.clear()
                 members.forEach {
                     saved[it.id] = it.name
                     latest[it.id] = it.name
+                    savedLook[it.id] = it.appearance()
+                    latestLook[it.id] = it.appearance()
                 }
                 applyMembers(members)
             } catch (e: CancellationException) {
@@ -109,6 +127,71 @@ class MemberSyncController(
         }
     }
 
+    /** Call after a person's short name, icon or color has changed on screen. The save is sent once typing pauses. */
+    fun restyle(personId: String, appearance: Appearance) {
+        latestLook[personId] = appearance
+        lookMessage = null
+        val id = householdId ?: return
+        val key = "look:$personId"
+        pending[key]?.cancel()
+        pending[key] = scope.launch {
+            delay(debounceMillis)
+            lock.withLock { flushLook(id, personId) }
+        }
+    }
+
+    private suspend fun flushLook(id: String, personId: String) {
+        val sent = latestLook[personId] ?: return
+        val wanted = sent.normalized()
+        val before = savedLook[personId] ?: Appearance()
+        if (wanted == before) return
+        // Only what changed is sent; an empty string clears it.
+        fun change(new: String?, old: String?) = if (new == old) null else new.orEmpty()
+        val request = AppearanceRequest(
+            shortName = change(wanted.shortName, before.shortName),
+            emoji = change(wanted.emoji, before.emoji),
+            color = change(wanted.color?.key, before.color?.key),
+        )
+        try {
+            val result = saveAppearance(id, personId, request).appearance()
+            savedLook[personId] = result
+            lookMessage = null
+            if (latestLook[personId] == sent && result != sent) {
+                latestLook[personId] = result
+                applyAppearance(personId, result)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            lookMessage = e.apiMessage()
+            if (latestLook[personId] != sent) return
+            latestLook[personId] = before
+            applyAppearance(personId, before)
+        }
+    }
+
+    /**
+     * Saves a new photo for [personId] (JPEG bytes), or removes theirs when [jpeg] is null. Saves run one at a time,
+     * in order. [onSaved] gets the person as the server now has them; on a refusal [lookMessage] is set and
+     * [onRefused] should put the saved photo back.
+     */
+    fun setPhoto(personId: String, jpeg: ByteArray?, onSaved: (HouseholdMember) -> Unit, onRefused: () -> Unit) {
+        val id = householdId ?: return
+        lookMessage = null
+        scope.launch {
+            lock.withLock {
+                try {
+                    onSaved(savePhoto(id, personId, jpeg))
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    lookMessage = e.apiMessage()
+                    onRefused()
+                }
+            }
+        }
+    }
+
     /** Archives a person, then reloads the list. A refusal (for example, still named on a draft) sets [message]. */
     fun archive(personId: String, onArchived: () -> Unit) {
         val id = householdId ?: return
@@ -136,3 +219,10 @@ class MemberSyncController(
         }
     }
 }
+
+/** The avatar choices the server has for this member. */
+internal fun HouseholdMember.appearance() = Appearance(shortName, emoji, AvatarColor.fromKey(color))
+
+/** Blank short names and icons mean "not chosen". */
+private fun Appearance.normalized() =
+    copy(shortName = shortName?.trim()?.takeIf { it.isNotEmpty() }, emoji = emoji?.takeIf { it.isNotBlank() })

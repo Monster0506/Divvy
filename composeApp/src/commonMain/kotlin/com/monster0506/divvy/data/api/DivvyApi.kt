@@ -25,6 +25,7 @@ import com.monster0506.divvy.data.dto.ItemOwnersDto
 import com.monster0506.divvy.data.dto.PersonDto
 import com.monster0506.divvy.data.dto.PersonRequest
 import com.monster0506.divvy.data.dto.VenmoUsernameRequest
+import com.monster0506.divvy.data.dto.AppearanceRequest
 import com.monster0506.divvy.data.dto.ReceiptDto
 import com.monster0506.divvy.data.dto.ReceiptUploadDto
 import com.monster0506.divvy.data.dto.RenameHouseholdRequest
@@ -102,6 +103,33 @@ class DivvyApi(private val client: HttpClient) {
 
     suspend fun archivePerson(householdId: String, personId: String): PersonDto =
         send { client.post("households/${householdId.seg()}/people/$personId/archive") }
+
+    /** Saves [personId]'s avatar choices; see [AppearanceRequest]. */
+    suspend fun setAppearance(householdId: String, personId: String, change: AppearanceRequest): PersonDto =
+        send {
+            client.patch("households/${householdId.seg()}/people/$personId") {
+                contentType(ContentType.Application.Json)
+                setBody(change)
+            }
+        }
+
+    /** Replaces [personId]'s photo with [jpeg]. */
+    suspend fun uploadPersonPhoto(householdId: String, personId: String, jpeg: ByteArray): PersonDto = send {
+        client.put("households/${householdId.seg()}/people/$personId/photo") {
+            setBody(MultiPartFormDataContent(formData {
+                append("image", jpeg, Headers.build {
+                    append(HttpHeaders.ContentType, ContentType.Image.JPEG.toString())
+                    append(HttpHeaders.ContentDisposition, "filename=\"photo.jpg\"")
+                })
+            }))
+        }
+    }
+
+    suspend fun deletePersonPhoto(householdId: String, personId: String): PersonDto =
+        send { client.delete("households/${householdId.seg()}/people/$personId/photo") }
+
+    suspend fun getPersonPhoto(householdId: String, personId: String): ByteArray =
+        send { client.get("households/${householdId.seg()}/people/$personId/photo") }
 
     suspend fun getReceipt(id: String): ReceiptDto = send { client.get("receipts/$id") }
 

@@ -14,7 +14,29 @@ enum class AvatarColor(val fill: Color) {
     Pink(Color(0xFFF8DCE6)),
     Orange(Color(0xFFFBE3CF)),
     Yellow(Color(0xFFF7EDC6)),
+    ;
+
+    /** How the server stores this color. */
+    val key: String get() = name.lowercase()
+
+    companion object {
+        fun fromKey(key: String?): AvatarColor? = entries.firstOrNull { it.key == key }
+    }
 }
+
+/** The color a member's avatar has until they choose one; the same on every phone. */
+fun defaultAvatarColor(id: String): AvatarColor =
+    AvatarColor.entries[(id.hashCode() and Int.MAX_VALUE) % AvatarColor.entries.size]
+
+/**
+ * What a member chose for their avatar, as the server keeps it: a [shortName] in place of initials from the name,
+ * an [emoji] and a [color]. Null means not chosen.
+ */
+data class Appearance(val shortName: String? = null, val emoji: String? = null, val color: AvatarColor? = null)
+
+/** The choices [this] shows: a short name or color counts only if it differs from what it would have by default. */
+fun Person.appearance(): Appearance =
+    Appearance(initials.takeIf { it != initialsFor(name) }, emoji, color.takeIf { it != defaultAvatarColor(id) })
 
 /** An avatar shows [photo] if set, otherwise [emoji], otherwise [initials] on [color]. */
 data class Person(
@@ -77,8 +99,6 @@ data class ReceiptDraft(
 }
 
 data class Balance(val person: Person, val netCents: Int)
-
-data class Transfer(val from: Person, val to: Person, val amountCents: Int, val paid: Boolean = false)
 
 enum class ReceiptStatus(val label: String) {
     NeedsReview("Needs review"),

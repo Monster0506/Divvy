@@ -32,6 +32,10 @@ class HouseholdNameController(
     var saving by mutableStateOf(false)
         private set
 
+    /** True once the name has loaded from the server. Until then there is nothing to edit, so edits are ignored. */
+    var loaded by mutableStateOf(false)
+        private set
+
     private var householdId: String? = null
     private var savedName: String? = null
     private var latest: String = ""
@@ -43,6 +47,7 @@ class HouseholdNameController(
 
     /** Loads the saved name. Skips applying it if the user has edited since the call started. */
     fun open(id: String) {
+        if (id != householdId) loaded = false
         householdId = id
         if (busy) return
         scope.launch {
@@ -52,6 +57,7 @@ class HouseholdNameController(
                 savedName = name
                 latest = name
                 setLocal(name)
+                loaded = true
                 message = null
             } catch (e: CancellationException) {
                 throw e
@@ -63,6 +69,7 @@ class HouseholdNameController(
 
     /** Call on every keystroke. The save is sent once typing pauses. */
     fun edit(value: String) {
+        if (!loaded) return
         latest = value
         setLocal(value)
         message = null
