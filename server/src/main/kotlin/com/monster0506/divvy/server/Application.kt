@@ -97,7 +97,8 @@ fun Application.module(connectDatabase: Boolean = true) {
     install(Authentication) {
         bearer(API_KEY_AUTH) {
             authHeader { call ->
-                call.request.header(API_KEY_HEADER)?.let { HttpAuthHeader.Single("Bearer", it) }
+                // An empty header counts as no key; Bearer with an empty token would otherwise fail with a 500.
+                call.request.header(API_KEY_HEADER)?.takeIf { it.isNotBlank() }?.let { HttpAuthHeader.Single("Bearer", it) }
             }
             authenticate { credential ->
                 val expectedKey = config.apiKey

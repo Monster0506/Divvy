@@ -58,4 +58,20 @@ class CheckConnectionTest {
         val client = createHttpClient(ApiConfig("http://test", "key"), MockEngine { error("connection refused") })
         assertEquals(ConnectionStatus.Unreachable, client.use { it.checkConnection() })
     }
+
+    /** A fresh release install has no key; servers before #309 answered an empty key header with a 500. */
+    @Test
+    fun noKeyIsReportedSoTheAppAsksForIt() = runTest {
+        val client = createHttpClient(
+            ApiConfig("http://test", ""),
+            MockEngine { request ->
+                when {
+                    request.url.encodedPath == "/health" -> respond("""{"status":"ok"}""", HttpStatusCode.OK)
+                    API_KEY_HEADER in request.headers -> respond("", HttpStatusCode.InternalServerError)
+                    else -> respond("", HttpStatusCode.Unauthorized)
+                }
+            },
+        )
+        assertEquals(ConnectionStatus.KeyRejected, client.use { it.checkConnection() })
+    }
 }

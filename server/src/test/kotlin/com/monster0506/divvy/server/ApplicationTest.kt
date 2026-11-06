@@ -119,11 +119,13 @@ class ApplicationTest {
     }
 
     @Test
-    fun authCheckReturns401WithWrongOrMissingKey() = testApplication {
+    fun authCheckReturns401WithWrongMissingOrBlankKey() = testApplication {
         testConfig()
         application { module(connectDatabase = false) }
         assertEquals(HttpStatusCode.Unauthorized, client.get("/auth/check") { header("X-Api-Key", "nope") }.status)
         assertEquals(HttpStatusCode.Unauthorized, client.get("/auth/check").status)
+        assertEquals(HttpStatusCode.Unauthorized, client.get("/auth/check") { header("X-Api-Key", "") }.status)
+        assertEquals(HttpStatusCode.Unauthorized, client.get("/auth/check") { header("X-Api-Key", "  ") }.status)
     }
 
     @Test

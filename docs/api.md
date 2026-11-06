@@ -3,7 +3,7 @@
 - GET /households/{id} -> 200 | 404
 - PATCH /households/{id}  {"name": "..."} -> 200 | 400 | 404
 Name is trimmed and must be 1-80 characters (400 otherwise). Unknown or malformed ids return 404.
-Errors use the standard ApiError body. All routes require the X-Api-Key header.
+Errors use the standard ApiError body. All household routes require the `X-Api-Key` header; missing, empty, whitespace-only or incorrect keys return 401. `GET /auth/check` returns 204 for an accepted key and 401 otherwise. Clients with no key should omit the header until one is entered.
 
 People are returned as `{"id", "householdId", "displayName", "archivedAt", "createdAt", "updatedAt", "venmoUsername",
 "shortName", "emoji", "color", "photoUpdatedAt"}`; `venmoUsername`, `shortName`, `emoji`, `color` and `photoUpdatedAt`

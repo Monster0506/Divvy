@@ -54,7 +54,9 @@ fun createHttpClient(
         }
         defaultRequest {
             url(config.baseUrl.trimEnd('/') + "/")
-            header(API_KEY_HEADER, config.apiKey)
+            // With no key (a fresh release install) the header is left out, so the server answers 401 and the
+            // app asks for the key.
+            if (config.apiKey.isNotBlank()) header(API_KEY_HEADER, config.apiKey)
         }
     }
     val client = if (engine != null) HttpClient(engine, configure) else HttpClient(configure)
