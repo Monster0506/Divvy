@@ -20,7 +20,7 @@ import com.monster0506.divvy.launch.HouseholdStore
 import com.monster0506.divvy.launch.HouseholdMemberStore
 import com.monster0506.divvy.launch.LaunchDestination
 import com.monster0506.divvy.launch.LaunchRouter
-import com.monster0506.divvy.launch.LocalHouseholdLookup
+import com.monster0506.divvy.launch.ServerHouseholdLookup
 import com.russhwolf.settings.Settings
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
@@ -34,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
@@ -45,12 +46,10 @@ import com.monster0506.divvy.data.api.ApiConfig
 import com.monster0506.divvy.data.api.ApiConfigStore
 import com.monster0506.divvy.data.api.DivvyApi
 import com.monster0506.divvy.image.prepareReceiptImage
-import com.monster0506.divvy.launch.LOCAL_HOUSEHOLD_ID
 import com.monster0506.divvy.platform.rememberCameraCapture
 import com.monster0506.divvy.platform.rememberGalleryPicker
 import com.monster0506.divvy.ui.components.Tab
 import com.monster0506.divvy.ui.components.RepeatWhileInForeground
-import com.monster0506.divvy.ui.model.ReceiptStatus
 import com.monster0506.divvy.ui.screens.AccountScreen
 import com.monster0506.divvy.ui.screens.AddMembersScreen
 import com.monster0506.divvy.ui.screens.JoinHouseholdScreen
@@ -60,7 +59,6 @@ import com.monster0506.divvy.ui.screens.ReceiptPhotoStage
 import com.monster0506.divvy.ui.screens.CreateHouseholdScreen
 import com.monster0506.divvy.ui.screens.EditPersonScreen
 import com.monster0506.divvy.ui.screens.HouseholdSettingsScreen
-import com.monster0506.divvy.ui.screens.HouseholdSetupScreen
 import com.monster0506.divvy.ui.screens.ReceiptDetailScreen
 import com.monster0506.divvy.ui.screens.ReceiptHistoryScreen
 import com.monster0506.divvy.ui.screens.ReviewReceiptScreen
@@ -97,10 +95,8 @@ import androidx.compose.runtime.collectAsState
 import com.monster0506.divvy.ui.screens.ShoppingItemScreen
 import com.monster0506.divvy.ui.screens.ShoppingListScreen
 import com.monster0506.divvy.data.repository.ShoppingListRepository
-import com.monster0506.divvy.shopping.LocalShoppingListApi
 import com.monster0506.divvy.shopping.RepositoryShoppingListApi
 import com.monster0506.divvy.shopping.ShoppingListController
-import com.monster0506.divvy.ui.preview.SampleData
 import com.monster0506.divvy.ui.state.AddMembersState
 import com.monster0506.divvy.ui.state.CreateHouseholdState
 import com.monster0506.divvy.ui.state.JoinHouseholdState
@@ -113,17 +109,20 @@ import kotlinx.coroutines.launch
 import com.monster0506.divvy.connection.ConnectionMonitor
 import com.monster0506.divvy.connection.ConnectionStatus
 import com.monster0506.divvy.connection.checkConnection
-import com.monster0506.divvy.ui.components.ConnectionFrame
+import com.monster0506.divvy.ui.components.isServerProblem
+import com.monster0506.divvy.ui.model.Settings as AssignSettings
 
-enum class Route { Launch, CreateHousehold, AddMembers, JoinHousehold, Setup, Camera, Review, History, Detail, Balances, Shopping, ShoppingItem, Account, EditPerson, HouseholdSettings }
+enum class Route { Launch, CreateHousehold, AddMembers, JoinHousehold, Camera, Review, History, Detail, Balances, Shopping, ShoppingItem, Account, EditPerson, HouseholdSettings }
+
+/** Screens that only make sense inside a household; Account is left out so a server problem can always show there. */
+private val householdRoutes = setOf(
+    Route.Camera, Route.Review, Route.History, Route.Detail, Route.Balances,
+    Route.Shopping, Route.ShoppingItem, Route.EditPerson, Route.HouseholdSettings,
+)
 
 private data class SelectedReceiptPhoto(val jpeg: ByteArray, val preview: ImageBitmap)
 
 private val serverId = Regex("^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$")
-
-/** Things to offer while typing on the list before the household is on a server. */
-private val sampleGroceries =
-    listOf("Eggs", "Large eggs", "Eggplant", "Milk", "Oat milk", "Sandwich bread", "Bananas", "Paper towels")
 
 /** How often an open shopping list reloads to show other people's changes. */
 private const val LIST_SYNC_MILLIS = 8_000L
@@ -147,7 +146,6 @@ private fun Throwable.uploadMessage(): String = when (this) {
 @Composable
 fun App(apiConfig: ApiConfig = ApiConfig()) {
     val settings = remember { Settings() }
-    val router = remember(settings) { LaunchRouter(HouseholdStore(settings), LocalHouseholdLookup()) }
     val configStore = remember(settings) { ApiConfigStore(settings) }
     var activeConfig by remember(configStore) { mutableStateOf(configStore.load(apiConfig)) }
     // The probe client has no connection hook, so the monitor's own checks never trigger a recheck.
@@ -166,6 +164,11 @@ fun App(apiConfig: ApiConfig = ApiConfig()) {
         createHttpClient(activeConfig, onConnectionProblem = connection::reportFailure)
     }
     DisposableEffect(client) { onDispose { client.close() } }
+    // Reads the client in use when it runs, so changing the server settings doesn't rebuild the router.
+    val currentClient by rememberUpdatedState(client)
+    val router = remember(settings) {
+        LaunchRouter(HouseholdStore(settings), ServerHouseholdLookup { id -> DivvyApi(currentClient).getHousehold(id) })
+    }
     val householdApi = remember(client) { HouseholdApi(client) }
     val peopleApi = remember(client) { PeopleApi(client) }
     val settingsApi = remember(client) { HouseholdSettingsApi(client) }
@@ -193,7 +196,7 @@ fun App(apiConfig: ApiConfig = ApiConfig()) {
 
 @Composable
 fun DivvyApp(
-    start: Route = Route.Setup,
+    start: Route = Route.Launch,
     state: DivvyState = remember { DivvyState() },
     router: LaunchRouter? = null,
     apiConfig: ApiConfig = ApiConfig(),
@@ -220,7 +223,24 @@ fun DivvyApp(
             }
         }
     }
-    var editingId by remember { mutableStateOf(state.meId) }
+    // A server that can't be used sends every screen to Account > Server, and back once it works again.
+    var returnTo by remember { mutableStateOf<Route?>(null) }
+    LaunchedEffect(connectionStatus, route) {
+        when {
+            connectionStatus.isServerProblem() && route != Route.Account && route != Route.Launch -> {
+                returnTo = route
+                route = Route.Account
+            }
+            connectionStatus == ConnectionStatus.Online && returnTo != null -> {
+                route = returnTo!!
+                returnTo = null
+            }
+        }
+    }
+    LaunchedEffect(route) {
+        if (router != null && route in householdRoutes && router.currentHouseholdId() == null) route = Route.CreateHousehold
+    }
+    var editingId by remember { mutableStateOf<String?>(null) }
     var cameraError by remember { mutableStateOf<String?>(null) }
     var selectedPhoto by remember { mutableStateOf<SelectedReceiptPhoto?>(null) }
     var photoStage by remember { mutableStateOf(ReceiptPhotoStage.Empty) }
@@ -270,11 +290,17 @@ fun DivvyApp(
             archiveMember = { id, personId -> api.archivePerson(id, personId) },
             applyMembers = { loaded ->
                 state.loadMembers(loaded)
-                val id = (householdId ?: router?.currentHouseholdId())?.takeIf { it != LOCAL_HOUSEHOLD_ID }
-                if (id != null) {
-                    val savedMe = memberStore.get(id)
-                    state.setMe(savedMe?.takeIf { personId -> loaded.any { it.id == personId } } ?: state.meId)
-                    memberStore.save(id, state.meId)
+                val id = householdId ?: router?.currentHouseholdId()
+                if (id != null && loaded.isNotEmpty()) {
+                    val savedMe = memberStore.get(id)?.takeIf { personId -> loaded.any { it.id == personId } }
+                    if (savedMe != null) {
+                        state.setMe(savedMe)
+                    } else {
+                        // Nobody has said which member this phone is, so ask instead of guessing.
+                        state.forgetMe()
+                        householdId = id
+                        route = Route.JoinHousehold
+                    }
                 }
             },
             applyName = state::renamePerson,
@@ -295,8 +321,7 @@ fun DivvyApp(
     val detailState by detail.state.collectAsState()
     val autoState by autoAssign.state.collectAsState()
     var viewedPhoto by remember { mutableStateOf<ImageBitmap?>(null) }
-    fun activeHousehold(): String? =
-        router?.currentHouseholdId()?.takeIf { it.isNotBlank() && it != LOCAL_HOUSEHOLD_ID }
+    fun activeHousehold(): String? = router?.currentHouseholdId()
     LaunchedEffect(route) {
         val household = activeHousehold() ?: return@LaunchedEffect
         when (route) {
@@ -318,8 +343,7 @@ fun DivvyApp(
     LaunchedEffect(autoState.autoAssign, autoState.threshold) {
         val on = autoState.autoAssign
         val threshold = autoState.threshold
-        if (on != null && threshold != null) state.settings =
-            state.settings.copy(autoAssign = on, autoAssignThreshold = threshold)
+        if (on != null && threshold != null) state.settings = AssignSettings(autoAssign = on, autoAssignThreshold = threshold)
     }
     viewedPhoto?.let { photo ->
         Dialog(onDismissRequest = { viewedPhoto = null }) {
@@ -349,18 +373,10 @@ fun DivvyApp(
             RepositoryShoppingListApi(ShoppingListRepository(api)),
             scope,
             // Only a member loaded from the server can be named as who added an item.
-            currentPerson = { state.meId.takeIf { id -> serverId.matches(id) && state.people.any { it.id == id } } },
-        )
-    }
-    val localShopping = remember {
-        ShoppingListController(
-            LocalShoppingListApi(SampleData.shopping, sampleGroceries, nameOf = { state.person(it)?.name }),
-            scope,
-            currentPerson = { state.meId },
+            currentPerson = { state.meId?.takeIf { id -> serverId.matches(id) && state.people.any { it.id == id } } },
         )
     }
     val serverShoppingState by serverShopping.state.collectAsState()
-    val localShoppingState by localShopping.state.collectAsState()
     var shoppingItemId by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(reviewState.phase) {
         if (reviewState.phase == ReviewPhase.Confirmed) {
@@ -398,32 +414,20 @@ fun DivvyApp(
     fun uploadPhoto() {
         val photo = selectedPhoto ?: return
         if (photoStage != ReceiptPhotoStage.Ready) return
+        val householdId = activeHousehold()
+        if (householdId == null) {
+            route = Route.CreateHousehold
+            return
+        }
         scope.launch {
             photoStage = ReceiptPhotoStage.Uploading
             uploadProgress = null
             cameraError = null
             try {
-                val savedId = router?.currentHouseholdId()
-                suspend fun createServerHousehold(): String =
-                    api.createHousehold(state.householdName).name.also { router?.onboardingCompleted(it) }
-
-                val householdId = if (savedId.isNullOrBlank() || savedId == LOCAL_HOUSEHOLD_ID) {
-                    createServerHousehold()
-                } else savedId
                 val progress: (Long, Long) -> Unit = { sent, total ->
                     if (total > 0) uploadProgress = (sent.toFloat() / total).coerceIn(0f, 1f)
                 }
-                val uploaded = try {
-                    api.uploadReceipt(householdId, photo.jpeg, progress)
-                } catch (e: ApiException) {
-                    // A local household ID may outlive a reset development server.
-                    if (savedId == householdId &&
-                        e.failure is ApiFailure.Validation &&
-                        e.failure.error.code == "not_found"
-                    ) {
-                        api.uploadReceipt(createServerHousehold(), photo.jpeg, progress)
-                    } else throw e
-                }
+                val uploaded = api.uploadReceipt(householdId, photo.jpeg, progress)
                 uploadedReceiptId = uploaded.id
                 reviewHouseholdId = householdId
                 review.open(householdId, uploaded.id, payerStore.get(householdId))
@@ -449,11 +453,7 @@ fun DivvyApp(
     val galleryPicker = rememberGalleryPicker { bytes ->
         if (bytes != null) selectPhoto(bytes)
     }
-    ConnectionFrame(
-        status = connectionStatus,
-        onServerSettings = if (route == Route.Account) null else ({ route = Route.Account }),
-        onRetry = onRetryConnection,
-    ) {
+    Box(Modifier.fillMaxSize()) {
         AnimatedContent(
             targetState = route,
             transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(120)) },
@@ -514,19 +514,6 @@ fun DivvyApp(
                     )
                 }
 
-                Route.Setup -> HouseholdSetupScreen(
-                    onStart = { route = Route.History },
-                    householdName = state.householdName,
-                    members = state.people,
-                    newMember = state.newMember,
-                    onNameChange = { state.householdName = it },
-                    onNewMemberChange = { state.newMember = it },
-                    onAddMember = state::addMember,
-                    onRemoveMember = state::removePerson,
-                    canRemove = state::canRemove,
-
-                )
-
                 Route.Camera -> CameraScreen(
                     photo = selectedPhoto?.preview,
                     stage = photoStage,
@@ -554,24 +541,6 @@ fun DivvyApp(
                 Route.Review -> {
                     val live = reviewState.draft
                     when {
-                        reviewState.phase == ReviewPhase.Idle -> ReviewReceiptScreen(
-                            draft = state.draft,
-                            autoExpanded = state.autoExpanded,
-                            onToggleOwner = state::toggleOwner,
-                            onConfirmLine = state::confirmLine,
-                            onToggleAuto = state::toggleAuto,
-                            onConfirmSplit = {
-                                state.confirmSplit()
-                                route = Route.Balances
-                            },
-                            onTab = onTab,
-                            onEditLine = state::editLine,
-                            onAddLine = state::addLine,
-                            onDeleteLine = state::deleteLine,
-                            canUndo = state.canUndoDelete,
-                            onUndo = state::undoDelete,
-                        )
-
                         live != null && (reviewState.phase == ReviewPhase.Ready || reviewState.phase == ReviewPhase.Confirming) ->
                             ReviewReceiptScreen(
                                 draft = live,
@@ -618,75 +587,54 @@ fun DivvyApp(
                     }
                 }
 
-                Route.History -> {
-                    val household = activeHousehold()
-                    if (household == null) {
-                        ReceiptHistoryScreen(
-                            entries = state.history,
-                            onOpen = {
-                                route =
-                                    if (it == 0 && state.history[0].status == ReceiptStatus.NeedsReview) Route.Review else Route.Detail
-                            },
-                            onScan = { route = Route.Camera },
-                            onTab = onTab,
-                        )
-                    } else {
-                        val rows = historyState.rows
-                        ReceiptHistoryScreen(
-                            entries = rows.map { it.entry },
-                            onOpen = { index ->
-                                val row = rows.getOrNull(index) ?: return@ReceiptHistoryScreen
-                                when (row.status) {
-                                    ReceiptStatusDto.Confirmed -> {
-                                        detail.open(household, row.id)
-                                        route = Route.Detail
-                                    }
-
-                                    ReceiptStatusDto.Void -> Unit
-                                    else -> {
-                                        review.open(household, row.id)
-                                        route = Route.Review
-                                    }
+                Route.History -> activeHousehold()?.let { household ->
+                    val rows = historyState.rows
+                    ReceiptHistoryScreen(
+                        entries = rows.map { it.entry },
+                        onOpen = { index ->
+                            val row = rows.getOrNull(index) ?: return@ReceiptHistoryScreen
+                            when (row.status) {
+                                ReceiptStatusDto.Confirmed -> {
+                                    detail.open(household, row.id)
+                                    route = Route.Detail
                                 }
-                            },
-                            onScan = { route = Route.Camera },
-                            onTab = onTab,
-                            message = historyState.message ?: if (historyState.loaded && rows.isEmpty()) {
-                                if (historyState.filter.active) "No receipts match these filters." else "No receipts yet. Scan one to get started."
-                            } else null,
-                            scrollState = historyScroll,
-                                                    filters = HistoryFilters(
-                                store = historyState.filter.store,
-                                status = historyState.filter.status,
-                                fromIso = historyState.filter.fromIso,
-                                toIso = historyState.filter.toIso,
-                                active = historyState.filter.active,
-                                hasMore = historyState.hasMore,
-                                loadingMore = historyState.loadingMore,
-                                loadFailed = historyState.message != null,
-                                onStore = history::setStore,
-                                onStatus = history::setStatus,
-                                onFrom = { history.setDates(it, historyState.filter.toIso) },
-                                onTo = { history.setDates(historyState.filter.fromIso, it) },
-                                onClear = history::clearFilters,
-                                onLoadMore = history::loadMore,
-                            ),
-                        )
-                    }
+
+                                ReceiptStatusDto.Void -> Unit
+                                else -> {
+                                    review.open(household, row.id)
+                                    route = Route.Review
+                                }
+                            }
+                        },
+                        onScan = { route = Route.Camera },
+                        onTab = onTab,
+                        message = historyState.message ?: if (historyState.loaded && rows.isEmpty()) {
+                            if (historyState.filter.active) "No receipts match these filters." else "No receipts yet. Scan one to get started."
+                        } else null,
+                        scrollState = historyScroll,
+                        filters = HistoryFilters(
+                            store = historyState.filter.store,
+                            status = historyState.filter.status,
+                            fromIso = historyState.filter.fromIso,
+                            toIso = historyState.filter.toIso,
+                            active = historyState.filter.active,
+                            hasMore = historyState.hasMore,
+                            loadingMore = historyState.loadingMore,
+                            loadFailed = historyState.message != null,
+                            onStore = history::setStore,
+                            onStatus = history::setStatus,
+                            onFrom = { history.setDates(it, historyState.filter.toIso) },
+                            onTo = { history.setDates(historyState.filter.fromIso, it) },
+                            onClear = history::clearFilters,
+                            onLoadMore = history::loadMore,
+                        ),
+                    )
                 }
 
                 Route.Detail -> {
                     val household = activeHousehold()
                     val shown = detailState.receipt
                     when {
-                        detailState.phase == DetailPhase.Idle -> ReceiptDetailScreen(
-                            receipt = state.resolvedDraft,
-                            shares = state.shares,
-                            onViewPhoto = {},
-                            onReopen = {},
-                            onTab = onTab,
-                        )
-
                         shown != null && detailState.phase == DetailPhase.Ready -> ReceiptDetailScreen(
                             receipt = shown,
                             shares = detailState.shares,
@@ -722,17 +670,16 @@ fun DivvyApp(
 
                 Route.Balances -> {
                     val id = householdId ?: router?.currentHouseholdId()
-                    val real = id != null && id != LOCAL_HOUSEHOLD_ID
                     LaunchedEffect(id) {
-                        if (real) {
-                            balancesController.open(id!!)
+                        if (id != null) {
+                            balancesController.open(id)
                             // Works out who "you" are on this device, which decides where Venmo is offered.
                             members.load(id)
                         }
                     }
                     LiveBalancesScreen(
                         balancesState,
-                        hasHousehold = real,
+                        hasHousehold = id != null,
                         onRefresh = balancesController::refresh,
                         onTab = onTab,
                         onSettle = balancesController::settle,
@@ -754,22 +701,21 @@ fun DivvyApp(
                         onSaveVenmo = balancesController::setVenmo,
                         onEditVenmo = balancesController::dismissVenmoMessage,
                         // The same "(you)" as the Account screen, once members have loaded from the server.
-                        meId = state.meId.takeIf { me -> state.people.any { it.id == me } && serverId.matches(me) },
+                        meId = state.meId?.takeIf { me -> state.people.any { it.id == me } && serverId.matches(me) },
                     )
                 }
 
-                Route.Shopping -> {
-                    val household = activeHousehold()
-                    val list = if (household != null) serverShopping else localShopping
+                Route.Shopping -> activeHousehold()?.let { household ->
+                    val list = serverShopping
                     LaunchedEffect(household) {
-                        list.open(household ?: LOCAL_HOUSEHOLD_ID)
+                        list.open(household)
                         // Loads "me", who is recorded as having added items.
-                        if (household != null) members.load(household)
+                        members.load(household)
                     }
                     // Other people's changes show up within seconds while the list is open.
                     RepeatWhileInForeground(LIST_SYNC_MILLIS, list::sync)
                     ShoppingListScreen(
-                        state = if (household != null) serverShoppingState else localShoppingState,
+                        state = serverShoppingState,
                         suggestions = if (FeatureFlags.YOU_MAY_ALSO_NEED) state.suggestions else emptyList(),
                         onInput = list::type,
                         onAdd = { list.add(it) },
@@ -789,9 +735,8 @@ fun DivvyApp(
                 }
 
                 Route.ShoppingItem -> {
-                    val household = activeHousehold()
-                    val list = if (household != null) serverShopping else localShopping
-                    val listState = if (household != null) serverShoppingState else localShoppingState
+                    val list = serverShopping
+                    val listState = serverShoppingState
                     val item = listState.items.find { it.id == shoppingItemId }
                     RepeatWhileInForeground(LIST_SYNC_MILLIS, list::sync)
                     if (item == null) {
@@ -820,6 +765,7 @@ fun DivvyApp(
                 Route.Account -> AccountScreen(
                     me = state.me,
                     householdName = state.householdName,
+                    nameLoaded = nameSync.loaded,
                     people = state.people,
                     settings = state.settings,
                     onHouseholdNameChange = nameSync::edit,
@@ -828,18 +774,13 @@ fun DivvyApp(
                         editingId = it
                         route = Route.EditPerson
                     },
-                    onAddMember = {
-                        if (activeHousehold() != null) {
-                            route = Route.HouseholdSettings
-                        } else {
-                            editingId = state.addPerson("New member")
-                            route = Route.EditPerson
-                        }
-                    },
+                    onAddMember = { route = Route.HouseholdSettings },
                     onSettingsChange = { updated ->
                         val before = state.settings
                         state.settings = updated
-                        if (updated.autoAssign != before.autoAssign || updated.autoAssignThreshold != before.autoAssignThreshold) {
+                        if (before == null || updated.autoAssign != before.autoAssign ||
+                            updated.autoAssignThreshold != before.autoAssignThreshold
+                        ) {
                             autoAssign.change(updated.autoAssign, updated.autoAssignThreshold)
                         }
                     },
@@ -848,6 +789,8 @@ fun DivvyApp(
                     onApiConfigChange = onApiConfigChange,
                     onTab = onTab,
                     onOpenHouseholdSettings = { route = Route.HouseholdSettings },
+                    serverStatus = connectionStatus.takeIf { it.isServerProblem() || returnTo != null },
+                    onRetryConnection = onRetryConnection,
                 )
 
                 Route.HouseholdSettings -> {
@@ -880,24 +823,16 @@ fun DivvyApp(
                     )
                 }
 
-                Route.EditPerson -> state.person(editingId)?.let { person ->
-                    val household = activeHousehold()
+                Route.EditPerson -> editingId?.let(state::person)?.let { person ->
                     EditPersonScreen(
                         person = person,
                         isMe = person.id == state.meId,
                         canRemove = state.canRemove(person.id) && !members.busy,
                         onChange = { updated ->
                             state.updatePerson(updated)
-                            if (household != null && updated.name != person.name) members.rename(updated.id, updated.name)
+                            if (updated.name != person.name) members.rename(updated.id, updated.name)
                         },
-                        onRemove = {
-                            if (household == null) {
-                                route = Route.Account
-                                state.removePerson(person.id)
-                            } else {
-                                members.archive(person.id) { route = Route.Account }
-                            }
-                        },
+                        onRemove = { members.archive(person.id) { route = Route.Account } },
                         onDone = { route = Route.Account },
                         onTab = onTab,
                         nameMessage = members.message,
@@ -906,10 +841,4 @@ fun DivvyApp(
             }
         }
     }
-}
-
-@Preview(widthDp = 390, heightDp = 800, showBackground = true)
-@Composable
-private fun AppPreview() = DivvyTheme {
-    Surface { DivvyApp(start = Route.Review) }
 }

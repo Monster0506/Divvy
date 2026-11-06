@@ -482,16 +482,3 @@ class ShoppingListControllerTest {
         assertEquals("Milk was removed from the list by someone else.", c.state.value.message)
     }
 }
-
-class LocalShoppingListApiTest {
-    @Test
-    fun emptying_a_field_clears_it() = runTest {
-        val api = LocalShoppingListApi(emptyList())
-        val item = (api.add("local", CreateListItemRequest("Eggs", quantity = "6")) as ApiResult.Success).value
-
-        val updated = (api.update("local", item.id, UpdateListItemRequest(quantity = "")) as ApiResult.Success).value
-
-        assertNull(updated.quantity)
-        assertEquals("Eggs", updated.text)
-    }
-}

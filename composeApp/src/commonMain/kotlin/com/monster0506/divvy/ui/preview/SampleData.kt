@@ -9,7 +9,6 @@ import com.monster0506.divvy.ui.model.ReceiptLine
 import com.monster0506.divvy.ui.model.ReceiptStatus
 import com.monster0506.divvy.ui.model.ShoppingItem
 import com.monster0506.divvy.ui.model.Suggestion
-import com.monster0506.divvy.ui.model.Transfer
 
 object SampleData {
     val sumedh = Person("su", "Sumedh", "Su", AvatarColor.Blue)
@@ -47,12 +46,6 @@ object SampleData {
         Balance(sumedh, -1240),
         Balance(savar, -985),
         Balance(andrew, -1185),
-    )
-
-    val transfers = listOf(
-        Transfer(sumedh, tj, 1240),
-        Transfer(andrew, tj, 1185, paid = true),
-        Transfer(savar, tj, 985),
     )
 
     val shopping = listOf(

@@ -78,8 +78,6 @@ data class ReceiptDraft(
 
 data class Balance(val person: Person, val netCents: Int)
 
-data class Transfer(val from: Person, val to: Person, val amountCents: Int, val paid: Boolean = false)
-
 enum class ReceiptStatus(val label: String) {
     NeedsReview("Needs review"),
     Confirmed("Confirmed"),

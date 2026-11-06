@@ -45,6 +45,15 @@ class HouseholdNameControllerTest {
     }
 
     @Test
+    fun editsBeforeTheNameHasLoadedAreIgnored() {
+        val c = controller(fetch = { throw ApiException(ApiFailure.Offline) })
+        c.open("h1")
+        c.edit("Casa")
+        assertEquals("", local)
+        assertTrue(renamed.isEmpty())
+    }
+
+    @Test
     fun refusedRenameRevertsWithTheServerMessage() {
         val c = controller(rename = { _, _ -> throw ApiException(ApiFailure.Validation(ApiError("taken", "Name already used"))) })
         c.open("h1")

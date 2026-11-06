@@ -54,26 +54,10 @@ import com.monster0506.divvy.ui.components.ScreenHeader
 import com.monster0506.divvy.ui.components.SectionHeader
 import com.monster0506.divvy.ui.components.Tab
 import com.monster0506.divvy.ui.model.Balance
-import com.monster0506.divvy.ui.model.Transfer
 import com.monster0506.divvy.ui.model.toMoney
 import com.monster0506.divvy.ui.preview.SampleData
 import com.monster0506.divvy.ui.theme.DivvyColors
 import com.monster0506.divvy.ui.theme.DivvyTheme
-
-@Composable
-fun BalancesScreen(
-    balances: List<Balance>,
-    transfers: List<Transfer>,
-    onTogglePaid: (index: Int) -> Unit,
-    onTab: (Tab) -> Unit = {},
-) {
-    AppScaffold(selected = Tab.Balances, onSelect = onTab) {
-        ScreenHeader("Balances")
-        balances.forEach { BalanceRow(it) }
-        SectionHeader("Settle up", "${transfers.size} payments")
-        transfers.forEachIndexed { i, t -> TransferRow(t) { onTogglePaid(i) } }
-    }
-}
 
 /** The household's balances as the server reports them. Pull down, or tap Try again, to load them afresh. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -325,35 +309,6 @@ private fun BalanceRow(balance: Balance) {
         Text(kotlin.math.abs(net).toMoney(), fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = tint)
     }
     RowDivider()
-}
-
-@Composable
-private fun TransferRow(transfer: Transfer, onTogglePaid: () -> Unit) {
-    val color by animateColorAsState(if (transfer.paid) DivvyColors.Dim else DivvyColors.Ink, tween(250))
-    val edge by animateColorAsState(if (transfer.paid) DivvyColors.Line else DivvyColors.Ink, tween(250))
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text("${transfer.from.name} to ${transfer.to.name}", Modifier.weight(1f), fontSize = 14.sp, color = color)
-        Text(transfer.amountCents.toMoney(), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = color)
-        OutlinedButton(
-            onClick = onTogglePaid,
-            modifier = Modifier.padding(start = 10.dp),
-            shape = RoundedCornerShape(6.dp),
-            border = BorderStroke(1.dp, edge),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-        ) {
-            Text(if (transfer.paid) "Undo" else "Mark paid", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = color)
-        }
-    }
-    RowDivider()
-}
-
-@Preview(widthDp = 390, heightDp = 800, showBackground = true)
-@Composable
-private fun BalancesPreview() = DivvyTheme {
-    BalancesScreen(SampleData.balances, SampleData.transfers, {})
 }
 
 @Preview(widthDp = 390, heightDp = 800, showBackground = true)

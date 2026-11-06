@@ -1,5 +1,8 @@
 package com.monster0506.divvy.launch
 
+import com.monster0506.divvy.data.api.ApiException
+import com.monster0506.divvy.data.api.ApiFailure
+import com.monster0506.divvy.data.dto.ApiError
 import com.russhwolf.settings.MapSettings
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -40,5 +43,26 @@ class LaunchRouterTest {
 
         assertEquals(LaunchDestination.Home, router(settings, LookupResult.Unavailable).decide())
         assertEquals("household-1", HouseholdStore(settings).get())
+    }
+
+    @Test
+    fun `a household saved by a build that ran without a server goes to onboarding`() = runTest {
+        val settings = MapSettings()
+        HouseholdStore(settings).save("local")
+
+        assertNull(router(settings).currentHouseholdId())
+        assertEquals(LaunchDestination.Onboarding, router(settings).decide())
+        assertNull(HouseholdStore(settings).get())
+    }
+
+    @Test
+    fun `the server lookup tells a deleted household from one it cannot check`() = runTest {
+        suspend fun result(failure: ApiFailure?) =
+            ServerHouseholdLookup { if (failure != null) throw ApiException(failure) }.lookup("h1")
+
+        assertEquals(LookupResult.Found, result(null))
+        assertEquals(LookupResult.NotFound, result(ApiFailure.Validation(ApiError("not_found", "household not found"))))
+        assertEquals(LookupResult.Unavailable, result(ApiFailure.Offline))
+        assertEquals(LookupResult.Unavailable, result(ApiFailure.Unauthorised))
     }
 }
