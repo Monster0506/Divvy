@@ -39,11 +39,34 @@ data class Person(
     val updatedAt: Instant,
     /** Where the person receives payments, without the leading "@". Null if they have not said. */
     val venmoUsername: String? = null,
+    /** One or two characters shown on the avatar instead of the initials. */
+    val shortName: String? = null,
+    /** Emoji shown on the avatar instead of the initials. */
+    val emoji: String? = null,
+    /** Avatar color, one of [AVATAR_COLORS]. */
+    val color: String? = null,
+    /** Image storage key of the person's photo. */
+    val photoKey: String? = null,
+    /** When the photo was last uploaded; set exactly when [photoKey] is. */
+    val photoUpdatedAt: Instant? = null,
 )
 
-/** Fields to change on a person; null leaves a field as it is and an empty [venmoUsername] clears it. */
-data class PersonPatch(val displayName: String? = null, val venmoUsername: String? = null) {
-    val isEmpty get() = displayName == null && venmoUsername == null
+/** The colors a person's avatar may use. */
+val AVATAR_COLORS = listOf("gray", "green", "teal", "blue", "purple", "pink", "orange", "yellow")
+
+/**
+ * Fields to change on a person; null leaves a field as it is and an empty [venmoUsername],
+ * [shortName], [emoji] or [color] clears it.
+ */
+data class PersonPatch(
+    val displayName: String? = null,
+    val venmoUsername: String? = null,
+    val shortName: String? = null,
+    val emoji: String? = null,
+    val color: String? = null,
+) {
+    val isEmpty get() =
+        displayName == null && venmoUsername == null && shortName == null && emoji == null && color == null
 }
 
 enum class ReceiptStatus(val dbValue: String) {

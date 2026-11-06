@@ -150,6 +150,9 @@ class ExposedPersonRepository(private val db: Database) : PersonRepository {
         PersonTable.updateReturning(where = { PersonTable.id eq id }) {
             patch.displayName?.let { name -> it[PersonTable.displayName] = name }
             patch.venmoUsername?.let { username -> it[PersonTable.venmoUsername] = username.ifEmpty { null } }
+            patch.shortName?.let { shortName -> it[PersonTable.shortName] = shortName.ifEmpty { null } }
+            patch.emoji?.let { emoji -> it[PersonTable.emoji] = emoji.ifEmpty { null } }
+            patch.color?.let { color -> it[PersonTable.avatarColor] = color.ifEmpty { null } }
         }.singleOrNull()?.toPerson()
     }
 
@@ -158,6 +161,17 @@ class ExposedPersonRepository(private val db: Database) : PersonRepository {
             it[PersonTable.archivedAt] = CurrentTimestampWithTimeZone
         }.singleOrNull()?.toPerson()
             ?: PersonTable.selectAll().where { PersonTable.id eq id }.singleOrNull()?.toPerson()
+    }
+
+    override suspend fun setPhoto(id: Uuid, key: String?): Person? = db.dbQuery {
+        PersonTable.updateReturning(where = { PersonTable.id eq id }) {
+            it[PersonTable.photoKey] = key
+            if (key == null) {
+                it[PersonTable.photoUpdatedAt] = null
+            } else {
+                it[PersonTable.photoUpdatedAt] = CurrentTimestampWithTimeZone
+            }
+        }.singleOrNull()?.toPerson()
     }
 }
 
@@ -868,6 +882,11 @@ private fun ResultRow.toPerson() = Person(
     createdAt = this[PersonTable.createdAt].toInstant(),
     updatedAt = this[PersonTable.updatedAt].toInstant(),
     venmoUsername = this[PersonTable.venmoUsername],
+    shortName = this[PersonTable.shortName],
+    emoji = this[PersonTable.emoji],
+    color = this[PersonTable.avatarColor],
+    photoKey = this[PersonTable.photoKey],
+    photoUpdatedAt = this[PersonTable.photoUpdatedAt]?.toInstant(),
 )
 
 private fun ResultRow.toReceipt(items: List<ReceiptItem>): Receipt {

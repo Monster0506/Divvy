@@ -145,7 +145,7 @@ fun Application.module(connectDatabase: Boolean = true) {
             get("/auth/check") { call.respond(HttpStatusCode.NoContent) }
             householdRoutes { repositories.households }
             personArchiveRoutes({ repositories.households }, { repositories.people })
-            personRoutes({ repositories.households }, { repositories.people })
+            personRoutes({ repositories.households }, { repositories.people }, { imageStorage })
             mlRoutes({ repositories.households }, { ml.resync })
             mlStatsRoutes({ repositories.households }, { ml.stats })
             mlSettingsRoutes({ repositories.households }, { ml.settings })

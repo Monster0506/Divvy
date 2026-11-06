@@ -64,6 +64,13 @@ interface PersonRepository {
 
     /** Removes a person from the active household while keeping their history. */
     suspend fun archive(id: Uuid): Person?
+
+    /**
+     * Points the person's photo at the image storage [key] and stamps the upload time, or removes
+     * the photo when [key] is null. Does not touch the stored files. Returns null if the person
+     * does not exist.
+     */
+    suspend fun setPhoto(id: Uuid, key: String?): Person?
 }
 
 interface ReceiptRepository {
