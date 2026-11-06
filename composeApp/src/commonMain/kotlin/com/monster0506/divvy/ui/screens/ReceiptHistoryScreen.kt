@@ -99,7 +99,7 @@ fun ReceiptHistoryScreen(
     filters: HistoryFilters? = null,
 ) {
     AppScaffold(selected = Tab.Receipts, onSelect = onTab, scrollState = scrollState) {
-        ScreenHeader("Receipts", metaStart = "Newest first", action = {
+        ScreenHeader("Receipts", action = {
             TextButton(onClick = onScan) {
                 Text("Scan receipt", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = DivvyColors.Accent)
             }
