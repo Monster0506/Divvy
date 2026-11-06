@@ -31,6 +31,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -122,16 +123,31 @@ fun SectionHeader(start: String, end: String? = null, warn: Boolean = false, onC
 @Composable
 fun RowDivider() = HorizontalDivider(color = DivvyColors.Line)
 
+/**
+ * The household's members by id, with the short names, icons, colors and photos they have saved. Avatars and owner
+ * chips show a member's saved look from here, whichever screen built the [Person] (balances only know names).
+ */
+val LocalMembers = compositionLocalOf<Map<String, Person>> { emptyMap() }
+
+/** [this] with its member's saved look, if they are one of [LocalMembers]. */
+@Composable
+private fun Person.withSavedLook(): Person {
+    val member = LocalMembers.current[id] ?: return this
+    return copy(initials = member.initials, color = member.color, emoji = member.emoji, photo = member.photo)
+}
+
 /** Shows the person's photo if set, otherwise their emoji, otherwise their initials on their avatar color. */
 @Composable
 fun Avatar(person: Person, size: Int = 32) {
-    Box(Modifier.size(size.dp).clip(CircleShape).background(person.color.fill), contentAlignment = Alignment.Center) {
-        val photo = person.photo
+    val shown = person.withSavedLook()
+    Box(Modifier.size(size.dp).clip(CircleShape).background(shown.color.fill), contentAlignment = Alignment.Center) {
+        val photo = shown.photo
+        val emoji = shown.emoji
         when {
-            photo != null -> Image(photo, person.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-            person.emoji != null -> Text(person.emoji, fontSize = (size * 0.5f).sp)
+            photo != null -> Image(photo, shown.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            emoji != null -> Text(emoji, fontSize = (size * 0.5f).sp)
             else -> Text(
-                person.initials,
+                shown.initials,
                 fontSize = maxOf(11f, size / 3f).sp,
                 fontWeight = FontWeight.SemiBold,
                 color = DivvyColors.Ink,
@@ -178,7 +194,7 @@ fun OwnerPicker(
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    p.initials,
+                    p.withSavedLook().initials,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = fg,

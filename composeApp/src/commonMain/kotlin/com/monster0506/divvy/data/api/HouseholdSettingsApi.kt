@@ -1,5 +1,6 @@
 package com.monster0506.divvy.data.api
 
+import com.monster0506.divvy.data.dto.PersonDto
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.CancellationException
 
@@ -10,7 +11,16 @@ data class HouseholdMember(
     val archived: Boolean = false,
     /** Where they receive payments, without the "@"; null if they have not said. */
     val venmoUsername: String? = null,
+    /** Their avatar choices as the server keeps them; null when not chosen. */
+    val shortName: String? = null,
+    val emoji: String? = null,
+    val color: String? = null,
+    /** Set when they have a photo; changes whenever it is replaced. */
+    val photoUpdatedAt: String? = null,
 )
+
+fun PersonDto.toMember() =
+    HouseholdMember(id, displayName, isArchived, venmoUsername, shortName, emoji, color, photoUpdatedAt)
 
 sealed interface SettingsResult<out T> {
     data class Ok<T>(val value: T) : SettingsResult<T>
@@ -26,8 +36,7 @@ class HouseholdSettingsApi(client: HttpClient) {
 
     /** Every member, archived ones included. */
     suspend fun members(householdId: String): SettingsResult<List<HouseholdMember>> = settingsCall {
-        api.listPeople(householdId, includeArchived = true)
-            .map { HouseholdMember(it.id, it.displayName, it.isArchived, it.venmoUsername) }
+        api.listPeople(householdId, includeArchived = true).map { it.toMember() }
     }
 
     /** Saves [personId]'s Venmo username, or removes it when [username] is empty. Returns it as the server stored it. */

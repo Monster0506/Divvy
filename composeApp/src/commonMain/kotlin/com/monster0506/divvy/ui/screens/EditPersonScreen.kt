@@ -34,11 +34,13 @@ import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.monster0506.divvy.image.compressImage
 import com.monster0506.divvy.ui.components.AppScaffold
 import com.monster0506.divvy.ui.components.Avatar
 import com.monster0506.divvy.ui.components.RowDivider
@@ -59,7 +61,10 @@ import org.jetbrains.compose.resources.decodeToImageBitmap
 
 private val emojis = listOf("🍕", "🥑", "🌮", "🍜", "☕", "🍩", "🥦", "🐶", "🐱", "🌱", "⚽", "🎮", "🎸", "📚", "🚲", "⭐")
 
-/** Edits apply immediately; there is nothing to save. */
+/** A photo picked for an avatar: the small JPEG that is uploaded, and the image shown meanwhile. */
+class PickedPhoto(val jpeg: ByteArray, val preview: ImageBitmap)
+
+/** Edits apply immediately and are saved to the server; there is nothing to save by hand. */
 @Composable
 fun EditPersonScreen(
     person: Person,
@@ -68,15 +73,22 @@ fun EditPersonScreen(
     onChange: (Person) -> Unit,
     onRemove: () -> Unit,
     onDone: () -> Unit,
+    /** A new photo, or null to remove theirs. */
+    onPhoto: (PickedPhoto?) -> Unit = {},
     onTab: (Tab) -> Unit = {},
     nameMessage: String? = null,
+    /** Why the last photo, short name, icon or color change wasn't saved. */
+    lookMessage: String? = null,
 ) {
     val scope = rememberCoroutineScope()
     var confirmingRemove by remember { mutableStateOf(false) }
     val pickPhoto = rememberFilePickerLauncher(type = FileKitType.Image) { file ->
         if (file != null) scope.launch {
-            val photo = runCatching { file.readBytes().decodeToImageBitmap().toAvatarPhoto() }.getOrNull()
-            if (photo != null) onChange(person.copy(photo = photo))
+            val photo = runCatching {
+                val jpeg = compressImage(file.readBytes(), maxLongEdge = AVATAR_LONG_EDGE, quality = AVATAR_JPEG_QUALITY)
+                PickedPhoto(jpeg, jpeg.decodeToImageBitmap().toAvatarPhoto())
+            }.getOrNull()
+            if (photo != null) onPhoto(photo)
         }
     }
 
@@ -101,10 +113,19 @@ fun EditPersonScreen(
                     )
                 }
                 if (person.photo != null) {
-                    TextButton(onClick = { onChange(person.copy(photo = null)) }) {
+                    TextButton(onClick = { onPhoto(null) }) {
                         Text("Remove photo", color = DivvyColors.Dim)
                     }
                 }
+            }
+            if (lookMessage != null) {
+                Text(
+                    lookMessage,
+                    fontSize = 13.sp,
+                    color = DivvyColors.Warn,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(start = 20.dp, top = 8.dp, end = 20.dp),
+                )
             }
         }
 
@@ -206,6 +227,10 @@ private fun Choice(
         contentAlignment = Alignment.Center,
     ) { content() }
 }
+
+/** Uploaded avatar photos are small: the long edge is at most this many pixels. */
+private const val AVATAR_LONG_EDGE = 512
+private const val AVATAR_JPEG_QUALITY = 85
 
 /** Center-crops to a square and scales down, so a full-size camera photo isn't kept in memory per avatar. */
 private fun ImageBitmap.toAvatarPhoto(sizePx: Int = 256): ImageBitmap {

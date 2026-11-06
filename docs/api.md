@@ -5,11 +5,29 @@
 Name is trimmed and must be 1-80 characters (400 otherwise). Unknown or malformed ids return 404.
 Errors use the standard ApiError body. All routes require the X-Api-Key header.
 
-- PATCH /households/{id}/people/{personId}  {"displayName": "...", "venmoUsername": "..."} -> 200 | 400 | 404
-  Send either field or both; absent fields are unchanged (400 if neither is sent). `venmoUsername` is where the person
-  receives payments. A leading "@" and surrounding spaces are removed, and it must then be 5-30 letters, digits, `-` or
-  `_` (400 otherwise). An empty `venmoUsername` removes it. People are returned with `venmoUsername` when they have one.
-  Only the username is stored; Divvy never holds payment credentials.
+People are returned as `{"id", "householdId", "displayName", "archivedAt", "createdAt", "updatedAt", "venmoUsername",
+"shortName", "emoji", "color", "photoUpdatedAt"}`; `venmoUsername`, `shortName`, `emoji`, `color` and `photoUpdatedAt`
+are left out when unset. `photoUpdatedAt` (ISO-8601 instant) is present only when the person has a photo and changes on
+every upload, so clients can tell when to fetch it again.
+
+- PATCH /households/{id}/people/{personId}  {"displayName": "...", "venmoUsername": "...", "shortName": "...", "emoji": "...", "color": "..."} -> 200 | 400 | 404
+  Send any of the fields; absent fields are unchanged (400 "send at least one field to change" if none is sent).
+  `venmoUsername` is where the person receives payments. A leading "@" and surrounding spaces are removed, and it must
+  then be 5-30 letters, digits, `-` or `_` (400 otherwise). Only the username is stored; Divvy never holds payment
+  credentials. `shortName`, `emoji` and `color` set the person's avatar: `shortName` is trimmed and must be 1 or 2
+  characters, `emoji` must be 1-16 characters and not blank, and `color` must be one of `gray`, `green`, `teal`, `blue`,
+  `purple`, `pink`, `orange`, `yellow` (400 `validation_error` otherwise). An empty string for `venmoUsername`,
+  `shortName`, `emoji` or `color` removes it.
+- PUT /households/{id}/people/{personId}/photo  multipart/form-data with a file part named `image` -> 200 | 400 | 404 | 413 | 415
+  Sets or replaces the person's photo and returns the updated person. JPEG or PNG only, detected from the bytes
+  (415 `unsupported_media_type` otherwise, HEIC included); at most 2097152 bytes (413 `payload_too_large`). A body
+  that is not multipart or has no `image` part returns 400. The previous photo, if any, is deleted.
+- GET /households/{id}/people/{personId}/photo -> 200 | 404
+  The photo bytes with Content-Type image/jpeg or image/png; 404 "person photo not found" when there is none.
+- DELETE /households/{id}/people/{personId}/photo -> 200 | 404
+  Removes the photo and returns the updated person. Succeeds when there is no photo too.
+
+  Unknown or malformed household or person ids, and people of another household, return 404 on all person routes.
 - POST /households/{id}/people/{personId}/archive -> 200 | 404
   Marks the person as having left. Archived people are hidden from GET /households/{id}/people unless
   ?includeArchived=true, cannot be newly assigned to receipt items (ArchivedPersonException in the

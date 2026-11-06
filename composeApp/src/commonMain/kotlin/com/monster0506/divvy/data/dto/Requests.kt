@@ -15,6 +15,10 @@ data class PersonRequest(val displayName: String)
 @Serializable
 data class VenmoUsernameRequest(val venmoUsername: String)
 
+/** `PATCH /households/{id}/people/{personId}`: null fields stay as they are and an empty string clears one. */
+@Serializable
+data class AppearanceRequest(val shortName: String? = null, val emoji: String? = null, val color: String? = null)
+
 @Serializable
 data class SetReceiptPayerRequest(val paidByPersonId: String)
 

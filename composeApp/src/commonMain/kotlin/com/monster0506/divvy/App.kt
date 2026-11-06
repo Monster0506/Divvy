@@ -7,12 +7,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import com.monster0506.divvy.data.api.SettingsResult
 import com.monster0506.divvy.data.api.CreateHouseholdResult
 import com.monster0506.divvy.data.api.CreatePersonResult
 import com.monster0506.divvy.data.api.HouseholdApi
 import com.monster0506.divvy.data.api.HouseholdMember
+import com.monster0506.divvy.data.api.toMember
 import com.monster0506.divvy.data.api.HouseholdSettingsApi
 import com.monster0506.divvy.data.api.PeopleApi
 import com.monster0506.divvy.data.api.createHttpClient
@@ -49,6 +51,8 @@ import com.monster0506.divvy.image.prepareReceiptImage
 import com.monster0506.divvy.platform.rememberCameraCapture
 import com.monster0506.divvy.platform.rememberGalleryPicker
 import com.monster0506.divvy.ui.components.Tab
+import com.monster0506.divvy.ui.components.LocalMembers
+import com.monster0506.divvy.ui.model.appearance
 import com.monster0506.divvy.ui.components.RepeatWhileInForeground
 import com.monster0506.divvy.ui.screens.AccountScreen
 import com.monster0506.divvy.ui.screens.AddMembersScreen
@@ -171,24 +175,29 @@ fun App(apiConfig: ApiConfig = ApiConfig()) {
     val householdApi = remember(client) { HouseholdApi(client) }
     val peopleApi = remember(client) { PeopleApi(client) }
     val settingsApi = remember(client) { HouseholdSettingsApi(client) }
+    val state = remember { DivvyState() }
+    val savedLooks = remember(state.people) { state.people.associateBy { it.id } }
     DivvyTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
-            DivvyApp(
-                start = Route.Launch,
-                router = router,
-                apiConfig = activeConfig,
-                connectionStatus = connectionStatus,
-                onConnectionProblem = connection::reportFailure,
-                onRetryConnection = connection::refresh,
-                onApiConfigChange = {
-                    configStore.save(it)
-                    activeConfig = it
-                },
-                createHousehold = householdApi::create,
-                createPerson = peopleApi::create,
-                loadHouseholdMembers = householdApi::members,
-                settingsApi = settingsApi,
-            )
+            CompositionLocalProvider(LocalMembers provides savedLooks) {
+                DivvyApp(
+                    start = Route.Launch,
+                    state = state,
+                    router = router,
+                    apiConfig = activeConfig,
+                    connectionStatus = connectionStatus,
+                    onConnectionProblem = connection::reportFailure,
+                    onRetryConnection = connection::refresh,
+                    onApiConfigChange = {
+                        configStore.save(it)
+                        activeConfig = it
+                    },
+                    createHousehold = householdApi::create,
+                    createPerson = peopleApi::create,
+                    loadHouseholdMembers = householdApi::members,
+                    settingsApi = settingsApi,
+                )
+            }
         }
     }
 }
@@ -277,20 +286,32 @@ fun DivvyApp(
             },
         )
     }
+    /** Downloads the members' photos this phone hasn't shown yet, once per version. */
+    fun loadPhotos(householdId: String) {
+        state.takePhotosToLoad().forEach { (personId, version) ->
+            scope.launch {
+                val photo = try {
+                    api.getPersonPhoto(householdId, personId).decodeToImageBitmap()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    null
+                }
+                state.showPhoto(personId, version, photo)
+            }
+        }
+    }
     val members = remember(api) {
         MemberSyncController(
             scope = scope,
-            listMembers = { id ->
-                api.listPeople(id).filter { !it.isArchived }.map { HouseholdMember(it.id, it.displayName) }
-            },
-            renameMember = { id, personId, name ->
-                api.renamePerson(id, personId, name).let { HouseholdMember(it.id, it.displayName, it.isArchived) }
-            },
+            listMembers = { id -> api.listPeople(id).filter { !it.isArchived }.map { it.toMember() } },
+            renameMember = { id, personId, name -> api.renamePerson(id, personId, name).toMember() },
             archiveMember = { id, personId -> api.archivePerson(id, personId) },
             applyMembers = { loaded ->
                 state.loadMembers(loaded)
                 val id = householdId ?: router?.currentHouseholdId()
                 if (id != null && loaded.isNotEmpty()) {
+                    loadPhotos(id)
                     val savedMe = memberStore.get(id)?.takeIf { personId -> loaded.any { it.id == personId } }
                     if (savedMe != null) {
                         state.setMe(savedMe)
@@ -303,6 +324,12 @@ fun DivvyApp(
                 }
             },
             applyName = state::renamePerson,
+            saveAppearance = { id, personId, change -> api.setAppearance(id, personId, change).toMember() },
+            applyAppearance = state::applyAppearance,
+            savePhoto = { id, personId, jpeg ->
+                if (jpeg == null) api.deletePersonPhoto(id, personId).toMember()
+                else api.uploadPersonPhoto(id, personId, jpeg).toMember()
+            },
         )
     }
     val historyState by history.state.collectAsState()
@@ -815,11 +842,26 @@ fun DivvyApp(
                         onChange = { updated ->
                             state.updatePerson(updated)
                             if (updated.name != person.name) members.rename(updated.id, updated.name)
+                            if (updated.appearance() != person.appearance()) members.restyle(updated.id, updated.appearance())
+                        },
+                        onPhoto = { photo ->
+                            state.previewPhoto(person.id, photo?.preview)
+                            members.setPhoto(
+                                person.id,
+                                photo?.jpeg,
+                                onSaved = { saved -> state.photoSaved(person.id, saved.photoUpdatedAt, photo?.preview) },
+                                onRefused = {
+                                    // Show the saved photo again, if there is one.
+                                    state.previewPhoto(person.id, null)
+                                    (householdId ?: router?.currentHouseholdId())?.let(::loadPhotos)
+                                },
+                            )
                         },
                         onRemove = { members.archive(person.id) { route = Route.Account } },
                         onDone = { route = Route.Account },
                         onTab = onTab,
                         nameMessage = members.message,
+                        lookMessage = members.lookMessage,
                     )
                 }
             }

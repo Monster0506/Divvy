@@ -40,6 +40,11 @@ erDiagram
         text display_name
         timestamptz archived_at "null while active"
         text venmo_username "optional, no @"
+        text short_name "optional, 1-2 chars"
+        text emoji "optional, 1-16 chars"
+        text avatar_color "optional, fixed palette"
+        text photo_key "optional, image storage key"
+        timestamptz photo_updated_at "set with photo_key"
         timestamptz created_at
         timestamptz updated_at
     }
@@ -119,6 +124,10 @@ to a person). Leaving the household sets `archived_at`; the row stays so past re
 and settlements still resolve. Active members have unique names per household (case-insensitive).
 `venmo_username` (added in `V12`) is where they receive payments: 5-30 letters, digits, `-` or `_`, stored without
 the "@", or null. It is the only payment detail Divvy keeps.
+The avatar columns (added in `V13`) are all optional: `short_name` is 1 or 2 characters (after trimming), `emoji` is
+1-16 characters, and `avatar_color` is one of `gray`, `green`, `teal`, `blue`, `purple`, `pink`, `orange`, `yellow`.
+`photo_key` is the image storage key of the person's photo (JPEG or PNG, at most 2 MB) and `photo_updated_at` is when
+it was last uploaded; a check keeps the two either both set or both null.
 
 **`receipt`**: one shopping trip, paid by one person. Receipts are the source of truth. A receipt
 starts as `draft`, becomes `confirmed` once its items are reviewed, and is set to `void` instead of
